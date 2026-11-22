@@ -39,7 +39,8 @@ class FakeResolve:
         if op == "list_timeline_items":
             r = [x for x in self.items if x["track_type"] == args["track_type"]]
         elif op == "list_media":
-            r = [{"id": "c1", "name": "a.mp4", "fps": self.fps, "frames": "300"}]
+            r = [{"id": "c1", "name": "a.mp4", "fps": self.fps, "frames": "300"}] + [
+                {"id": f"tl-{t}", "name": t, "fps": self.fps, "frames": "900", "type": "Timeline"} for t in self.timelines]
         elif op == "get_state":
             r = {"timeline": "T", "timeline_fps": 30, "timeline_start_frame": 1000, "timeline_end_frame": 2000,
                  "timeline_drop_frame": "0"}
@@ -55,8 +56,21 @@ class FakeResolve:
             self.tracks[args["track_type"]] -= 1
             r = {"ok": True}
         elif op == "delete_items":
+            gone = [x for x in self.items if x["id"] in args["item_ids"]]
             self.items[:] = [x for x in self.items if x["id"] not in args["item_ids"]]
+            for g in gone if args.get("ripple") else ():  # Resolve shifts later items on every track
+                for x in self.items:
+                    if x["start"] >= g["end"]:
+                        x["start"] -= g["duration"]
+                        x["end"] -= g["duration"]
             r = {"ok": True}
+        elif op == "trim_tail":
+            x = next(x for x in self.items if x["id"] == args["item_id"])
+            x["end"] -= args["frames"]
+            x["duration"] -= args["frames"]
+            r = {"start": x["start"], "end": x["end"]}
+        elif op == "list_markers":
+            r = {}
         elif op == "append_clips":
             for c in args["clips"]:
                 self.n += 1
@@ -204,6 +218,37 @@ class Replace(Base):
             r = E.run("move_item", {"item_id": "a", "record": 1050, "confirm": True})
             self.assertEqual(r["_operation"]["status"], "blocked")
             self.assertIn(word, r["reason"])
+
+    def test_ripple_trim_keeps_gaps_and_titles(self):
+        titles = [item("t1", 1000, 100, name="Text+"), item("t2", 1110, 50, name="Text+"),
+                  item("t3", 1200, 100, name="Text+"), item("up", 1250, 20, name="Text+", track=2)]
+        f = self.use(FakeResolve(titles, details={i: {"fusion_comps": 1, "media_id": None} for i in ("t1", "t2", "t3", "up")}))
+        r = E.run("ripple_trim", {"item_ids": ["t1", "t3"], "tail_frames": 30})
+        self.assertEqual(r["_operation"]["status"], "preview")
+        self.assertNotIn("trim_tail", f.calls)
+        self.assertEqual(r["plan"]["trim"][1]["now"], [E._tc(1170), E._tc(1240)])
+        r = E.run("ripple_trim", {"item_ids": ["t1", "t3"], "tail_frames": 30, "confirm": True})
+        self.assertEqual(r["_operation"]["verification"], "passed", r)
+        got = {x["id"]: (x["start"], x["end"]) for x in f.items}
+        self.assertEqual(got, {"t1": (1000, 1070), "t2": (1080, 1130), "t3": (1170, 1240), "up": (1220, 1240)})
+        self.assertNotIn("copy_settings", f.calls)  # nothing was rebuilt
+        self.assertLess(f.calls.index("duplicate_timeline"), f.calls.index("trim_tail"))
+
+    def test_ripple_trim_refusals(self):
+        self.use(FakeResolve([item("a", 1000, 100), item("b", 1080, 100, track=2)]))
+        self.assertIn("overlaps", E.run("ripple_trim", {"item_ids": ["a"], "tail_frames": 30})["reason"])
+        self.use(FakeResolve([item("a", 1000, 100)], details={"a": {"linked": ["x"]}}))
+        self.assertIn("linked", E.run("ripple_trim", {"item_ids": ["a"], "tail_frames": 30})["reason"])
+        self.use(FakeResolve([item("a", 1000, 20)]))
+        self.assertIn("only 20", E.run("ripple_trim", {"item_ids": ["a"], "tail_frames": 30})["reason"])
+        self.assertIn("positive", E.run("ripple_trim", {"item_ids": ["a"], "tail_frames": -5})["reason"])
+
+    def test_ripple_trim_restores_end_when_ripple_fails(self):
+        f = self.use(FakeResolve([item("a", 1000, 100, name="Text+"), item("b", 1200, 100, name="Text+")],
+                                 fail_on={"delete_items": 1}))
+        r = E.run("ripple_trim", {"item_ids": ["a"], "tail_frames": 30, "confirm": True})
+        self.assertEqual(r["_operation"]["status"], "failed")
+        self.assertEqual({x["id"]: (x["start"], x["end"]) for x in f.items}, {"a": (1000, 1100), "b": (1200, 1300)})
 
     def test_mixed_fps_refused(self):
         self.use(FakeResolve([item("a", 1000, 10)], fps=25))

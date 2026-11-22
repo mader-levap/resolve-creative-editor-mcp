@@ -819,6 +819,32 @@ function OPS.set_fades(a)
   return { ok = ok and true or false, fades = try(it, "GetFades") }
 end
 
+function OPS.item_offsets(a)
+  local it = find_item(a.item_id)
+  return { start = it:GetStart(), ["end"] = it:GetEnd(), duration = it:GetDuration(),
+           left = try(it, "GetLeftOffset"), right = try(it, "GetRightOffset") }
+end
+
+-- Move an item's end by `frames` (positive shortens) without rebuilding it, so titles keep their Fusion comp.
+-- SetRightOffset takes the ABSOLUTE unused tail, not a delta (verified on free 21.2.0.6): a 600-frame title inserted
+-- at 900 reports right = 300; SetRightOffset(360) ends it 60 frames earlier and SetRightOffset(300) restores it.
+-- Doesn't ripple. Restores the old offset and fails if the end didn't land exactly.
+function OPS.trim_tail(a)
+  local it = find_item(a.item_id)
+  local n, e = math.floor(a.frames), it:GetEnd()
+  local r = try(it, "GetRightOffset")
+  if type(r) ~= "number" then error("this Resolve has no GetRightOffset", 0) end
+  if r + n < 0 then error("only " .. r .. " spare frames after the end; can't extend by " .. -n, 0) end
+  if n >= it:GetDuration() then error("can't trim " .. n .. " frames off a " .. it:GetDuration() .. "-frame item", 0) end
+  local ok, ret = pcall(function() return it:SetRightOffset(r + n) end)
+  if it:GetEnd() ~= e - n then
+    pcall(function() it:SetRightOffset(r) end)
+    error("SetRightOffset(" .. (r + n) .. ") returned " .. tostring(ok and ret or "error") .. "; end is " .. it:GetEnd()
+      .. ", wanted " .. (e - n) .. " (restored)", 0)
+  end
+  return { start = it:GetStart(), ["end"] = it:GetEnd(), duration = it:GetDuration(), right = try(it, "GetRightOffset") }
+end
+
 function OPS.set_speed(a)
   local it = find_item(a.item_id)
   local ok = it:SetSpeed({ Percentage = a.percentage, RippleTimeline = a.ripple or false })

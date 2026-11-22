@@ -60,6 +60,10 @@ TOOLS = [
     T("trim_item", "Trim a clip (and its linked audio/video). Positive frames shorten that end, negative extend it into "
       "spare source media. Same settings-preserving method as move_item.",
       {"item_id": S, "head_frames": I, "tail_frames": I, "include_linked": B, "confirm": CONFIRM}, ["item_id"]),
+    T("ripple_trim", "Shorten clips' ends by tail_frames and pull everything after them earlier on all tracks, so the "
+      "gaps stay the same. Works on Text+ titles and generators: nothing is rebuilt, so text, style, fades and "
+      "keyframes stay. Video items without linked audio only.",
+      {"item_ids": IDS, "tail_frames": I, "confirm": CONFIRM}, ["item_ids", "tail_frames"]),
     T("set_enabled", "Disable or enable clips: a reversible alternative to deleting them.",
       {"item_ids": IDS, "enabled": B}, ["item_ids", "enabled"]),
     T("set_fades", "Set video or audio fade-in/out lengths in frames on clips, with read-back. An end you leave out "
@@ -538,6 +542,113 @@ def trim_item(a):
                                         it["start"] + head, it["track"]), "trim")
 
 
+# ---------- ripple trim (in place, no rebuild) ----------
+# Titles can't be moved by script, but a ripple delete shifts everything after the deleted item on all tracks. So:
+# shorten the item in place (trim_tail), drop an n-frame filler into the gap it leaves, ripple-delete the filler.
+def _filler_source(frames, prefer=None, exclude=()):
+    usable = [m for m in _media() if m.get("type") == "Timeline" and m.get("name") not in exclude
+              and int(float(m.get("frames") or 0)) >= frames]
+    return next((m for m in usable if m.get("name") == prefer), None) or (usable[0] if usable else None)
+
+
+def _positions():
+    return {x["id"]: (x["start"], x["end"]) for x in _items() if x.get("type") != "transition"}
+
+
+def ripple_trim(a):
+    n = a.get("tail_frames") or 0
+    if n <= 0:
+        return _blocked("tail_frames must be a positive number of frames (this tool only shortens)")
+    items = {x["id"]: x for x in _items()}
+    ids = list(dict.fromkeys(a["item_ids"]))
+    missing = [i for i in ids if i not in items]
+    if missing:
+        return _blocked(f"timeline item not found: {missing}")
+    details = {d["id"]: d for d in _list(_b("item_details", item_ids=ids))}
+    plan = []
+    for i in ids:
+        it = items[i]
+        where = f"{it['name']} at {_tc(it['start'])}"
+        if it["track_type"] != "video":
+            return _blocked(f"{where}: only video items can be ripple-trimmed this way")
+        if (details.get(i) or {}).get("linked"):
+            return _blocked(f"{where}: it has linked audio/video; use trim_item")
+        if it["duration"] <= n:
+            return _blocked(f"{where}: it is only {it['duration']} frames long")
+        new_end = it["end"] - n
+        for x in items.values():
+            if x["id"] == i:
+                continue
+            if x.get("type") == "transition":
+                if (x["track_type"], x["track"]) == ("video", it["track"]) and x["start"] <= it["end"] and it["start"] <= x["end"]:
+                    return _blocked(f"{where} has a transition touching it; remove it in Resolve first")
+            elif x["start"] < it["end"] and x["end"] > new_end:
+                return _blocked(f"{where}: {x['name']} on {x['track_type'][0].upper()}{x['track']} at {_tc(x['start'])} "
+                                "overlaps the frames being removed")
+        plan.append(it)
+
+    def shift(x):  # total frames x moves back once every planned trim is done
+        return n * sum(1 for p in plan if p["end"] <= x["start"])
+    rows = [{"item": p["name"], "track": f"V{p['track']}", "was": [_tc(p["start"]), _tc(p["end"])],
+             "now": [_tc(p["start"] - shift(p)), _tc(p["end"] - n - shift(p))]} for p in sorted(plan, key=lambda x: x["start"])]
+    moved = sum(1 for x in items.values() if x["id"] not in ids and x.get("type") != "transition" and shift(x))
+    ends = max((x["end"] - shift(x) - (n if x["id"] in ids else 0) for x in items.values()), default=0)
+    first_cut = min(p["end"] - n for p in plan)
+    _, _, state = _clock()
+    warnings = []
+    markers = _b("list_markers") or {}
+    if any(state["timeline_start_frame"] + int(float(f)) >= first_cut for f in markers):
+        warnings.append("timeline ruler markers after the first trim may not move with the clips")
+    if not a.get("confirm"):
+        return _preview({"trim": rows, "frames_each": n, "other_clips_moved_back": moved, "timeline_ends": _tc(ends)},
+                        warnings)
+
+    snapshot = snapshot_timeline({"label": "before ripple trim"}).get("snapshot") if a.get("backup", True) else None
+    filler = _filler_source(n, prefer=snapshot, exclude={state["timeline"]})
+    done = []
+    for p in sorted(plan, key=lambda x: x["start"], reverse=True):  # later first, so earlier positions don't change
+        before = _positions()
+        old_end = before[p["id"]][1]
+        new_end = old_end - n
+        later = any(s >= old_end for s, _ in before.values())
+        if later and not filler:
+            return _op("failed", reason="no timeline in the media pool is long enough to use as a filler",
+                       changes={"trimmed": len(done)}, snapshot=snapshot)
+        _b("trim_tail", item_id=p["id"], frames=n)
+        invalidate()
+        if later:
+            f = None
+            try:
+                f = _append_one(filler["id"], "video", 0, n, new_end, p["track"])
+                _b("delete_items", item_ids=[f["id"]], ripple=True)
+            except Exception as exc:
+                invalidate()
+                if f and f["id"] in _positions():
+                    _b("delete_items", item_ids=[f["id"]], ripple=False)
+                _b("trim_tail", item_id=p["id"], frames=-n)  # put the end back; nothing else has moved
+                invalidate()
+                return _op("failed", reason=f"{p['name']} at {_tc(p['start'])}: ripple failed ({exc}); its end was restored",
+                           changes={"trimmed": len(done)}, snapshot=snapshot)
+            invalidate()
+        after = _positions()
+        wrong = []
+        for i, (s, e) in before.items():
+            want = (s, new_end) if i == p["id"] else (s - n, e - n) if s >= old_end else (s, e)
+            if after.get(i) != want:
+                wrong.append(f"{items.get(i, {}).get('name', i)} at {_tc(s)}: expected {_tc(want[0])}, "
+                             f"got {_tc(after[i][0]) if i in after else 'missing'}")
+        wrong += [f"unexpected item {i} at {_tc(after[i][0])}" for i in set(after) - set(before)]
+        if wrong:
+            return _op("failed", False, {"trimmed": len(done)}, wrong[:5], reason="timeline doesn't match the plan; "
+                       "restore from the snapshot if needed", snapshot=snapshot)
+        done.append(p["id"])
+    final = _positions()
+    rows = [{"item": items[i]["name"], "track": f"V{items[i]['track']}", "now": [_tc(final[i][0]), _tc(final[i][1])]}
+            for i in sorted(done, key=lambda i: final[i][0])]
+    return _op("success", True, {"trimmed": len(done), "frames_each": n}, warnings, snapshot=snapshot,
+               items=rows, timeline_ends=_tc(max((e for _, e in final.values()), default=0)))
+
+
 # ---------- clip settings ----------
 def set_enabled(a):
     r = _b("set_enabled", item_ids=a["item_ids"], enabled=bool(a["enabled"]))
@@ -898,7 +1009,7 @@ def batch(a):
 
 HANDLERS = {"doctor": doctor, "timeline_summary": timeline_summary, "inspect_range": inspect_range,
             "find_media": find_media, "snapshot_timeline": snapshot_timeline, "place_clips": place_clips,
-            "move_item": move_item, "trim_item": trim_item, "set_enabled": set_enabled, "set_fades": set_fades,
+            "move_item": move_item, "trim_item": trim_item, "ripple_trim": ripple_trim, "set_enabled": set_enabled, "set_fades": set_fades,
             "add_transition": add_transition, "set_audio": set_audio, "normalize_audio": normalize_audio,
             "set_speed": set_speed, "copy_grade": copy_grade, "add_markers": add_markers,
             "add_audio_markers": add_audio_markers, "add_captions": add_captions, "export_srt": export_srt,
