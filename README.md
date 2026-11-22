@@ -1,5 +1,9 @@
 # Resolve Creative Editor
 
+This is fork of https://github.com/Anujpal-15th/resolve-creative-editor-mcp by Anujpal-15th.
+
+## What is this?
+
 Edit video in **DaVinci Resolve** by talking to Claude. It works on your real project: it places and trims clips,
 moves them without losing their grade, adds transitions, fades, captions and markers, sets audio levels, checks your
 render, and shows you a preview before anything destructive.
