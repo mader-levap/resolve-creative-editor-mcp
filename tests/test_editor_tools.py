@@ -45,6 +45,9 @@ class FakeResolve:
                  "timeline_drop_frame": "0"}
         elif op == "item_details":
             r = [dict(self.settings[i], id=i) for i in args["item_ids"]]
+        elif op == "set_fades":
+            self.settings[args["item_id"]]["fades"] = {"FadeIn": args["fade_in"], "FadeOut": args["fade_out"]}
+            r = {"ok": True, "fades": dict(self.settings[args["item_id"]]["fades"])}
         elif op == "add_track":
             self.tracks[args["track_type"]] += 1
             r = {"count": self.tracks[args["track_type"]], "ok": True}
@@ -215,6 +218,28 @@ class Replace(Base):
     def test_trim_past_source(self):
         self.use(FakeResolve([item("a", 1000, 60, src=0)]))
         self.assertIn("outside", E.run("trim_item", {"item_id": "a", "head_frames": -5})["reason"])
+
+
+class Fades(Base):
+    def test_missing_end_keeps_current_length(self):
+        f = self.use(FakeResolve([item("a", 1000, 60)], details={"a": {"fades": {"FadeIn": 30, "FadeOut": 10}}}))
+        r = E.run("set_fades", {"item_ids": ["a"], "fade_out": 60})
+        self.assertEqual(r["_operation"]["verification"], "passed", r)
+        self.assertEqual(f.settings["a"]["fades"], {"FadeIn": 30, "FadeOut": 60})
+        self.assertIn("lost when Resolve restarts", r["_operation"]["warnings"][0])
+        E.run("set_fades", {"item_ids": ["a"], "fade_in": 0})
+        self.assertEqual(f.settings["a"]["fades"], {"FadeIn": 0, "FadeOut": 60})
+
+    def test_both_ends_given_skips_read(self):
+        f = self.use(FakeResolve([item("a", 1000, 60)]))
+        E.run("set_fades", {"item_ids": ["a"], "fade_in": 5, "fade_out": 6})
+        self.assertNotIn("item_details", f.calls)
+        self.assertEqual(f.settings["a"]["fades"], {"FadeIn": 5, "FadeOut": 6})
+
+    def test_nothing_given_is_refused(self):
+        f = self.use(FakeResolve([item("a", 1000, 60)]))
+        self.assertEqual(E.run("set_fades", {"item_ids": ["a"]})["_operation"]["status"], "blocked")
+        self.assertNotIn("set_fades", f.calls)
 
 
 class Captions(Base):

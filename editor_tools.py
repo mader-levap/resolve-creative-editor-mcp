@@ -62,7 +62,9 @@ TOOLS = [
       {"item_id": S, "head_frames": I, "tail_frames": I, "include_linked": B, "confirm": CONFIRM}, ["item_id"]),
     T("set_enabled", "Disable or enable clips: a reversible alternative to deleting them.",
       {"item_ids": IDS, "enabled": B}, ["item_ids", "enabled"]),
-    T("set_fades", "Set video or audio fade-in/out lengths in frames on clips, with read-back.",
+    T("set_fades", "Set video or audio fade-in/out lengths in frames on clips, with read-back. An end you leave out "
+      "keeps its current length. Resolve bug: fades are only saved on clips where the user has dragged a fade "
+      "handle by hand at least once; otherwise they are lost on restart.",
       {"item_ids": IDS, "fade_in": I, "fade_out": I}, ["item_ids"]),
     T("add_transition", "Add a native transition at the start or end of a clip (Resolve 21.1+). Needs spare source "
       "frames on both sides of the cut.",
@@ -544,14 +546,30 @@ def set_enabled(a):
     return _op("success" if ok else "partial", ok, {"items_changed": r.get("changed")})
 
 
+FADES_NOT_SAVED = ("Resolve bug (seen on free 21.2, Text+ titles): fades set by script on a clip whose fade was never "
+                   "dragged by hand show and play but are lost when Resolve restarts, even after saving. Once the user "
+                   "has dragged any fade handle on that clip, script fades on it are saved. Read-back can't tell the "
+                   "two apart, so ask the user to drag a fade on each clip first unless they already have.")
+
+
 def set_fades(a):
+    fade_in, fade_out = a.get("fade_in"), a.get("fade_out")
+    if fade_in is None and fade_out is None:
+        return _blocked("give fade_in and/or fade_out")
+    # Resolve's SetFades sets both ends, so keep the current length of whichever end was not given.
+    current = {}
+    if fade_in is None or fade_out is None:
+        current = {d["id"]: d.get("fades") or {} for d in _list(_b("item_details", item_ids=a["item_ids"]))}
     results = []
     for i in a["item_ids"]:
-        r = _b("set_fades", item_id=i, fade_in=a.get("fade_in") or 0, fade_out=a.get("fade_out") or 0)
+        now = current.get(i, {})
+        want_in = int(now.get("FadeIn") or 0) if fade_in is None else fade_in
+        want_out = int(now.get("FadeOut") or 0) if fade_out is None else fade_out
+        r = _b("set_fades", item_id=i, fade_in=want_in, fade_out=want_out)
         fades = r.get("fades") or {}
-        results.append(int(fades.get("FadeIn", -1)) == (a.get("fade_in") or 0) and
-                       int(fades.get("FadeOut", -1)) == (a.get("fade_out") or 0))
-    return _op("success" if all(results) else "partial", all(results), {"items_changed": sum(results)})
+        results.append(int(fades.get("FadeIn", -1)) == want_in and int(fades.get("FadeOut", -1)) == want_out)
+    return _op("success" if all(results) else "partial", all(results), {"items_changed": sum(results)},
+               warnings=[FADES_NOT_SAVED])
 
 
 def add_transition(a):

@@ -133,7 +133,7 @@ Resolve's behaviour.
 | Place clips | `edit__place_clips` (refuses overwrites) | Live-tested | Not tested |
 | Move, trim | `edit__move_item`, `edit__trim_item` (keeps grade, transform, audio level, fades, colour, flags, markers, link) | Live-tested | Not tested |
 | Disable | `edit__set_enabled` | Live-tested | Not tested |
-| Fades | `edit__set_fades` | Live-tested | Not tested |
+| Fades | `edit__set_fades` | Live-tested, but **only saved on clips with a hand-dragged fade** (see below) | Not tested |
 | Transitions | `edit__add_transition` | Native call live-tested (Cross Dissolve) | Upstream-tested |
 | Audio level, pan | `edit__set_audio` | Live-tested (volume) | Not tested |
 | Loudness | `edit__normalize_audio` | Modes read live; normalization **not run** | Upstream-tested |
@@ -157,6 +157,16 @@ Resolve's behaviour.
 - **Subtitle tracks:** importing subtitles by script can crash Resolve 21, so you import the SRT yourself.
 - **Fairlight effects and bus routing:** only clip volume, pan, fades and normalization are reachable.
 - **Hearing audio:** Claude measures loudness, silence and beats but can't listen. Listen before final cuts.
+
+### Known Resolve bug: script fades aren't saved on fresh clips
+
+Seen on free Resolve 21.2 with Text+ titles; other clip types are untested. Fades set by script (`SetFades`) show in
+the viewer, play and read back correctly, but if nobody has ever dragged a fade handle on that clip by hand, they are
+gone after Resolve restarts. Saving doesn't help, not even Ctrl+S or a save that also stores other changes.
+
+Workaround: drag any fade handle on the clip once, any length. From then on, fades set by script on that clip are
+saved, both ends, including setting them to 0 and back. A hand-dragged fade on one clip doesn't help other clips.
+`edit__set_fades` can't detect which case a clip is in, so every result includes a warning.
 
 ## Safety
 
