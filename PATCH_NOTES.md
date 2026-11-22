@@ -12,6 +12,8 @@
   the steps it didn't run.
 - Changed: the Python code is now the `resolve_editor` package and the tests are split by area (no tool changes;
   ISSUES.md I-14 fixed). Run tests with `python -m unittest` and `python tests/smoke_bridge.py`.
+- Changed: `pyproject.toml` with ruff lint settings (`python -m ruff check .`), lint findings fixed, and the three longest
+  functions split (media tools, gateway tool calls, ripple trim). No tool changes.
 
 ## Stage-two audit (2026-11-11)
 

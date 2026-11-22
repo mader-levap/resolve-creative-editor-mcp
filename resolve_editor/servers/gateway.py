@@ -45,9 +45,8 @@ def _prefix_tool(tool: dict[str, Any], prefix: str, warning: str = "") -> dict[s
 
 
 def _media_tools() -> list[dict[str, Any]]:
-    names = {"probe_media", "extract_audio", "detect_silence", "transcribe_audio", "make_contact_sheet"}
     return [_prefix_tool(t, "media__", "Local media analysis; source files are read-only.")
-            for t in legacy_schema.TOOLS if t["name"] in names]
+            for t in legacy_schema.TOOLS if t["name"] in media.HANDLERS]
 
 
 def _edit_tools() -> list[dict[str, Any]]:
@@ -145,8 +144,7 @@ class Gateway:
             tools.append(t)
             self.tool_routes[t["name"]] = ("resolve", tool["name"])
         for tool in (self.legacy.tools if self.legacy else []):
-            if tool["name"] in {"probe_media", "extract_audio", "detect_silence", "transcribe_audio",
-                                "make_contact_sheet"}:
+            if tool["name"] in media.HANDLERS:
                 continue
             t = _prefix_tool(
                 tool, "legacy__",
@@ -188,47 +186,53 @@ class Gateway:
         if method == "tools/list":
             return self.tools_list()
         if method == "tools/call":
-            name = params.get("name", "")
-            args = params.get("arguments") or {}
-            route = self.tool_routes.get(name)
-            if route is None:
-                # Build route table on first call if host skipped tools/list.
-                self.tools_list()
-                route = self.tool_routes.get(name)
-            if route is None:
-                return {"isError": True, "content": [{"type": "text", "text": f"Unknown tool: {name}"}]}
-            backend, original = route
-            if backend == "media":
-                return _run_media_tool(original, args)
-            if backend == "edit":
-                return _run_edit_tool(original, args)
-            if backend == "legacy" and original in GUARDED_LEGACY:
-                if args.get("confirm") is not True:
-                    return {"isError": True, "content": [{"type": "text", "text":
-                            f"Blocked: {original} needs confirm=true. Ask the user first."}]}
-                args = {k: v for k, v in args.items() if k != "confirm"}
-            child = self.resolve if backend == "resolve" else self.legacy
-            if child is None:
-                return {"isError": True,
-                        "content": [{"type": "text", "text": f"The {backend} backend is not available."}]}
-            response = child.request("tools/call", {"name": original, "arguments": args}, timeout=1800.0)
-            if "error" in response:
-                return {"isError": True, "content": [{"type": "text", "text": str(response["error"])}]}
-            result = response.get("result", {})
-            if backend == "legacy" and original not in READ_ONLY_LEGACY:
-                session.invalidate()
-                audit.log_audit(name, args, "failed" if result.get("isError") else "success")
-            return result
+            return self._call_tool(params)
         if method in {"resources/list", "resources/read", "prompts/list", "prompts/get"}:
-            if not self.resolve:
-                if method.endswith("/list"):
-                    return {method.split("/")[0]: []}
-                return {"_rpc_error": {"code": -32601, "message": "upstream not installed"}}
-            response = self.resolve.request(method, params)
-            if "error" in response:
-                return {"_rpc_error": response["error"]}
-            return response.get("result", {})
+            return self._forward(method, params)
         raise LookupError(method)
+
+    def _call_tool(self, params: dict[str, Any]) -> dict[str, Any]:
+        name = params.get("name", "")
+        args = params.get("arguments") or {}
+        route = self.tool_routes.get(name)
+        if route is None:
+            # Build route table on first call if host skipped tools/list.
+            self.tools_list()
+            route = self.tool_routes.get(name)
+        if route is None:
+            return {"isError": True, "content": [{"type": "text", "text": f"Unknown tool: {name}"}]}
+        backend, original = route
+        if backend == "media":
+            return _run_media_tool(original, args)
+        if backend == "edit":
+            return _run_edit_tool(original, args)
+        if backend == "legacy" and original in GUARDED_LEGACY:
+            if args.get("confirm") is not True:
+                return {"isError": True, "content": [{"type": "text", "text":
+                        f"Blocked: {original} needs confirm=true. Ask the user first."}]}
+            args = {k: v for k, v in args.items() if k != "confirm"}
+        child = self.resolve if backend == "resolve" else self.legacy
+        if child is None:
+            return {"isError": True,
+                    "content": [{"type": "text", "text": f"The {backend} backend is not available."}]}
+        response = child.request("tools/call", {"name": original, "arguments": args}, timeout=1800.0)
+        if "error" in response:
+            return {"isError": True, "content": [{"type": "text", "text": str(response["error"])}]}
+        result = response.get("result", {})
+        if backend == "legacy" and original not in READ_ONLY_LEGACY:
+            session.invalidate()
+            audit.log_audit(name, args, "failed" if result.get("isError") else "success")
+        return result
+
+    def _forward(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
+        if not self.resolve:
+            if method.endswith("/list"):
+                return {method.split("/")[0]: []}
+            return {"_rpc_error": {"code": -32601, "message": "upstream not installed"}}
+        response = self.resolve.request(method, params)
+        if "error" in response:
+            return {"_rpc_error": response["error"]}
+        return response.get("result", {})
 
     def close(self):
         if self.resolve:

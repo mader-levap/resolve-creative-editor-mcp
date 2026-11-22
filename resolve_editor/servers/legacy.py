@@ -8,7 +8,7 @@ from ..schemas import legacy as schema
 
 
 def run_tool(name, args):
-    if name in {"probe_media", "extract_audio", "detect_silence", "transcribe_audio", "make_contact_sheet"}:
+    if name in media.HANDLERS:
         try:
             result = media.run_media_tool(name, args)
             if name == "make_contact_sheet":

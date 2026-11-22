@@ -132,7 +132,7 @@ position, alignment and length, and that neighbouring clips didn't change. Resol
 <a id="i-05"></a>
 ### I-05 `ripple_trim` ignores transitions on other tracks (medium)
 
-**Where:** `resolve_editor/tools/ripple.py` (`ripple_trim`)
+**Where:** `resolve_editor/tools/ripple.py` (`_plan`)
 
 **Problem:** transitions block a trim only on the same video track. On audio or other video tracks they skip the
 overlap check completely, although ripple delete shifts all tracks.
