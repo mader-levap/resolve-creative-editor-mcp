@@ -1,9 +1,9 @@
 # Issues
 
-Found while testing `edit__add_transition`, 2026-11-22. This is the base for fixes. Fixed so far: I-01.
+Found while testing `edit__add_transition`, 2026-11-22. This is the base for fixes. Fixed so far: I-01, I-13.
 
 - Environment: free DaVinci Resolve 21.2.0.6, Windows 10, 60 fps timeline.
-- Code: branch `fix/issues`. Line numbers are as of the I-01 fix.
+- Code: branch `fix/issues`. Line numbers are as of the I-13 fix.
 
 How each item is known:
 
@@ -28,10 +28,10 @@ How each item is known:
 | [I-10](#i-10) | Low | `at` in the transition result is ambiguous | Live |
 | [I-11](#i-11) | Low | `timeline_summary` hides empty tracks | Live, fake |
 | [I-12](#i-12) | Low | The live transition test accepts a refusal as a pass | Code |
-| [I-13](#i-13) | High | Reading a half-written bridge reply crashes the call | Live, fake |
+| [I-13](#i-13) | ~~Critical~~ **Fixed** | Bridge replies fail when half-written or over 65 KB | Live, fake |
 | [I-14](#i-14) | Low | The gateway test writes to the real audit log | Live |
 
-Suggested order: I-13, then I-02 and I-03, then the `add_transition` group (I-04, I-06 to I-10), then the rest.
+Suggested order: I-02 and I-03, then the `add_transition` group (I-04, I-06 to I-10), then the rest.
 
 ## Issues
 
@@ -222,21 +222,35 @@ the real behaviour) separately. Add `add_transition` to `FakeResolve` with tests
 **Done when:** the live test fails if a valid transition is refused or misplaced.
 
 <a id="i-13"></a>
-### I-13 Reading a half-written bridge reply crashes the call (high)
+### I-13 Bridge replies fail when half-written or over 65 KB (critical, fixed)
 
-**Where:** `mcp_server.py:136-137` (`_read_csv_reply`)
+**Where:** `mcp_server.py` (`_read_csv_reply`), Resolve 21.2 transport only
 
-**Problem:** if `reply.csv` is empty at the first read and gets data before the next one, `csv.DictReader` raises
-`TypeError: 'NoneType' object is not iterable`. Only `OSError`, `UnicodeError` and `csv.Error` are caught, so the
-call fails instead of polling again. For a write, Resolve may have made the change while the caller sees an error,
-and a retry would make it twice.
+**Problem:** `reply.csv` was parsed with `csv.DictReader`, which had two faults. For a write, either one could show
+an error for an edit Resolve had made, and a retry would make it twice.
 
-**Repro:** seen once live on `get_state` while testing I-01. Reproduced with an iterator that is empty on the first
-read and returns a line on the second, passed to `csv.DictReader`.
+| | Cause | Effect |
+|---|---|---|
+| A | The reader kept reading while Resolve wrote: empty, then the header, then no row yet | `TypeError`, the call failed at once |
+| B | A CSV field is limited to 131072 characters, and the error was swallowed as a mid-write read | Every reply over about 65 KB timed out after 120 s |
 
-**Fix:** treat `TypeError` there as a mid-write read (`return None, None`).
+B was deterministic. Estimated limits: about 70 clips for `item_details`, 320 for `list_media` and 360 items for
+`list_timeline_items`.
 
-**Done when:** a test with such a reader gets `(None, None)` and `call_bridge` keeps polling.
+**Fix:** read the file once and search that snapshot for `<32 hex id>:<hex>`. No CSV parsing.
+
+**Verified 2026-11-22:**
+
+- `BridgeReply` tests: the crash sequence, 65 KB to 5 MB replies, `call_bridge` polling through both, and every
+  truncation point. The four tests for the two faults failed before the fix and pass after it.
+- Live, before: a 70 KB reply timed out although `reply.csv` held all of it. After: 10, 70, 200 and 500 KB replies
+  arrive exact in 0.4 s each, so Resolve doesn't truncate at these sizes.
+- Live: 500 `get_state` calls in a row, no failures.
+- `test_smoke.py` passes (older Fusion.prefs transport).
+- Through MCP after a server restart: normal reads work on the restarted server. 70 and 200 KB replies, sent as raw
+  requests to a fresh server, arrive exact through both the edit__ and legacy__ routes.
+
+**Limit:** a timeout after a write is still ambiguous in general, so read back before retrying.
 
 <a id="i-14"></a>
 ### I-14 The gateway test writes to the real audit log (low)
@@ -311,6 +325,6 @@ bug until that is known.
 
 ## After fixing
 
-- `python -m unittest tests.test_editor_tools` (baseline after the I-01 fix: 39 tests, all pass).
+- `python -m unittest tests.test_editor_tools` (baseline after the I-13 fix: 45 tests, all pass).
 - Restart the MCP server, and the bridge if the Lua changed, then repeat the affected live tests.
 - Update the transitions row in `README.md`, plus `AGENTS.md` and `PATCH_NOTES.md`.

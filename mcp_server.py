@@ -4,7 +4,6 @@ Transport: request.lua in %USERPROFILE%\\resolve-claude-bridge. Replies come bac
 (Resolve 21.1 and older) or through reply.csv, a metadata export of the bridge's token clip (Resolve 21.2+).
 """
 import base64
-import csv
 import json
 import os
 import re
@@ -118,7 +117,9 @@ RES_RE = re.compile(r'claude_bridge_res\s*=\s*"([0-9a-f]*):([0-9a-f]*)"')
 # exports it here with MediaPool:ExportMetadata (UTF-16 CSV).
 REPLY_CSV = os.path.join(DIR, "reply.csv")
 TOKEN_PNG = os.path.join(DIR, "bridge_token.png")
-VALUE_RE = re.compile(r"([0-9a-f]*):([0-9a-f]*)")
+# Our reply is the only <32 hex id>:<hex> in the export. Not parsed as CSV: that has a field size limit and
+# keeps reading while Resolve is still writing.
+VALUE_RE = re.compile(r"(?<![0-9a-f])([0-9a-f]{32}):([0-9a-f]*)")
 
 
 def _read_prefs_reply():
@@ -133,14 +134,10 @@ def _read_prefs_reply():
 def _read_csv_reply():
     try:
         with open(REPLY_CSV, encoding="utf-16", newline="") as f:
-            rows = list(csv.DictReader(f))
-    except (OSError, UnicodeError, csv.Error):  # missing, or caught mid-write
+            m = VALUE_RE.search(f.read())
+    except (OSError, UnicodeError):  # missing, or caught mid-write
         return None, None
-    for row in rows:
-        m = VALUE_RE.fullmatch((row.get("Comments") or "").strip())
-        if m:
-            return m.group(1), m.group(2)
-    return None, None
+    return (m.group(1), m.group(2)) if m else (None, None)
 
 
 def read_reply(want=None):

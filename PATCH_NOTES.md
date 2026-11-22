@@ -4,6 +4,8 @@
 
 - Fixed: `edit__batch` previews could make real changes (ISSUES.md I-01). Only tools with a preview are called,
   a step can't confirm itself, and only the boolean `true` counts as `confirm` for every `edit__` tool.
+- Fixed: on Resolve 21.2 every bridge reply over about 65 KB timed out, and a half-written one could crash the
+  call (ISSUES.md I-13).
 
 ## Stage-two audit (2026-11-11)
 
