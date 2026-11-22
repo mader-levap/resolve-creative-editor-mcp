@@ -3,8 +3,9 @@
 These prove the logic (planning, refusals, rollback order, frame maths). They cannot prove that Resolve itself
 behaves the same way; see tests/live_resolve.py for the checks that need a real Resolve.
 """
-import json, os, pathlib, subprocess, sys, tempfile, unittest
+import builtins, json, os, pathlib, subprocess, sys, tempfile, unittest
 from fractions import Fraction
+from unittest import mock
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -95,6 +96,13 @@ class FakeResolve:
             r = list(self.timelines)
         elif op == "add_markers":
             r = {"added": len(args["markers"])}
+        elif op == "audio_modes":
+            r = {"1": "EBU R128"}
+        elif op == "add_transition":
+            o = args["options"]
+            r = {"id": "tr", "name": o["type"], "start": 1005, "end": 1015, "duration": o.get("duration", 10)}
+        elif op in ("set_speed", "copy_grade", "normalize_audio", "set_enabled", "set_item_properties", "export_timeline"):
+            r = {"ok": True}
         elif op == "add_title_cards":
             r = {"placed": [item(f"t{i}", c["record_frame"], c["frames"], name="Text+") for i, c in enumerate(args["cards"])]}
         return {"ok": True, "result": r}
@@ -332,6 +340,128 @@ class Analysis(Base):
         r = E.run("batch", {"operations": [{"tool": "move_item", "args": {"item_id": "a", "record": 1050}}]})
         self.assertEqual(r["_operation"]["status"], "preview")
         self.assertNotIn("delete_items", f.calls)
+
+
+# Bridge ops that change nothing. A preview may use these and no others.
+READ_OPS = {"get_state", "list_timeline_items", "list_media", "item_details", "list_markers", "list_timelines",
+            "audio_modes"}
+# Valid args for every handler: a new tool has to be added here before the suite passes.
+SAMPLE_ARGS = {
+    "doctor": {}, "timeline_summary": {}, "inspect_range": {"start": 1000, "end": 1010}, "find_media": {},
+    "audit_log": {}, "qc_file": {"path": "a.mp4"}, "snapshot_timeline": {},
+    "place_clips": {"clips": [{"clip": "c1", "end_frame": 10, "record": 1200}]},
+    "move_item": {"item_id": "a", "record": 1100},
+    "trim_item": {"item_id": "a", "head_frames": 1},
+    "ripple_trim": {"item_ids": ["a"], "tail_frames": 2},
+    "set_enabled": {"item_ids": ["a"], "enabled": False},
+    "set_fades": {"item_ids": ["a"], "fade_in": 1, "fade_out": 1},
+    "add_transition": {"item_id": "a"},
+    "set_audio": {"item_ids": ["a"], "volume_db": -3},
+    "normalize_audio": {"item_ids": ["a"]},
+    "set_speed": {"item_id": "a", "percentage": 50},
+    "copy_grade": {"from_id": "a", "to_ids": ["a"]},
+    "add_markers": {"markers": [{"at": 1001}]},
+    "add_audio_markers": {"path": "a.mp4", "kind": "silence"},
+    "add_captions": {"segments": [{"start": 0, "end": 1, "text": "Hi"}]},
+    "export_srt": {"segments": [{"start": 0, "end": 1, "text": "Hi"}]},
+    "export_timeline": {"format": "OTIO"},
+    "batch": {"operations": []},
+}
+
+
+class PreviewSafety(Base):
+    """Without confirm=true (the boolean, at the top level) nothing may be changed (ISSUES.md I-01)."""
+
+    def setUp(self):
+        self.effects, real_open = [], builtins.open
+
+        def guarded_open(file, mode="r", *args, **kw):
+            if set(mode) & set("wax+"):
+                self.effects.append(("file write", str(file)))
+                return real_open(os.devnull, mode, *args, **kw)
+            return real_open(file, mode, *args, **kw)
+
+        def forbid(what):
+            def call(*args, **kw):
+                self.effects.append((what, args[:1]))
+                raise RuntimeError(f"{what} during a preview")
+            return call
+
+        for target, name, fake in ((builtins, "open", guarded_open),
+                                   (E, "log_audit", lambda *args: self.effects.append(("audit", args[0]))),
+                                   (M, "run_media_tool", forbid("media tool")),
+                                   (subprocess, "run", forbid("subprocess"))):
+            patch = mock.patch.object(target, name, fake)
+            patch.start()
+            self.addCleanup(patch.stop)
+
+    def attempt(self, tool, args):
+        """Run on a fresh fake; return the result and everything that had a side effect."""
+        f = self.use(FakeResolve([item("a", 1000, 10, src=5)]))
+        self.effects.clear()
+        try:
+            r = E.run(tool, args)
+        except Exception as exc:
+            r = {"error": repr(exc)}
+        return r, [op for op in f.calls if op not in READ_OPS] + self.effects
+
+    def test_every_handler_has_sample_args(self):
+        self.assertEqual(set(SAMPLE_ARGS), set(E.HANDLERS))
+
+    def test_previewable_matches_schemas(self):
+        with_confirm = {t["name"] for t in E.TOOLS if "confirm" in t["inputSchema"]["properties"]}
+        self.assertEqual(E.PREVIEWABLE, with_confirm - {"batch"})
+
+    def test_batch_preview_changes_nothing_for_any_tool(self):
+        for tool in sorted(set(E.HANDLERS) - {"batch"}):
+            for inner in ({}, {"confirm": True}):
+                with self.subTest(tool=tool, inner=inner):
+                    r, effects = self.attempt("batch", {"operations": [{"tool": tool,
+                                                                        "args": {**SAMPLE_ARGS[tool], **inner}}]})
+                    self.assertEqual(effects, [])
+                    self.assertEqual(r.get("_operation", {}).get("status"), "preview", r)
+                    step = r["plan"][0]
+                    if tool in E.PREVIEWABLE:
+                        self.assertEqual(step["preview"]["_operation"]["status"], "preview", step)
+                    else:
+                        self.assertIn("not_run", step)
+                        self.assertNotIn("confirm", step["args"])
+                        self.assertTrue(r["_operation"]["warnings"])
+
+    def test_unknown_new_handler_is_never_called(self):
+        new = mock.Mock(return_value={})
+        with mock.patch.dict(E.HANDLERS, {"brand_new_tool": new}):
+            r, effects = self.attempt("batch", {"operations": [{"tool": "brand_new_tool"}]})
+        new.assert_not_called()
+        self.assertEqual(effects, [])
+        self.assertIn("not_run", r["plan"][0])
+
+    def test_only_boolean_true_confirms(self):
+        cases = {t["name"]: SAMPLE_ARGS[t["name"]] for t in E.TOOLS if "confirm" in t["inputSchema"]["properties"]}
+        cases["batch"] = {"operations": [{"tool": "add_transition", "args": {"item_id": "a"}}]}
+        for tool, args in cases.items():
+            for value in ("false", "true", "no", 1, [1], False, None):
+                with self.subTest(tool=tool, confirm=value):
+                    r, effects = self.attempt(tool, {**args, "confirm": value})
+                    self.assertEqual(effects, [])
+                    self.assertEqual(r.get("_operation", {}).get("status"), "preview", r)
+
+    def test_captions_from_path_are_not_transcribed(self):
+        for segments in ({}, {"segments": []}):
+            with self.subTest(segments=segments):
+                r, effects = self.attempt("batch", {"operations": [{"tool": "add_captions",
+                                                                    "args": {"path": "a.mp4", **segments}}]})
+                self.assertEqual(effects, [])
+                self.assertIn("not_run", r["plan"][0])
+
+    def test_preview_then_confirm_runs_each_step_once(self):
+        f = self.use(FakeResolve([item("a", 1000, 10, src=5)]))
+        ops = [{"tool": "add_transition", "args": {"item_id": "a"}},
+               {"tool": "set_speed", "args": {"item_id": "a", "percentage": 50, "confirm": False}}]
+        E.run("batch", {"operations": ops})
+        E.run("batch", {"operations": ops, "confirm": True})
+        writes = [c for c in f.calls if c not in READ_OPS and c != "set_current_timeline"]
+        self.assertEqual(writes, ["duplicate_timeline", "add_transition", "set_speed"])
 
 
 class GatewayResilience(unittest.TestCase):

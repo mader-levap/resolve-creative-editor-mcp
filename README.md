@@ -174,7 +174,8 @@ saved, both ends, including setting them to 0 and back. A hand-dragged fade on o
 
 ## Safety
 
-- Destructive `edit__` tools return a **preview** first and need `confirm=true` to run.
+- Destructive `edit__` tools return a **preview** first and need `confirm=true` to run. Only the boolean `true`
+  counts, not `"true"` or `1`. An unconfirmed `edit__batch` changes nothing: it lists the steps that have no preview.
 - Moves and trims make a **backup timeline**, build the replacement before removing the original, and put the clip
   back with its settings if anything fails.
 - Every result says whether Resolve's read-back matched (`verification: passed`) or not.

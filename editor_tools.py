@@ -105,7 +105,8 @@ TOOLS = [
     T("qc_file", "Quality check a rendered file: loudness (LUFS, true peak), black frames, frozen frames, silence.",
       {"path": S}, ["path"]),
     T("batch", "Run several edit__ tools in order with one backup, stopping at the first failure. Each operation is "
-      "{tool, args}. confirm applies to all of them.",
+      "{tool, args}. Without confirm=true nothing is changed: steps that have a preview show it, the others are only "
+      "listed. confirm applies to all of them; confirm inside a step's args is ignored.",
       {"operations": {"type": "array", "items": {"type": "object", "properties": {"tool": S, "args": {"type": "object"}},
                                                   "required": ["tool"]}}, "confirm": CONFIRM}, ["operations"]),
     T("audit_log", "Recent changes made through this server.", {"limit": I}),
@@ -987,13 +988,26 @@ def doctor(a=None):
     return report
 
 
+def _preview_step(op):
+    """One row of a batch preview. Must never change anything, so only PREVIEWABLE tools are called."""
+    tool = op["tool"]
+    args = dict(op.get("args") or {}, confirm=False)  # a step can't confirm itself
+    transcribes = tool == "add_captions" and not args.get("segments")  # slow, and writes the transcript cache
+    if tool in PREVIEWABLE and not transcribes:
+        return {"tool": tool, "preview": run(tool, args)}
+    del args["confirm"]
+    return {"tool": tool, "args": args, "not_run": "no preview; runs when the batch is confirmed"}
+
+
 def batch(a):
     ops = a["operations"]
     unknown = [o.get("tool") for o in ops if o.get("tool") not in HANDLERS or o.get("tool") == "batch"]
     if unknown:
         return _blocked(f"unknown or nested tools: {unknown}")
     if not a.get("confirm"):
-        return _preview([{"tool": o["tool"], "preview": run(o["tool"], dict(o.get("args") or {}))} for o in ops])
+        rows = [_preview_step(o) for o in ops]
+        unchecked = sum("not_run" in r for r in rows)
+        return _preview(rows, [f"{unchecked} step(s) have no preview and were not checked"] if unchecked else [])
     snapshot = snapshot_timeline({"label": "before batch"}).get("snapshot")
     results = []
     for o in ops:
@@ -1015,9 +1029,14 @@ HANDLERS = {"doctor": doctor, "timeline_summary": timeline_summary, "inspect_ran
             "add_audio_markers": add_audio_markers, "add_captions": add_captions, "export_srt": export_srt,
             "export_timeline": export_timeline, "qc_file": qc_file, "batch": batch, "audit_log": audit_log}
 READ_ONLY = {"doctor", "timeline_summary", "inspect_range", "find_media", "audit_log", "qc_file"}
+# Tools that change nothing until confirm=true. A batch preview calls only these, so add a tool here only if that holds.
+PREVIEWABLE = {"place_clips", "move_item", "trim_item", "ripple_trim", "normalize_audio", "set_speed", "copy_grade",
+               "add_captions"}
 
 
 def run(name, args):
+    if "confirm" in args:
+        args = {**args, "confirm": args["confirm"] is True}  # "false", "no" and 1 are truthy but are not approval
     expected = None
     if name not in READ_ONLY and args.get("confirm"):
         expected = _b("get_state").get("timeline")  # catch Resolve switching timelines under us mid-edit

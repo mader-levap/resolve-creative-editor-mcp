@@ -1,9 +1,9 @@
 # Issues
 
-Found while testing `edit__add_transition`, 2026-11-22. This is the base for fixes; nothing here is fixed yet.
+Found while testing `edit__add_transition`, 2026-11-22. This is the base for fixes. Fixed so far: I-01.
 
 - Environment: free DaVinci Resolve 21.2.0.6, Windows 10, 60 fps timeline.
-- Code: branch `fix/issues`, `1a58791` **plus uncommitted changes**, so line numbers refer to that working tree.
+- Code: branch `fix/issues`. Line numbers are as of the I-01 fix.
 
 How each item is known:
 
@@ -16,7 +16,7 @@ How each item is known:
 
 | ID | Severity | Issue | Known by |
 |---|---|---|---|
-| [I-01](#i-01) | **Critical** | `batch` preview makes real changes | Fake |
+| [I-01](#i-01) | ~~Critical~~ **Fixed** | `batch` preview makes real changes | Fake, live |
 | [I-02](#i-02) | High | An error inside `batch` loses the results and backup name | Fake |
 | [I-03](#i-03) | High | `batch` continues after a `partial` step | Fake |
 | [I-04](#i-04) | High | `add_transition` verifies only the length | Fake |
@@ -28,44 +28,47 @@ How each item is known:
 | [I-10](#i-10) | Low | `at` in the transition result is ambiguous | Live |
 | [I-11](#i-11) | Low | `timeline_summary` hides empty tracks | Live, fake |
 | [I-12](#i-12) | Low | The live transition test accepts a refusal as a pass | Code |
+| [I-13](#i-13) | High | Reading a half-written bridge reply crashes the call | Live, fake |
+| [I-14](#i-14) | Low | The gateway test writes to the real audit log | Live |
 
-Suggested order: I-01, then I-02 and I-03, then the `add_transition` group (I-04, I-06 to I-10), then the rest.
-**Until I-01 is fixed, use `edit__batch` only with tools that have their own preview.**
+Suggested order: I-13, then I-02 and I-03, then the `add_transition` group (I-04, I-06 to I-10), then the rest.
 
 ## Issues
 
 <a id="i-01"></a>
-### I-01 `batch` preview makes real changes (critical)
+### I-01 `batch` preview makes real changes (critical, fixed)
 
-**Where:** `editor_tools.py:996`
+**Where:** `editor_tools.py` (`batch`, `_preview_step`, `run`)
 
-**Problem:** without `confirm`, `batch` builds its preview by calling `run()` on every step. Tools with no confirm
-check of their own execute immediately, with no backup, while the batch reports `preview`. Confirming then runs
-them a second time.
+**Problem:** a call without approval could change the timeline, with no backup. There were three causes:
 
-| Tool in a batch preview | Result |
-|---|---|
-| `add_transition`, `set_fades`, `set_audio`, `set_enabled`, `add_markers`, `snapshot_timeline` | Writes (reproduced) |
-| `add_audio_markers` (without `dry_run`), `export_srt`, `export_timeline` | Writes (code) |
-| `move_item` | Correct, no write (reproduced) |
+| | Cause | Effect |
+|---|---|---|
+| A | The batch preview called `run()` for every step, including tools with no preview | Transitions, fades, audio levels, enable/disable, markers, snapshots and exports ran in preview, and again on confirm |
+| B | A step's own `args.confirm` was passed through in the preview | Tools that have a preview (`set_speed`, `move_item`, ...) ran too |
+| C | `confirm` was tested for truthiness | `"false"`, `"no"` and `1` counted as approval, also outside batch |
 
-**Repro:** `run("batch", {"operations": [{"tool": "add_transition", "args": {"item_id": "a"}}]})`. The bridge
-receives `add_transition`. After repeating with `confirm`, the calls are
-`add_transition, duplicate_timeline, add_transition`, so even the backup contains the unapproved change.
+The old `test_batch_previews_without_writing` only covered `move_item` without an inner `confirm`, so it passed.
 
-`CLAUDE.md` and the server instructions both recommend `batch`, so this is easy to hit. The existing
-`test_batch_previews_without_writing` only covers `move_item`, which is why it passes.
+**Fix:** a batch preview calls only the tools in `PREVIEWABLE`, always with `confirm` false, and lists the rest as
+`not_run`. Captions that need transcribing are listed too. `run()` accepts only the boolean `true` as `confirm`.
 
-**Fix:** only call handlers known to support preview. For the others, describe the step without running it. Make
-this an allow-list, so that new tools are safe by default.
+**Verified 2026-11-22:**
 
-**Done when:** a test loops over every entry in `HANDLERS` and proves that a batch preview makes no bridge write,
-file write or audit entry.
+- `PreviewSafety` tests: every handler, inner `confirm`, non-boolean values, unknown new tools. They failed before
+  the fix and pass after it.
+- Live on a scratch timeline, calling `editor_tools` from Python: previews left items, settings, markers, timelines,
+  files and the audit log unchanged; a confirmed batch made one backup without the change and one transition.
+- Through MCP after a server restart: a 10-step preview (8 listed, 2 previewed despite an inner `confirm`)
+  changed nothing. `confirm` values `"false"`, `"true"`, `"no"` and `1`, sent as raw requests, gave previews only.
+
+**Limits:** a preview checks each step against the current timeline, not the result of earlier steps. Tools without
+a preview still write when called directly (I-06).
 
 <a id="i-02"></a>
 ### I-02 An error inside `batch` loses the results and backup name (high)
 
-**Where:** `editor_tools.py:990` (`batch`), `editor_tools.py:1020` (`run`)
+**Where:** `editor_tools.py:1002` (`batch`), `editor_tools.py:1037` (`run`)
 
 **Problem:** `_b()` raises on a bridge error and `batch` doesn't catch it. The caller gets only the error: not the
 completed steps and not the name of the backup that was made. The failed batch isn't written to the audit log.
@@ -81,7 +84,7 @@ batch is audited.
 <a id="i-03"></a>
 ### I-03 `batch` continues after a `partial` step (high)
 
-**Where:** `editor_tools.py:1004`
+**Where:** `editor_tools.py:1018`
 
 **Problem:** it stops only on `failed` and `blocked`. `partial` is what tools return when verification fails, so
 later steps run on a timeline that isn't in the expected state.
@@ -95,7 +98,7 @@ later steps run on a timeline that isn't in the expected state.
 <a id="i-04"></a>
 ### I-04 `add_transition` verifies only the length (high)
 
-**Where:** `editor_tools.py:686`
+**Where:** `editor_tools.py:687`
 
 **Problem:** type, category, position, alignment and track are never compared with the request. With no
 `duration`, nothing is compared and the result is still `passed`.
@@ -113,7 +116,7 @@ position, alignment and length, and that neighbouring clips didn't change. Resol
 <a id="i-05"></a>
 ### I-05 `ripple_trim` ignores transitions on other tracks (medium)
 
-**Where:** `editor_tools.py:582`
+**Where:** `editor_tools.py:583`
 
 **Problem:** transitions block a trim only on the same video track. On audio or other video tracks they skip the
 overlap check completely, although ripple delete shifts all tracks.
@@ -128,7 +131,7 @@ What Resolve then does to that transition is untested.
 <a id="i-06"></a>
 ### I-06 `add_transition` has no preview, backup or timeline-switch guard (medium)
 
-**Where:** `editor_tools.py:686`, `editor_tools.py:1022`
+**Where:** `editor_tools.py:687`, `editor_tools.py:1041`
 
 **Problem:** it writes on the first call and takes no backup. `run()` only guards against Resolve switching
 timelines when `confirm` is set, which this tool never receives when called directly. There is also no tool made
@@ -142,7 +145,7 @@ true), like move and trim.
 <a id="i-07"></a>
 ### I-07 Linked audio keeps a hard cut, without a warning (medium)
 
-**Where:** `editor_tools.py:686`
+**Where:** `editor_tools.py:687`
 
 **Problem:** a transition on a video item lands only on the video track. In test T1, A1 kept a hard cut under a
 1 s dissolve and `warnings` was empty.
@@ -158,7 +161,7 @@ of the two succeeds.
 <a id="i-08"></a>
 ### I-08 Zero and negative durations aren't rejected (medium)
 
-**Where:** `editor_tools.py:686`
+**Where:** `editor_tools.py:687`
 
 **Problem:** `if a.get("duration")` treats 0 as "not given", so Resolve picks a length and the result is
 `passed`. Negative values are sent to Resolve unchanged.
@@ -185,7 +188,7 @@ checking them.
 <a id="i-10"></a>
 ### I-10 `at` in the transition result is ambiguous (low)
 
-**Where:** `editor_tools.py:694`
+**Where:** `editor_tools.py:695`
 
 **Problem:** `at` is where the transition starts (01:00:04:30 in T1) and is easily read as the cut (01:00:05:00).
 
@@ -196,7 +199,7 @@ checking them.
 <a id="i-11"></a>
 ### I-11 `timeline_summary` hides empty tracks (low)
 
-**Where:** `editor_tools.py:252` (`analyze`), `editor_tools.py:280`
+**Where:** `editor_tools.py:253` (`analyze`), `editor_tools.py:281`
 
 **Problem:** tracks are derived from items. After `legacy__add_track` returned a count of 3, the summary still
 listed only V1 and V2, so a new track can't be verified or seen.
@@ -217,6 +220,37 @@ listed only V1 and V2, so a new track can't be verified or seen.
 the real behaviour) separately. Add `add_transition` to `FakeResolve` with tests for the issues above.
 
 **Done when:** the live test fails if a valid transition is refused or misplaced.
+
+<a id="i-13"></a>
+### I-13 Reading a half-written bridge reply crashes the call (high)
+
+**Where:** `mcp_server.py:136-137` (`_read_csv_reply`)
+
+**Problem:** if `reply.csv` is empty at the first read and gets data before the next one, `csv.DictReader` raises
+`TypeError: 'NoneType' object is not iterable`. Only `OSError`, `UnicodeError` and `csv.Error` are caught, so the
+call fails instead of polling again. For a write, Resolve may have made the change while the caller sees an error,
+and a retry would make it twice.
+
+**Repro:** seen once live on `get_state` while testing I-01. Reproduced with an iterator that is empty on the first
+read and returns a line on the second, passed to `csv.DictReader`.
+
+**Fix:** treat `TypeError` there as a mid-write read (`return None, None`).
+
+**Done when:** a test with such a reader gets `(None, None)` and `call_bridge` keeps polling.
+
+<a id="i-14"></a>
+### I-14 The gateway test writes to the real audit log (low)
+
+**Where:** `tests/test_gateway.py:7`, and `GatewayResilience` in `tests/test_editor_tools.py` uses the same pattern
+
+**Problem:** `test_gateway` starts the gateway with the user's environment, so the gateway logs the fake
+`legacy__hello` call as a successful change in the real `audit.jsonl`, and `edit__audit_log` shows it.
+
+**Workaround:** set `RESOLVE_BRIDGE_DIR` to a temporary folder when running the test.
+
+**Fix:** set it to a temporary folder in the test's environment.
+
+**Done when:** running all tests leaves the real audit log unchanged.
 
 ## Live tests
 
@@ -241,7 +275,7 @@ Both have plenty of spare frames on each side.
 | T4 | Misspelled name, zero length, longer than the clip | Not run | I-04, I-08, I-09 |
 | T5a | Audio `Cross Fade +3 dB` | **Read-back pass**; not listened to or restart-tested | I-07 |
 | T5b | Other simple, audio and Fusion types (no OFX: Studio dialog risk) | Not run | I-04 |
-| T6 | Same transition added twice | Not run | I-01 (effect of the double run) |
+| T6 | Same transition added twice | Not run | |
 | T7 | Transition on a single Text+ edge | Not run | |
 | T8 | Persistence after a Resolve restart | **Pass for T1 only**; repeat after T2-T7 | |
 
@@ -277,6 +311,6 @@ bug until that is known.
 
 ## After fixing
 
-- `python -m unittest tests.test_editor_tools` (baseline on 2026-11-22: 32 tests, all pass).
+- `python -m unittest tests.test_editor_tools` (baseline after the I-01 fix: 39 tests, all pass).
 - Restart the MCP server, and the bridge if the Lua changed, then repeat the affected live tests.
 - Update the transitions row in `README.md`, plus `AGENTS.md` and `PATCH_NOTES.md`.

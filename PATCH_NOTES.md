@@ -1,5 +1,10 @@
 # Patch notes — DaVinci Resolve MCP
 
+## 2026-11-22
+
+- Fixed: `edit__batch` previews could make real changes (ISSUES.md I-01). Only tools with a preview are called,
+  a step can't confirm itself, and only the boolean `true` counts as `confirm` for every `edit__` tool.
+
 ## Stage-two audit (2026-11-11)
 
 Found and fixed, each confirmed in a real Resolve 21.1 (free) on a scratch timeline:
