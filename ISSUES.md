@@ -549,7 +549,7 @@ bug until that is known.
 
 ## After fixing
 
-- From the repo root: `python -m unittest` (baseline: 63 tests, all pass) and `python tests/smoke_bridge.py`
+- From the repo root: `python -m unittest` (baseline: 69 tests, all pass) and `python tests/smoke_bridge.py`
   (needs `lupa`).
 - Restart the MCP server, and the bridge if the Lua changed, then repeat the affected live tests.
 - Update the transitions row in `README.md`, plus `AGENTS.md` and `PATCH_NOTES.md`.

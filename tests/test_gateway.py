@@ -76,3 +76,20 @@ class GatewayResilience(unittest.TestCase):
         r = call(3, "tools/call", {"name": "legacy__start_render", "arguments": {}})["result"]
         self.assertTrue(r["isError"])
         self.assertIn("confirm", r["content"][0]["text"])
+
+    def test_legacy_writes_are_audited_and_reads_are_not(self):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)  # registered first, so it runs after the gateway has stopped
+        fake = [sys.executable, str(ROOT / "tests" / "fake_mcp.py"), "hello", "get_state"]
+        env = dict(os.environ, RESOLVE_BRIDGE_DIR=folder.name, LEGACY_MCP_COMMAND=json.dumps(fake),
+                   RESOLVE_MCP_REPO=tempfile.mkdtemp(), RESOLVE_MCP_SERVER="missing.py",
+                   RESOLVE_MCP_PYTHON="missing.exe")
+        env.pop("RESOLVE_MCP_COMMAND", None)
+        call = self.rpc(env)
+        call(1, "initialize", {"protocolVersion": "2025-03-26"})
+        call(2, "tools/list")
+        for i, name, args in ((3, "legacy__hello", {"x": 1}), (4, "legacy__get_state", {})):
+            self.assertFalse(call(i, "tools/call", {"name": name, "arguments": args})["result"].get("isError"))
+        with open(os.path.join(folder.name, "audit.jsonl"), encoding="utf-8") as f:
+            log = [json.loads(line) for line in f]
+        self.assertEqual([(e["tool"], e["args"], e["status"]) for e in log], [("legacy__hello", {"x": 1}, "success")])

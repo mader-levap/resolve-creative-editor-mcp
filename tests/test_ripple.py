@@ -36,3 +36,16 @@ class Ripple(Base):
         r = dispatch.run("ripple_trim", {"item_ids": ["a"], "tail_frames": 30, "confirm": True})
         self.assertEqual(r["_operation"]["status"], "failed")
         self.assertEqual({x["id"]: (x["start"], x["end"]) for x in f.items}, {"a": (1000, 1100), "b": (1200, 1300)})
+
+    def test_ripple_trim_fails_when_the_timeline_does_not_match_the_plan(self):
+        f = FakeResolve([item("a", 1000, 100, name="Text+"), item("b", 1200, 100, name="Text+")])
+
+        def no_ripple(op, args, **kw):  # Resolve deletes the filler but doesn't shift what follows
+            return f(op, dict(args, ripple=False) if op == "delete_items" else args, **kw)
+        self.use(no_ripple)
+        r = dispatch.run("ripple_trim", {"item_ids": ["a"], "tail_frames": 30, "confirm": True})
+        self.assertEqual(r["_operation"]["status"], "failed", r)
+        self.assertIn("doesn't match the plan", r["reason"])
+        self.assertEqual(r["_operation"]["changes"], {"trimmed": 0})
+        self.assertTrue(any("expected" in w for w in r["_operation"]["warnings"]), r)
+        self.assertTrue(r["snapshot"])
