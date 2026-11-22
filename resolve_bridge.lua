@@ -547,11 +547,40 @@ local function apply_text_style(tool, a)
   for _, k in ipairs(keys) do tool:SetInput(k, a.inputs[k]) end
 end
 
--- Restyle existing Text+ titles without replacing them.
+-- Change existing Text+ titles in place (text and/or style) without replacing them. Reads the text back.
 function OPS.style_text_plus(a)
-  local n = 0
-  for _, id in ipairs(a.item_ids) do apply_text_style(text_tool(find_item(id)), a); n = n + 1 end
-  return { styled = n }
+  local n, texts = 0, {}
+  for _, id in ipairs(a.item_ids) do
+    local tool = text_tool(find_item(id))
+    if a.text then tool:SetInput("StyledText", a.text) end
+    apply_text_style(tool, a)
+    if a.text then texts[id] = tool:GetInput("StyledText") end
+    n = n + 1
+  end
+  local out = { styled = n }
+  if a.text then out.text = texts end
+  return out
+end
+
+-- Make a freshly inserted title `frames` long. Free 21.2 has no SetEnd/SetDuration. SetRightOffset(n) sets the
+-- absolute unused tail (a fresh insert has 0), so it can shorten and later lengthen again, but never past the inserted
+-- length (verified on 21.2.0.6). Inserted length = Preferences > User > Editing > Standard Generator Duration.
+-- Returns the method used, or "too_short"/"none" with a note.
+local function set_title_length(it, frames)
+  local want = it:GetStart() + frames
+  local cur = it:GetEnd()
+  if cur == want then return "already" end
+  if type(it.SetEnd) == "function" and it:SetEnd(want) and it:GetEnd() == want then return "SetEnd" end
+  if type(it.SetDuration) == "function" and it:SetDuration(frames) and it:GetEnd() == want then return "SetDuration" end
+  if want > cur then
+    return "too_short", "inserted at " .. (cur - it:GetStart()) .. " frames; Resolve can't lengthen a title by script. "
+      .. "Raise Preferences > User > Editing > Standard Generator Duration above the longest title, then insert again."
+  end
+  if type(it.SetRightOffset) ~= "function" then return "none", "this Resolve has no SetEnd, SetDuration or SetRightOffset" end
+  local ok, ret = pcall(function() return it:SetRightOffset(cur - want) end)
+  if it:GetEnd() == want then return "SetRightOffset" end
+  return "none", "SetRightOffset(" .. (cur - want) .. ") returned " .. tostring(ok and ret or "error") ..
+    "; end is now " .. it:GetEnd() .. ", wanted " .. want
 end
 
 -- Editable Text+ titles. Each spec: {text, record_frame, frames}. Style is optional (font, style, size, x, y).
@@ -573,7 +602,31 @@ function OPS.add_text_plus(a)
   end
   local out = {}
   local ok, err = pcall(function()
-    for _, spec in ipairs(a.items) do
+    -- InsertFusionTitleIntoTimeline is a ripple insert (seen on 21.2.0.6): every clip on an unlocked track that ends
+    -- after the playhead moves right by the title's inserted length (Standard Generator Duration), and trimming the
+    -- title afterwards doesn't pull them back. Insert in time order so a batch never pushes its own titles, and refuse
+    -- up front if anything already on the timeline would move.
+    local specs = {}
+    for _, s in ipairs(a.items) do specs[#specs + 1] = s end
+    table.sort(specs, function(p, q) return (p.record_frame or 0) < (q.record_frame or 0) end)
+    local first = specs[1] and specs[1].record_frame
+    if first then
+      local hit = {}
+      for _, kind in ipairs({ "video", "audio" }) do
+        for _, x in ipairs(items(kind)) do
+          local okl, locked = pcall(function() return t:GetIsTrackLocked(kind, x[3]) end)
+          if not (okl and locked) and x[1]:GetEnd() > first then
+            hit[#hit + 1] = string.format("%s%d %s @%d", kind == "video" and "V" or "A", x[3], x[1]:GetName(), x[1]:GetStart())
+          end
+        end
+      end
+      if #hit > 0 then
+        error(#hit .. " clip(s) end after frame " .. first .. " and would be pushed later by the insert: "
+          .. table.concat(hit, ", ", 1, math.min(#hit, 5)) .. (#hit > 5 and ", ..." or "")
+          .. ". Lock those tracks (lock_video_tracks) or add the titles before later clips exist.", 0)
+      end
+    end
+    for _, spec in ipairs(specs) do
       local at = spec.timecode or tc(spec.record_frame)
       if not t:SetCurrentTimecode(at) then error("could not move playhead to " .. at, 0) end
       local it = t:InsertFusionTitleIntoTimeline("Text+")
@@ -588,13 +641,11 @@ function OPS.add_text_plus(a)
         report.inputs = {}
         for _, inp in pairs(tool:GetInputList()) do report.inputs[#report.inputs + 1] = inp:GetAttrs().INPS_ID end
       end
-      local trimmed = "none"
-      if spec.frames then
-        if type(it.SetEnd) == "function" and it:SetEnd(spec.record_frame + spec.frames) then trimmed = "SetEnd"
-        elseif type(it.SetDuration) == "function" and it:SetDuration(spec.frames) then trimmed = "SetDuration" end
-      end
+      local trimmed, note = "none", nil
+      if spec.frames then trimmed, note = set_title_length(it, spec.frames) end
       local info = item_info(it, "video")
       info.trimmed = trimmed
+      info.trim_note = note
       out[#out + 1] = info
     end
   end)

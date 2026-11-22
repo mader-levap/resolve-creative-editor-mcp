@@ -74,8 +74,9 @@ TOOLS = [
        "lock_video_tracks": {"type": "array", "items": I},
        "inputs": {"type": "object", "description": "other numeric Text+ inputs by id"},
        "list_inputs": B}, ["items"]),
-    T("style_text_plus", "Restyle existing Text+ titles (font, style, size, x, y, other numeric inputs by id).",
-      {"item_ids": STRS, "font": S, "style": S, "size": {"type": "number"}, "x": {"type": "number"},
+    T("style_text_plus", "Change existing Text+ titles in place: text, font, style, size, x, y, other numeric inputs "
+      "by id. text replaces the whole text of every listed title; use \\n for line breaks.",
+      {"item_ids": STRS, "text": S, "font": S, "style": S, "size": {"type": "number"}, "x": {"type": "number"},
        "y": {"type": "number"}, "inputs": {"type": "object"}}, ["item_ids"]),
     T("add_marker", "Add a timeline marker. frame is relative to the timeline start. Colors: Blue, Cyan, Green, "
       "Yellow, Red, Pink, Purple, Fuchsia, Rose, Lavender, Sky, Mint, Lemon, Sand, Cocoa, Cream.",
