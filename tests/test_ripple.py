@@ -8,7 +8,8 @@ class Ripple(Base):
     def test_ripple_trim_keeps_gaps_and_titles(self):
         titles = [item("t1", 1000, 100, name="Text+"), item("t2", 1110, 50, name="Text+"),
                   item("t3", 1200, 100, name="Text+"), item("up", 1250, 20, name="Text+", track=2)]
-        f = self.use(FakeResolve(titles, details={i: {"fusion_comps": 1, "media_id": None} for i in ("t1", "t2", "t3", "up")}))
+        f = self.use(FakeResolve(titles, details={i: {"fusion_comps": 1, "media_id": None}
+                                                  for i in ("t1", "t2", "t3", "up")}))
         r = dispatch.run("ripple_trim", {"item_ids": ["t1", "t3"], "tail_frames": 30})
         self.assertEqual(r["_operation"]["status"], "preview")
         self.assertNotIn("trim_tail", f.calls)

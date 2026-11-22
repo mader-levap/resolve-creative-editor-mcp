@@ -3,7 +3,7 @@ import os
 import tempfile
 from unittest import mock
 
-from tests.support import Base, FakeResolve, READ_OPS, SAMPLE_ARGS, item
+from tests.support import READ_OPS, SAMPLE_ARGS, Base, FakeResolve, item
 
 from resolve_editor import dispatch, media, session
 
@@ -56,8 +56,9 @@ class TimelinePin(Base):
     MARK = {"tool": "add_markers", "args": SAMPLE_ARGS["add_markers"]}
 
     def setUp(self):
-        fake_media = lambda name, args: ({"silence_intervals": [{"start": 1, "end": 2}]} if name == "detect_silence"
-                                         else {"duration": 5})
+        def fake_media(name, args):
+            return ({"silence_intervals": [{"start": 1, "end": 2}]} if name == "detect_silence"
+                    else {"duration": 5})
         patch = mock.patch.object(media, "run_media_tool", fake_media)
         patch.start()
         self.addCleanup(patch.stop)
@@ -134,7 +135,7 @@ class TimelinePin(Base):
             dispatch.run(tool, dict(args))
             for at in range(1, len(clean.calls)):  # a switch before call 0 is simply the timeline to edit
                 with self.subTest(tool=tool, before_call=at, op=clean.calls[at]):
-                    f = self.use(TimelineFake(self.once(lambda f, op, n: n == at)))
+                    f = self.use(TimelineFake(self.once(lambda f, op, n, at=at: n == at)))
                     dispatch.run(tool, dict(args))
                     self.assertEqual((f.astray(), f.cur), ([], "T"))
 

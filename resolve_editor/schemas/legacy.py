@@ -14,7 +14,8 @@ TOOLS = [
     T("create_timeline", "Create a timeline, empty or from media-pool clips.",
       {"name": S, "clips": {"type": "array", "items": S, "description": CLIP_REF}}, ["name"]),
     T("append_clips",
-      "Append clips to the current timeline. Use start_frame/end_frame as a half-open source range [start_frame, end_frame): end_frame is exclusive. Duration is end-start. To cut a "
+      "Append clips to the current timeline. Use start_frame/end_frame as a half-open source range "
+      "[start_frame, end_frame): end_frame is exclusive. Duration is end-start. To cut a "
       "sub-range; this is the way to trim/cut. record_frame places it at a timeline position.",
       {"clips": {"type": "array", "items": {"type": "object", "properties": {
           "clip": S, "start_frame": I, "end_frame": I, "track_index": I, "record_frame": I,
@@ -25,7 +26,8 @@ TOOLS = [
     T("duplicate_timeline", "Duplicate the current timeline under a new name.", {"name": S}, ["name"]),
     T("set_grade", "Primary colour grade (ASC CDL on a node, default 1) for timeline items. slope/offset/power are "
       "'r g b' strings, e.g. slope '1.05 1.0 0.95' warms; saturation e.g. 1.15. No values = reset to neutral.",
-      {"item_ids": STRS, "slope": S, "offset": S, "power": S, "saturation": {"type": "number"}, "node": I}, ["item_ids"]),
+      {"item_ids": STRS, "slope": S, "offset": S, "power": S, "saturation": {"type": "number"}, "node": I},
+      ["item_ids"]),
     T("probe_color", "Report which colour-page calls Resolve exposes for a timeline item (changes nothing).",
       {"item_id": S}, ["item_id"]),
     T("refresh_luts", "Make Resolve rescan its LUT folders."),

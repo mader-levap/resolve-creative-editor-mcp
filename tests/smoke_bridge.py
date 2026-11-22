@@ -155,7 +155,7 @@ assert r["isError"] and "No current timeline" in text(r), r
 
 # A request pinned to a timeline runs there or not at all (ISSUES.md I-16). Real Lua, real call_bridge.
 os.environ.update(RESOLVE_BRIDGE_DIR=bridge_dir, RESOLVE_FUSION_PREFS=prefs)
-from resolve_editor import bridge
+from resolve_editor import bridge  # noqa: E402  (after the environment above is set)
 
 MARKER = {"frame": 5}
 PIN = {"project": "demo", "name": "WORK"}

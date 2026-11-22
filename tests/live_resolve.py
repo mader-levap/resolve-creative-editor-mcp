@@ -4,11 +4,15 @@ Requires Resolve open with a project and the bridge running. Everything happens 
 named _RCE_LIVE_<time> and a bin named _RCE_LIVE_CAPTIONS; your other timelines are compared before and after.
 The scratch timeline is deleted at the end unless --keep is given. Run: python tests/live_resolve.py
 """
-import json, os, pathlib, subprocess, sys, time
+import os
+import pathlib
+import subprocess
+import sys
+import time
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from resolve_editor import dispatch, paths, session
+from resolve_editor import dispatch, paths, session  # noqa: E402  (needs the sys.path line above)
 
 RESULTS = []
 
@@ -32,9 +36,9 @@ def main():
     os.makedirs(folder, exist_ok=True)
     clip_path = os.path.join(folder, "rce_live_clip.mp4")
     if not os.path.exists(clip_path):
-        subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", "testsrc2=s=1280x720:r=30:d=12", "-f", "lavfi",
-                        "-i", "sine=frequency=440:sample_rate=48000:d=12", "-c:v", "libx264", "-pix_fmt", "yuv420p",
-                        "-c:a", "aac", "-shortest", clip_path], check=True)
+        subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", "testsrc2=s=1280x720:r=30:d=12",
+                        "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:d=12", "-c:v", "libx264",
+                        "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", clip_path], check=True)
     state = B("get_state")
     original = sys.argv[sys.argv.index("--return-to") + 1] if "--return-to" in sys.argv else state["timeline"]
     B("set_current_timeline", name=original)
@@ -47,18 +51,20 @@ def main():
         B("set_current_timeline", name=name)
         session.invalidate()
         start = B("get_state")["timeline_start_frame"]
-        guard = lambda: B("get_state")["timeline"] == name or sys.exit("wrong timeline, stopping")
+        def guard():
+            return B("get_state")["timeline"] == name or sys.exit("wrong timeline, stopping")
 
         r = dispatch.run("place_clips", {"clips": [{"clip": clip, "start_frame": 30, "end_frame": 90, "record": start},
-                                            {"clip": clip, "start_frame": 120, "end_frame": 180, "record": start + 60}]})
+                                            {"clip": clip, "start_frame": 120, "end_frame": 180,
+                                             "record": start + 60}]})
         check("place_clips previews first", status(r) == "preview", r)
         guard()
         r = dispatch.run("place_clips", {"clips": [{"clip": clip, "start_frame": 30, "end_frame": 90, "record": start},
                                             {"clip": clip, "start_frame": 120, "end_frame": 180, "record": start + 60}],
                                   "confirm": True})
         check("place_clips with linked audio", status(r) == "success", r)
-        r = dispatch.run("place_clips", {"clips": [{"clip": clip, "start_frame": 0, "end_frame": 10, "record": start + 5}],
-                                  "confirm": True})
+        r = dispatch.run("place_clips", {"clips": [{"clip": clip, "start_frame": 0, "end_frame": 10,
+                                                    "record": start + 5}], "confirm": True})
         check("place_clips refuses overwrite", status(r) == "blocked", r)
 
         video = sorted([x for x in session.items() if x["track_type"] == "video"], key=lambda x: x["start"])
@@ -83,7 +89,8 @@ def main():
         check("moved video kept zoom/opacity/fade/colour",
               (vid.get("properties") or {}).get("ZoomX") == 1.4 and (vid.get("properties") or {}).get("Opacity") == 75
               and int((vid.get("fades") or {}).get("FadeIn", 0)) == 6 and vid.get("color") == "Orange", vid)
-        check("moved audio kept volume", abs(float((aud.get("properties") or {}).get("AudioVolume", 0)) + 6) < 0.01, aud)
+        check("moved audio kept volume",
+              abs(float((aud.get("properties") or {}).get("AudioVolume", 0)) + 6) < 0.01, aud)
         check("moved clips relinked", set(vid.get("linked") or []) == {aud.get("id")}, vid.get("linked"))
         probe = B("probe_color", item_id=vid["id"]) if vid else {}
         check("moved video still has its grade node", (probe or {}).get("item_nodes", 0) >= 1, probe)
@@ -102,12 +109,14 @@ def main():
         check("disable clip read-back", status(r) == "success", r)
         dispatch.run("set_enabled", {"item_ids": [second["id"]], "enabled": True})
 
-        r = dispatch.run("add_markers", {"markers": [{"at": start + 15, "name": "a"}, {"at": session.to_tc(start + 30), "name": "b"}]})
+        r = dispatch.run("add_markers", {"markers": [{"at": start + 15, "name": "a"},
+                                                     {"at": session.to_tc(start + 30), "name": "b"}]})
         check("markers by frame and timecode", status(r) == "success" and set(B("list_markers")) >= {"15", "30"}, r)
         r = dispatch.run("add_audio_markers", {"path": clip_path, "kind": "beats", "dry_run": True})
         check("beat analysis runs", status(r) == "planned", r)
 
-        segs = [{"start": 0.5, "end": 2.0, "text": "First caption"}, {"start": 2.2, "end": 9.0, "text": "A long second one"}]
+        segs = [{"start": 0.5, "end": 2.0, "text": "First caption"},
+                {"start": 2.2, "end": 9.0, "text": "A long second one"}]
         r = dispatch.run("add_captions", {"segments": segs, "confirm": True, "folder": "_RCE_LIVE_CAPTIONS"})
         cards = [x for x in session.items() if x["track_type"] == "video" and x["track"] == max(
             x["track"] for x in session.items() if x["track_type"] == "video")]

@@ -19,7 +19,8 @@ def snapshot_timeline(a):
 
 
 def find_clip(ref):
-    hits = [m for m in session.media_pool() if m.get("id") == ref] or [m for m in session.media_pool() if m.get("name") == ref]
+    hits = ([m for m in session.media_pool() if m.get("id") == ref]
+            or [m for m in session.media_pool() if m.get("name") == ref])
     if len(hits) != 1:
         raise ValueError(f"need exactly one media-pool clip matching {ref!r}, found {len(hits)}")
     return hits[0]
@@ -34,8 +35,9 @@ def collides(kind, track, start, end, ignore=()):
 
 
 def append_one(media_id, kind, first, last, record, track):
-    session.call("append_clips", clips=[{"clip": media_id, "start_frame": first, "end_frame": last, "record_frame": record,
-                                         "track_index": track, "media_type": 1 if kind == "video" else 2}])
+    session.call("append_clips", clips=[{"clip": media_id, "start_frame": first, "end_frame": last,
+                                         "record_frame": record, "track_index": track,
+                                         "media_type": 1 if kind == "video" else 2}])
     session.invalidate()
     for x in session.items():
         if x["track_type"] == kind and x["track"] == track and x["start"] == record and x["duration"] == last - first:

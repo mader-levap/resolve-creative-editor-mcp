@@ -7,10 +7,11 @@ from resolve_editor.tools import captions
 
 class Captions(Base):
     def test_split_and_no_overlap(self):
-        segs = captions.split_segments([{"start": 0, "end": 4, "text": "one two three four five six seven eight nine ten"},
-                                 {"start": 3.5, "end": 5, "text": "next"}], max_chars=20)
+        segs = captions.split_segments(
+            [{"start": 0, "end": 4, "text": "one two three four five six seven eight nine ten"},
+             {"start": 3.5, "end": 5, "text": "next"}], max_chars=20)
         self.assertTrue(all(len(s["text"]) <= 20 for s in segs))
-        for a, b in zip(segs, segs[1:]):
+        for a, b in zip(segs, segs[1:], strict=False):
             self.assertLessEqual(a["end"], b["start"])
 
     def test_cards_cap_at_five_seconds(self):
@@ -28,4 +29,5 @@ class Captions(Base):
         self.assertEqual(r["_operation"]["verification"], "passed", r)
 
     def test_srt(self):
-        self.assertEqual(captions.to_srt([{"start": 61.5, "end": 62, "text": "hi"}]), "1\n00:01:01,500 --> 00:01:02,000\nhi\n\n")
+        self.assertEqual(captions.to_srt([{"start": 61.5, "end": 62, "text": "hi"}]),
+                         "1\n00:01:01,500 --> 00:01:02,000\nhi\n\n")

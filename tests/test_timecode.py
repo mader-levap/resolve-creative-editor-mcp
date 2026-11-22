@@ -2,7 +2,7 @@
 import unittest
 from fractions import Fraction
 
-from tests import support  # first: gives the tests a temporary bridge folder
+from tests import support  # first: gives the tests a temporary bridge folder  # noqa: F401
 
 from resolve_editor import timecode
 
@@ -16,7 +16,8 @@ class Timecode(unittest.TestCase):
     def test_round_trip(self):
         for fps, drop in ((30, False), (Fraction(30000, 1001), True), (Fraction(24000, 1001), False), (25, False)):
             for frame in (0, 1, 1799, 1800, 17982, 107892, 108000, 215784):
-                self.assertEqual(timecode.tc_to_frame(timecode.frame_to_tc(frame, fps, drop), fps, drop), frame, (fps, drop, frame))
+                self.assertEqual(timecode.tc_to_frame(timecode.frame_to_tc(frame, fps, drop), fps, drop), frame,
+                                 (fps, drop, frame))
 
     def test_drop_frame_known_values(self):
         df = Fraction(30000, 1001)

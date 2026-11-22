@@ -1,7 +1,7 @@
 """Batches."""
 from unittest import mock
 
-from tests.support import Base, FakeResolve, SAMPLE_ARGS, item
+from tests.support import SAMPLE_ARGS, Base, FakeResolve, item
 
 from resolve_editor import dispatch, media, outcome
 
@@ -48,8 +48,9 @@ class BatchStop(Base):
     NEXT = {"tool": "copy_grade", "args": SAMPLE_ARGS["copy_grade"]}
 
     def setUp(self):
-        fake_media = lambda name, args: ({"silence_intervals": [{"start": 1, "end": 2}]} if name == "detect_silence"
-                                         else {"duration": 5})
+        def fake_media(name, args):
+            return ({"silence_intervals": [{"start": 1, "end": 2}]} if name == "detect_silence"
+                    else {"duration": 5})
         patch = mock.patch.object(media, "run_media_tool", fake_media)
         patch.start()
         self.addCleanup(patch.stop)
@@ -73,7 +74,7 @@ class BatchStop(Base):
             with self.subTest(status=status):
                 f = self.use(Answers({}))
                 result = {"count": 1} if status is None else outcome.op(status)  # a read has no _operation
-                with mock.patch.dict(dispatch.HANDLERS, {"stub": lambda a: dict(result)}):
+                with mock.patch.dict(dispatch.HANDLERS, {"stub": lambda a, result=result: dict(result)}):
                     r = self.batch({"tool": "stub"}, self.NEXT)
                 self.assertEqual("copy_grade" in f.calls, goes_on)
                 self.assertEqual(r["_operation"]["status"], "success" if goes_on else "partial")
@@ -98,7 +99,8 @@ class BatchStop(Base):
 
     def test_success_runs_every_step_once(self):
         f = self.use(Answers({}))
-        r = self.batch({"tool": "add_markers", "args": SAMPLE_ARGS["add_markers"]}, {"tool": "timeline_summary"}, self.NEXT)
+        r = self.batch({"tool": "add_markers", "args": SAMPLE_ARGS["add_markers"]}, {"tool": "timeline_summary"},
+                       self.NEXT)
         self.assertEqual(r["_operation"]["status"], "success")
         self.assertEqual((f.calls.count("add_markers"), f.calls.count("copy_grade")), (1, 1))
         self.assertFalse(r.get("reason"))

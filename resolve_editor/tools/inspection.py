@@ -14,7 +14,7 @@ def analyze(items, limit=10, tc=str):
             used.setdefault(it["name"], []).append(it["start"])
     for (kind, track), row in sorted(tracks.items()):
         row.sort(key=lambda x: x["start"])
-        for a, b in zip(row, row[1:]):
+        for a, b in zip(row, row[1:], strict=False):
             where = f"{'V' if kind == 'video' else 'A'}{track}"
             if b["start"] > a["end"]:
                 gaps.append({"track": where, "at": tc(a["end"]), "frames": b["start"] - a["end"]})
@@ -47,16 +47,19 @@ def inspect_range(a):
     start, end = session.to_frame(a["start"]), session.to_frame(a["end"])
     hits = [x for x in session.items() if x["start"] < end and start < x["end"]]
     rows = [{"id": x["id"], "name": x["name"], "track": f"{x['track_type'][0].upper()}{x['track']}",
-             "type": x.get("type"), "in": session.to_tc(x["start"]), "out": session.to_tc(x["end"]), "frames": x["duration"],
-             "source_start": x.get("source_start")} for x in sorted(hits, key=lambda x: (x["start"], x["track_type"]))]
+             "type": x.get("type"), "in": session.to_tc(x["start"]), "out": session.to_tc(x["end"]),
+             "frames": x["duration"], "source_start": x.get("source_start")}
+            for x in sorted(hits, key=lambda x: (x["start"], x["track_type"]))]
     if a.get("details") and rows:
-        details = {d["id"]: d for d in session.as_list(session.call("item_details", item_ids=[r["id"] for r in rows if r["type"] != "transition"]))}
+        details = {d["id"]: d for d in session.as_list(
+            session.call("item_details", item_ids=[r["id"] for r in rows if r["type"] != "transition"]))}
         for r in rows:
             d = details.get(r["id"])
             if d:
                 props = d.get("properties") or {}
                 r.update({"speed": (d.get("speed") or {}).get("Percentage"), "fades": d.get("fades"),
-                          "enabled": d.get("enabled"), "color": d.get("color") or None, "markers": len(d.get("markers") or {}),
+                          "enabled": d.get("enabled"), "color": d.get("color") or None,
+                          "markers": len(d.get("markers") or {}),
                           "linked": d.get("linked"), "fusion_comps": d.get("fusion_comps"),
                           "changed_settings": {k: v for k, v in props.items()
                                                if k in DEFAULTS and v != DEFAULTS[k]}})

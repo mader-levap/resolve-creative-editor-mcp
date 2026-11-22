@@ -7,7 +7,8 @@ from resolve_editor.tools import inspection
 
 class Inspection(Base):
     def test_summary_ignores_transitions_and_is_compact(self):
-        items = [item("a", 1000, 10), item("t", 1005, 10, name="Cross Dissolve", type="transition"), item("b", 1010, 10)]
+        items = [item("a", 1000, 10), item("t", 1005, 10, name="Cross Dissolve", type="transition"),
+                 item("b", 1010, 10)]
         items += [item(f"g{i}", 1100 + i * 20, 10, name=f"x{i}") for i in range(30)]
         self.use(FakeResolve(items))
         r = dispatch.run("timeline_summary", {"limit": 3})

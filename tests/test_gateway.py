@@ -1,7 +1,13 @@
 """The gateway, run as a process."""
-import json, os, subprocess, sys, tempfile, unittest
+import json
+import os
+import subprocess
+import sys
+import tempfile
+import unittest
 
 from tests.support import ROOT  # also gives the gateway a temporary bridge folder
+
 
 class GatewayTests(unittest.TestCase):
     def test_namespaced_routing(self):
@@ -17,9 +23,11 @@ class GatewayTests(unittest.TestCase):
             proc.stdin.flush()
             while True:
                 line=proc.stdout.readline()
-                if not line: raise AssertionError("gateway closed")
+                if not line:
+                    raise AssertionError("gateway closed")
                 data=json.loads(line)
-                if data.get("id")==i: return data
+                if data.get("id")==i:
+                    return data
         try:
             init=request(1,"initialize",{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"test","version":"1"}})
             self.assertEqual(init["result"]["serverInfo"]["name"],"resolve-creative-editor")
@@ -38,7 +46,8 @@ class GatewayTests(unittest.TestCase):
             proc.terminate()
             proc.wait(timeout=5)
             for stream in (proc.stdin, proc.stdout, proc.stderr):
-                if stream: stream.close()
+                if stream:
+                    stream.close()
 
 
 class GatewayResilience(unittest.TestCase):

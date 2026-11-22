@@ -103,7 +103,8 @@ def run_media_tool(name, args):
         try:
             from faster_whisper import WhisperModel
         except ImportError as exc:
-            raise RuntimeError("Optional dependency missing: install faster-whisper with `pip install faster-whisper`.") from exc
+            raise RuntimeError("Optional dependency missing: install faster-whisper with "
+                               "`pip install faster-whisper`.") from exc
         model = WhisperModel(model_size, device="cpu", compute_type="int8")
         segments, meta = model.transcribe(source, language=language or None, word_timestamps=True, vad_filter=True)
         result = []

@@ -15,14 +15,16 @@ def place_clips(a):
         for kind in kinds:
             hit = timeline.collides(kind, track, record, record + last - first)
             if hit:
-                return outcome.blocked(f"{clip['name']} would overwrite {hit['name']} on {kind[0].upper()}{track} at {session.to_tc(hit['start'])}")
+                return outcome.blocked(f"{clip['name']} would overwrite {hit['name']} on {kind[0].upper()}{track} "
+                                       f"at {session.to_tc(hit['start'])}")
         plan.append({"clip": clip["id"], "name": clip["name"], "start_frame": first, "end_frame": last,
                      "record_frame": record, "track_index": track, "media_type": spec.get("media_type"),
                      "at": session.to_tc(record), "frames": last - first})
     if not a.get("confirm"):
         return outcome.preview(plan, warnings)
-    session.call("append_clips", clips=[{k: p[k] for k in ("clip", "start_frame", "end_frame", "record_frame", "track_index",
-                                                            "media_type") if p[k] is not None} for p in plan])
+    session.call("append_clips", clips=[{k: p[k] for k in ("clip", "start_frame", "end_frame", "record_frame",
+                                                            "track_index", "media_type") if p[k] is not None}
+                                        for p in plan])
     session.invalidate()
     landed = sum(1 for p in plan if any(x["start"] == p["record_frame"] and x["track"] == p["track_index"]
                                         and x["name"] == p["name"] for x in session.items()))

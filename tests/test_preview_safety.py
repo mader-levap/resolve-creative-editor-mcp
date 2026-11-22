@@ -4,7 +4,7 @@ import os
 import subprocess
 from unittest import mock
 
-from tests.support import Base, FakeResolve, READ_OPS, SAMPLE_ARGS, item
+from tests.support import READ_OPS, SAMPLE_ARGS, Base, FakeResolve, item
 
 from resolve_editor import audit, dispatch, media
 from resolve_editor.schemas import edit as schema

@@ -56,14 +56,17 @@ class Replace(Base):
     def test_trim_moves_linked_audio_too(self):
         items = [item("v", 1000, 60, src=10), item("a", 1000, 60, src=10, kind="audio")]
         f = self.use(FakeResolve(items, details={"v": {"linked": ["a"]}, "a": {"linked": ["v"]}}))
-        r = dispatch.run("trim_item", {"item_id": "v", "head_frames": 5, "tail_frames": 10, "confirm": True, "backup": False})
+        r = dispatch.run("trim_item", {"item_id": "v", "head_frames": 5, "tail_frames": 10, "confirm": True,
+                                       "backup": False})
         self.assertEqual(r["_operation"]["status"], "success", r)
-        got = sorted((x["track_type"], x["start"], x["duration"], x["source_start"]) for x in f.items if x["track"] == 1)
+        got = sorted((x["track_type"], x["start"], x["duration"], x["source_start"])
+                     for x in f.items if x["track"] == 1)
         self.assertEqual(got, [("audio", 1005, 45, 15), ("video", 1005, 45, 15)])
         self.assertIn("link_items", f.calls)
 
     def test_refusals(self):
-        cases = [({"speed": {"Percentage": 50}}, "speed"), ({"fusion_comps": 1}, "Fusion"), ({"media_id": None}, "media-pool")]
+        cases = [({"speed": {"Percentage": 50}}, "speed"), ({"fusion_comps": 1}, "Fusion"),
+                 ({"media_id": None}, "media-pool")]
         for detail, word in cases:
             self.use(FakeResolve([item("a", 1000, 10)], details={"a": detail}))
             r = dispatch.run("move_item", {"item_id": "a", "record": 1050, "confirm": True})

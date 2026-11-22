@@ -39,17 +39,19 @@ def ripple_trim(a):
             if x["id"] == i:
                 continue
             if x.get("type") == "transition":
-                if (x["track_type"], x["track"]) == ("video", it["track"]) and x["start"] <= it["end"] and it["start"] <= x["end"]:
+                if ((x["track_type"], x["track"]) == ("video", it["track"])
+                        and x["start"] <= it["end"] and it["start"] <= x["end"]):
                     return outcome.blocked(f"{where} has a transition touching it; remove it in Resolve first")
             elif x["start"] < it["end"] and x["end"] > new_end:
-                return outcome.blocked(f"{where}: {x['name']} on {x['track_type'][0].upper()}{x['track']} at {session.to_tc(x['start'])} "
-                                       "overlaps the frames being removed")
+                return outcome.blocked(f"{where}: {x['name']} on {x['track_type'][0].upper()}{x['track']} "
+                                       f"at {session.to_tc(x['start'])} overlaps the frames being removed")
         plan.append(it)
 
     def shift(x):  # total frames x moves back once every planned trim is done
         return n * sum(1 for p in plan if p["end"] <= x["start"])
     rows = [{"item": p["name"], "track": f"V{p['track']}", "was": [session.to_tc(p["start"]), session.to_tc(p["end"])],
-             "now": [session.to_tc(p["start"] - shift(p)), session.to_tc(p["end"] - n - shift(p))]} for p in sorted(plan, key=lambda x: x["start"])]
+             "now": [session.to_tc(p["start"] - shift(p)), session.to_tc(p["end"] - n - shift(p))]}
+            for p in sorted(plan, key=lambda x: x["start"])]
     moved = sum(1 for x in items.values() if x["id"] not in ids and x.get("type") != "transition" and shift(x))
     ends = max((x["end"] - shift(x) - (n if x["id"] in ids else 0) for x in items.values()), default=0)
     first_cut = min(p["end"] - n for p in plan)
@@ -59,10 +61,11 @@ def ripple_trim(a):
     if any(state["timeline_start_frame"] + int(float(f)) >= first_cut for f in markers):
         warnings.append("timeline ruler markers after the first trim may not move with the clips")
     if not a.get("confirm"):
-        return outcome.preview({"trim": rows, "frames_each": n, "other_clips_moved_back": moved, "timeline_ends": session.to_tc(ends)},
-                               warnings)
+        return outcome.preview({"trim": rows, "frames_each": n, "other_clips_moved_back": moved,
+                                "timeline_ends": session.to_tc(ends)}, warnings)
 
-    snapshot = timeline.snapshot_timeline({"label": "before ripple trim"}).get("snapshot") if a.get("backup", True) else None
+    snapshot = (timeline.snapshot_timeline({"label": "before ripple trim"}).get("snapshot")
+                if a.get("backup", True) else None)
     filler = _filler_source(n, prefer=snapshot, exclude={state["timeline"]})
     done = []
     for p in sorted(plan, key=lambda x: x["start"], reverse=True):  # later first, so earlier positions don't change
@@ -86,7 +89,8 @@ def ripple_trim(a):
                     session.call("delete_items", item_ids=[f["id"]], ripple=False)
                 session.call("trim_tail", item_id=p["id"], frames=-n)  # put the end back; nothing else has moved
                 session.invalidate()
-                return outcome.op("failed", reason=f"{p['name']} at {session.to_tc(p['start'])}: ripple failed ({exc}); its end was restored",
+                return outcome.op("failed", reason=f"{p['name']} at {session.to_tc(p['start'])}: "
+                                  f"ripple failed ({exc}); its end was restored",
                                   changes={"trimmed": len(done)}, snapshot=snapshot)
             session.invalidate()
         after = _positions()
@@ -94,15 +98,18 @@ def ripple_trim(a):
         for i, (s, e) in before.items():
             want = (s, new_end) if i == p["id"] else (s - n, e - n) if s >= old_end else (s, e)
             if after.get(i) != want:
-                wrong.append(f"{items.get(i, {}).get('name', i)} at {session.to_tc(s)}: expected {session.to_tc(want[0])}, "
+                wrong.append(f"{items.get(i, {}).get('name', i)} at {session.to_tc(s)}: "
+                             f"expected {session.to_tc(want[0])}, "
                              f"got {session.to_tc(after[i][0]) if i in after else 'missing'}")
         wrong += [f"unexpected item {i} at {session.to_tc(after[i][0])}" for i in set(after) - set(before)]
         if wrong:
-            return outcome.op("failed", False, {"trimmed": len(done)}, wrong[:5], reason="timeline doesn't match the plan; "
-                              "restore from the snapshot if needed", snapshot=snapshot)
+            return outcome.op("failed", False, {"trimmed": len(done)}, wrong[:5],
+                              reason="timeline doesn't match the plan; restore from the snapshot if needed",
+                              snapshot=snapshot)
         done.append(p["id"])
     final = _positions()
-    rows = [{"item": items[i]["name"], "track": f"V{items[i]['track']}", "now": [session.to_tc(final[i][0]), session.to_tc(final[i][1])]}
+    rows = [{"item": items[i]["name"], "track": f"V{items[i]['track']}",
+             "now": [session.to_tc(final[i][0]), session.to_tc(final[i][1])]}
             for i in sorted(done, key=lambda i: final[i][0])]
     return outcome.op("success", True, {"trimmed": len(done), "frames_each": n}, warnings, snapshot=snapshot,
                       items=rows, timeline_ends=session.to_tc(max((e for _, e in final.values()), default=0)))

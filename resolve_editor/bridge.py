@@ -14,8 +14,10 @@ import zlib
 from . import paths
 
 NOT_RUNNING = ("Bridge not running. In Resolve open Workspace > Console (Lua tab) and run "
-               '(Resolve 21.2+): fusion:RunScript(os.getenv("USERPROFILE").."\\\\resolve-claude-bridge\\\\resolve_bridge.lua") '
-               '(Resolve 21.1 and older): dofile(os.getenv("USERPROFILE").."\\\\resolve-claude-bridge\\\\resolve_bridge.lua")')
+               '(Resolve 21.2+): fusion:RunScript(os.getenv("USERPROFILE")'
+               '.."\\\\resolve-claude-bridge\\\\resolve_bridge.lua") '
+               '(Resolve 21.1 and older): dofile(os.getenv("USERPROFILE")'
+               '.."\\\\resolve-claude-bridge\\\\resolve_bridge.lua")')
 
 # Resolve's Lua cannot write files, so the bridge replies via Fusion's prefs file (see resolve_bridge.lua).
 PREFS = os.environ.get("RESOLVE_FUSION_PREFS") or os.path.join(
@@ -81,7 +83,8 @@ def lua_long_string(s):
     return "[" + "=" * n + "[" + s + "]" + "=" * n + "]"
 
 
-def call_bridge(op, args, timeout=120, ack_timeout=15, timeline=None):  # Resolve can stall a few seconds (e.g. LUT rescans)
+# The timeout allows for Resolve stalling a few seconds (e.g. LUT rescans).
+def call_bridge(op, args, timeout=120, ack_timeout=15, timeline=None):
     req_path = os.path.join(paths.DIR, "request.lua")
     rid = uuid.uuid4().hex
     ensure_token_png()

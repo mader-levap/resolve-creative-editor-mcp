@@ -29,9 +29,9 @@ class FakeResolve:
     def __init__(self, items, fail_on=None, details=None, fps=30):
         self.items, self.fail_on, self.calls, self.n, self.fps = items, dict(fail_on or {}), [], 0, fps
         self.tracks, self.timelines = {"video": 1, "audio": 1}, ["T"]
-        self.settings = {x["id"]: {"properties": {"ZoomX": 1.5}, "fades": {"FadeIn": 4, "FadeOut": 0}, "color": "Orange",
-                                   "enabled": True, "speed": {"Percentage": 100}, "linked": [], "fusion_comps": 0,
-                                   "takes": 0, "media_id": "c1"} for x in items}
+        self.settings = {x["id"]: {"properties": {"ZoomX": 1.5}, "fades": {"FadeIn": 4, "FadeOut": 0},
+                                   "color": "Orange", "enabled": True, "speed": {"Percentage": 100}, "linked": [],
+                                   "fusion_comps": 0, "takes": 0, "media_id": "c1"} for x in items}
         for k, v in (details or {}).items():
             self.settings[k].update(v)
 
@@ -45,10 +45,11 @@ class FakeResolve:
             r = [x for x in self.items if x["track_type"] == args["track_type"]]
         elif op == "list_media":
             r = [{"id": "c1", "name": "a.mp4", "fps": self.fps, "frames": "300"}] + [
-                {"id": f"tl-{t}", "name": t, "fps": self.fps, "frames": "900", "type": "Timeline"} for t in self.timelines]
+                {"id": f"tl-{t}", "name": t, "fps": self.fps, "frames": "900", "type": "Timeline"}
+                for t in self.timelines]
         elif op == "get_state":
-            r = {"timeline": "T", "project": "P", "pins": True, "timeline_fps": 30, "timeline_start_frame": 1000, "timeline_end_frame": 2000,
-                 "timeline_drop_frame": "0"}
+            r = {"timeline": "T", "project": "P", "pins": True, "timeline_fps": 30, "timeline_start_frame": 1000,
+                 "timeline_end_frame": 2000, "timeline_drop_frame": "0"}
         elif op == "item_details":
             r = [dict(self.settings[i], id=i) for i in args["item_ids"]]
         elif op == "set_fades":
@@ -83,8 +84,9 @@ class FakeResolve:
                 new = item(f"n{self.n}", c["record_frame"], c["end_frame"] - c["start_frame"], src=c["start_frame"],
                            track=c["track_index"], kind=kind)
                 self.items.append(new)
-                self.settings[new["id"]] = {"properties": {"ZoomX": 1}, "fades": {"FadeIn": 0, "FadeOut": 0}, "color": "",
-                                            "enabled": True, "speed": {"Percentage": 100}, "linked": [], "media_id": "c1"}
+                self.settings[new["id"]] = {"properties": {"ZoomX": 1}, "fades": {"FadeIn": 0, "FadeOut": 0},
+                                            "color": "", "enabled": True, "speed": {"Percentage": 100},
+                                            "linked": [], "media_id": "c1"}
             r = []
         elif op == "copy_settings":
             src, dst = self.settings[args["from_id"]], self.settings[args["to_id"]]
@@ -105,10 +107,12 @@ class FakeResolve:
         elif op == "add_transition":
             o = args["options"]
             r = {"id": "tr", "name": o["type"], "start": 1005, "end": 1015, "duration": o.get("duration", 10)}
-        elif op in ("set_speed", "copy_grade", "normalize_audio", "set_enabled", "set_item_properties", "export_timeline"):
+        elif op in ("set_speed", "copy_grade", "normalize_audio", "set_enabled", "set_item_properties",
+                    "export_timeline"):
             r = {"ok": True}
         elif op == "add_title_cards":
-            r = {"placed": [item(f"t{i}", c["record_frame"], c["frames"], name="Text+") for i, c in enumerate(args["cards"])]}
+            r = {"placed": [item(f"t{i}", c["record_frame"], c["frames"], name="Text+")
+                            for i, c in enumerate(args["cards"])]}
         return {"ok": True, "result": r}
 
 

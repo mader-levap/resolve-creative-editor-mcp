@@ -1,6 +1,6 @@
 """Frame rates and timecode: pure maths."""
-from fractions import Fraction
 import re
+from fractions import Fraction
 
 NTSC = {23.976: Fraction(24000, 1001), 29.97: Fraction(30000, 1001), 47.952: Fraction(48000, 1001),
         59.94: Fraction(60000, 1001), 119.88: Fraction(120000, 1001)}

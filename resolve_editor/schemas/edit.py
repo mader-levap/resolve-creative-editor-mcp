@@ -27,8 +27,8 @@ TOOLS = [
       "copies grade, transform, audio levels, fades, colour, flags and markers onto it. Keyframes are not copied.",
       {"item_id": S, "record": WHEN, "track_index": I, "include_linked": B, "confirm": CONFIRM},
       ["item_id", "record"]),
-    T("trim_item", "Trim a clip (and its linked audio/video). Positive frames shorten that end, negative extend it into "
-      "spare source media. Same settings-preserving method as move_item.",
+    T("trim_item", "Trim a clip (and its linked audio/video). Positive frames shorten that end, negative extend it "
+      "into spare source media. Same settings-preserving method as move_item.",
       {"item_id": S, "head_frames": I, "tail_frames": I, "include_linked": B, "confirm": CONFIRM}, ["item_id"]),
     T("ripple_trim", "Shorten clips' ends by tail_frames and pull everything after them earlier on all tracks, so the "
       "gaps stay the same. Works on Text+ titles and generators: nothing is rebuilt, so text, style, fades and "
@@ -78,8 +78,10 @@ TOOLS = [
       "(partial included): the result says why and lists not_run. Each operation is "
       "{tool, args}. Without confirm=true nothing is changed: steps that have a preview show it, the others are only "
       "listed. confirm applies to all of them; confirm inside a step's args is ignored.",
-      {"operations": {"type": "array", "items": {"type": "object", "properties": {"tool": S, "args": {"type": "object"}},
-                                                  "required": ["tool"]}}, "confirm": CONFIRM}, ["operations"]),
+      {"operations": {"type": "array",
+                      "items": {"type": "object", "properties": {"tool": S, "args": {"type": "object"}},
+                                "required": ["tool"]}},
+       "confirm": CONFIRM}, ["operations"]),
     T("audit_log", "Recent changes made through this server.", {"limit": I}),
 ]
 NAMES = {t["name"] for t in TOOLS}

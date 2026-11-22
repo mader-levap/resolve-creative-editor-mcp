@@ -13,7 +13,9 @@ def run_tool(name, args):
             result = media.run_media_tool(name, args)
             if name == "make_contact_sheet":
                 return {"content": [{"type": "image", "data": result["image"], "mimeType": result["mimeType"]},
-                                    {"type": "text", "text": json.dumps({k: v for k, v in result.items() if k not in {"image", "mimeType"}}, indent=2)}]}
+                                    {"type": "text", "text": json.dumps({k: v for k, v in result.items()
+                                                                         if k not in {"image", "mimeType"}},
+                                                                        indent=2)}]}
             return {"content": [{"type": "text", "text": json.dumps(result, indent=2)}]}
         except Exception as e:
             return {"content": [{"type": "text", "text": str(e)}], "isError": True}

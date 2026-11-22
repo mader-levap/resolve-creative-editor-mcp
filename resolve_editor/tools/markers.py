@@ -13,7 +13,8 @@ def add_markers(a):
     markers = [{"frame": session.to_frame(m["at"]) - start, "name": m.get("name") or "", "note": m.get("note") or "",
                 "color": m.get("color") or "Blue", "duration": m.get("duration") or 1} for m in a["markers"]]
     added = session.call("add_markers", markers=markers).get("added", 0)
-    return outcome.op("success" if added == len(markers) else "partial", added == len(markers), {"markers_added": added},
+    return outcome.op("success" if added == len(markers) else "partial", added == len(markers),
+                      {"markers_added": added},
                       [] if added == len(markers) else ["a marker already exists at some of those frames"])
 
 
@@ -23,7 +24,7 @@ def onsets(samples, rate, hop=512, min_gap=0.25):
     for i in range(0, len(samples) - hop, hop):
         chunk = samples[i:i + hop]
         energy.append(math.log(sum(x * x for x in chunk) / hop + 1e-4))  # floor about -40 dB ignores hiss
-    flux = [max(0.0, b - a) for a, b in zip(energy, energy[1:])]
+    flux = [max(0.0, b - a) for a, b in zip(energy, energy[1:], strict=False)]
     if len(flux) < 8:
         return []
     window, last, out = max(8, int(rate / hop)), -min_gap, []
@@ -70,5 +71,5 @@ def add_audio_markers(a):
     markers = [{"frame": offset + timecode.seconds_to_frames(x["start"], fps), "name": name, "color": color,
                 "duration": max(1, timecode.seconds_to_frames(x["end"] - x["start"], fps))} for x in found]
     added = session.call("add_markers", markers=markers).get("added", 0) if markers else 0
-    return outcome.op("success" if added == len(markers) else "partial", added == len(markers), {"markers_added": added},
-                      warnings)
+    return outcome.op("success" if added == len(markers) else "partial", added == len(markers),
+                      {"markers_added": added}, warnings)

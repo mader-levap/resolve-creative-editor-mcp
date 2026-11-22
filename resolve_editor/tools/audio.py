@@ -34,9 +34,13 @@ def normalize_audio(a):
     if a.get("target_loudness") is not None:
         options["targetLoudness"] = a["target_loudness"]
     if not a.get("confirm"):
-        return outcome.preview({"items": len(a["item_ids"]), "options": options}, ["changes clip gain; Ctrl+Z in Resolve undoes it"])
-    before = {d["id"]: (d.get("properties") or {}).get("AudioVolume") for d in session.as_list(session.call("item_details", item_ids=a["item_ids"]))}
+        return outcome.preview({"items": len(a["item_ids"]), "options": options},
+                               ["changes clip gain; Ctrl+Z in Resolve undoes it"])
+    before = {d["id"]: (d.get("properties") or {}).get("AudioVolume")
+              for d in session.as_list(session.call("item_details", item_ids=a["item_ids"]))}
     ok = session.call("normalize_audio", item_ids=a["item_ids"], options=options).get("ok")
-    after = {d["id"]: (d.get("properties") or {}).get("AudioVolume") for d in session.as_list(session.call("item_details", item_ids=a["item_ids"]))}
-    return outcome.op("success" if ok else "failed", None, {"gain_db": {i: [before.get(i), after.get(i)] for i in after}},
+    after = {d["id"]: (d.get("properties") or {}).get("AudioVolume")
+             for d in session.as_list(session.call("item_details", item_ids=a["item_ids"]))}
+    return outcome.op("success" if ok else "failed", None,
+                      {"gain_db": {i: [before.get(i), after.get(i)] for i in after}},
                       ["clip-volume read-back may not reflect normalization gain; listen to confirm"])

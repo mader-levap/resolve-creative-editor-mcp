@@ -46,7 +46,8 @@ def clock():
     state = get_state()
     if not state.get("timeline"):
         raise RuntimeError("no current timeline")
-    return timecode.parse_fps(state["timeline_fps"]), str(state.get("timeline_drop_frame")) in ("1", "true", "True"), state
+    return (timecode.parse_fps(state["timeline_fps"]),
+            str(state.get("timeline_drop_frame")) in ("1", "true", "True"), state)
 
 
 def items():

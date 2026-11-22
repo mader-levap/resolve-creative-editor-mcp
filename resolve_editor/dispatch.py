@@ -41,17 +41,20 @@ def batch(a):
     ok = all(r["status"] in DONE for r in results)  # the loop only breaks after a step that isn't
     why = {} if ok else {"reason": f"stopped at step {len(results)} of {len(ops)} ({row['tool']}: {row['status']}); "
                                    f"{len(not_run)} not run. Read the timeline back, don't repeat the whole batch"}
-    return outcome.op("success" if ok else "partial", ok, {"steps_done": len(results)}, results=results, not_run=not_run,
-                      snapshot=snapshot, **why)
+    return outcome.op("success" if ok else "partial", ok, {"steps_done": len(results)}, results=results,
+                      not_run=not_run, snapshot=snapshot, **why)
 
 
-HANDLERS = {"doctor": diagnostics.doctor, "timeline_summary": inspection.timeline_summary, "inspect_range": inspection.inspect_range,
-            "find_media": inspection.find_media, "snapshot_timeline": timeline.snapshot_timeline, "place_clips": placement.place_clips,
-            "move_item": replace.move_item, "trim_item": replace.trim_item, "ripple_trim": ripple.ripple_trim, "set_enabled": clips.set_enabled, "set_fades": clips.set_fades,
-            "add_transition": clips.add_transition, "set_audio": audio.set_audio, "normalize_audio": audio.normalize_audio,
-            "set_speed": clips.set_speed, "copy_grade": clips.copy_grade, "add_markers": markers.add_markers,
-            "add_audio_markers": markers.add_audio_markers, "add_captions": captions.add_captions, "export_srt": captions.export_srt,
-            "export_timeline": delivery.export_timeline, "qc_file": delivery.qc_file, "batch": batch, "audit_log": diagnostics.audit_log}
+HANDLERS = {"doctor": diagnostics.doctor, "timeline_summary": inspection.timeline_summary,
+            "inspect_range": inspection.inspect_range, "find_media": inspection.find_media,
+            "snapshot_timeline": timeline.snapshot_timeline, "place_clips": placement.place_clips,
+            "move_item": replace.move_item, "trim_item": replace.trim_item, "ripple_trim": ripple.ripple_trim,
+            "set_enabled": clips.set_enabled, "set_fades": clips.set_fades, "add_transition": clips.add_transition,
+            "set_audio": audio.set_audio, "normalize_audio": audio.normalize_audio, "set_speed": clips.set_speed,
+            "copy_grade": clips.copy_grade, "add_markers": markers.add_markers,
+            "add_audio_markers": markers.add_audio_markers, "add_captions": captions.add_captions,
+            "export_srt": captions.export_srt, "export_timeline": delivery.export_timeline,
+            "qc_file": delivery.qc_file, "batch": batch, "audit_log": diagnostics.audit_log}
 READ_ONLY = {"doctor", "timeline_summary", "inspect_range", "find_media", "audit_log", "qc_file"}
 # Tools that change nothing until confirm=true. A batch preview calls only these, so add a tool here only if that holds.
 PREVIEWABLE = {"place_clips", "move_item", "trim_item", "ripple_trim", "normalize_audio", "set_speed", "copy_grade",

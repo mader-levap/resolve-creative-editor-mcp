@@ -77,7 +77,8 @@ def _replace(plan, backup=True):
             kind = p["item"]["track_type"]
             s = timeline.append_one(p["media_id"], kind, p["first"], p["last"], p["record"], stage_track(kind))
             staged.append(s)
-            report = session.call("copy_settings", from_id=p["item"]["id"], to_id=s["id"], kind=kind, marker_shift=p["shift"])
+            report = session.call("copy_settings", from_id=p["item"]["id"], to_id=s["id"], kind=kind,
+                                  marker_shift=p["shift"])
             if report["failed"]:
                 raise RuntimeError(f"could not copy {', '.join(report['failed'])} to the replacement")
             p["staged"] = s
@@ -94,7 +95,7 @@ def _replace(plan, backup=True):
             session.call("copy_settings", from_id=p["staged"]["id"], to_id=n["id"], kind=kind, marker_shift=0)
             done.append((p, n))
     except Exception as exc:
-        for p, n in done:
+        for _, n in done:
             session.call("delete_items", item_ids=[n["id"]])
         restored = []
         for p in plan:
@@ -120,8 +121,8 @@ def _replace(plan, backup=True):
             problems.append(f"{p['item']['name']}: {', '.join(diff)} differ")
     cleanup()
     changes = [{"item": p["item"]["name"], "track": f"{p['item']['track_type'][0].upper()}{p['track']}",
-                "from": [session.to_tc(p["item"]["start"]), p["item"]["duration"]], "to": [session.to_tc(p["record"]), p["last"] - p["first"]],
-                "new_id": n["id"]} for p, n in done]
+                "from": [session.to_tc(p["item"]["start"]), p["item"]["duration"]],
+                "to": [session.to_tc(p["record"]), p["last"] - p["first"]], "new_id": n["id"]} for p, n in done]
     return outcome.op("success" if not problems else "partial", not problems, {"replaced": changes},
                       ["keyframes are not copied"] + problems, snapshot=snapshot)
 
@@ -131,10 +132,12 @@ def _replace_tool(a, new_range, verb):
     if isinstance(plan, str):
         return outcome.blocked(plan)
     rows = [{"item": p["item"]["name"], "track": f"{p['item']['track_type'][0].upper()}{p['track']}",
-             "from": [session.to_tc(p["item"]["start"]), p["item"]["duration"]], "to": [session.to_tc(p["record"]), p["last"] - p["first"]]}
+             "from": [session.to_tc(p["item"]["start"]), p["item"]["duration"]],
+             "to": [session.to_tc(p["record"]), p["last"] - p["first"]]}
             for p in plan]
     if not a.get("confirm"):
-        return outcome.preview({verb: rows, "method": "replacement built and settings copied before the original is removed"},
+        return outcome.preview({verb: rows,
+                                "method": "replacement built and settings copied before the original is removed"},
                                ["keyframes are not copied", "a backup timeline is made first"])
     return _replace(plan, a.get("backup", True))
 
@@ -146,7 +149,8 @@ def move_item(a):
         return outcome.blocked(f"timeline item not found: {a['item_id']}")
     shift = target - root["start"]
     return _replace_tool(a, lambda it: (it["source_start"], it["source_start"] + it["duration"], it["start"] + shift,
-                                        a.get("track_index") or it["track"] if it["id"] == a["item_id"] else it["track"]),
+                                        a.get("track_index") or it["track"] if it["id"] == a["item_id"]
+                                        else it["track"]),
                          "move")
 
 

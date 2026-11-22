@@ -8,7 +8,7 @@ import types
 import unittest
 from unittest import mock
 
-from tests import support  # first: gives the tests a temporary bridge folder
+from tests import support  # first: gives the tests a temporary bridge folder  # noqa: F401
 
 from resolve_editor import bridge, paths
 
@@ -81,7 +81,8 @@ class BridgeReply(unittest.TestCase):
             polls[0] += 1
             on_poll(polls[0])
         clock = types.SimpleNamespace(time=lambda: now[0], sleep=sleep)
-        with mock.patch.object(bridge, "time", clock), mock.patch.object(bridge.uuid, "uuid4", lambda: types.SimpleNamespace(hex=RID)):
+        with (mock.patch.object(bridge, "time", clock),
+              mock.patch.object(bridge.uuid, "uuid4", lambda: types.SimpleNamespace(hex=RID))):
             return bridge.call_bridge("get_state", {}, timeout=10, ack_timeout=5)
 
     def test_half_written_file_is_not_a_reply(self):

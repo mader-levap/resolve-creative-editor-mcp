@@ -22,7 +22,8 @@ def set_fades(a):
     # Resolve's SetFades sets both ends, so keep the current length of whichever end was not given.
     current = {}
     if fade_in is None or fade_out is None:
-        current = {d["id"]: d.get("fades") or {} for d in session.as_list(session.call("item_details", item_ids=a["item_ids"]))}
+        current = {d["id"]: d.get("fades") or {}
+                   for d in session.as_list(session.call("item_details", item_ids=a["item_ids"]))}
     results = []
     for i in a["item_ids"]:
         now = current.get(i, {})

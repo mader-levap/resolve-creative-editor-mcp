@@ -28,7 +28,7 @@ def split_segments(segments, max_chars=42):
             out.append({"start": round(t, 3), "end": round(end, 3), "text": x})
             t = end
     out.sort(key=lambda x: x["start"])
-    for a, b in zip(out, out[1:]):
+    for a, b in zip(out, out[1:], strict=False):
         a["end"] = min(a["end"], b["start"])
     return [x for x in out if x["end"] > x["start"]]
 
@@ -48,7 +48,8 @@ def caption_cards(segments, fps, base, timeline, stamp=""):
     """Timeline names must be unique in a project, so each run's cards carry a time stamp."""
     cards, timeline = [], f"{timeline} {stamp}".strip()
     for n, s in enumerate(segments, 1):
-        start, end = base + timecode.seconds_to_frames(s["start"], fps), base + timecode.seconds_to_frames(s["end"], fps)
+        start, end = (base + timecode.seconds_to_frames(s["start"], fps),
+                      base + timecode.seconds_to_frames(s["end"], fps))
         while end - start > 0:  # a card can be at most 5 s, so longer lines continue on a second card
             frames = min(end - start, MAX_CARD_FRAMES)
             cards.append({"name": f"{timeline} caption {n:04d}{'' if frames == end - start else '+'}"[:120],
@@ -72,12 +73,13 @@ def add_captions(a):
     for c in cards:
         hit = timeline.collides("video", track, c["record_frame"], c["record_frame"] + c["frames"])
         if hit:
-            return outcome.blocked(f"V{track} is busy at {session.to_tc(hit['start'])}; leave track_index out to use a new track")
+            return outcome.blocked(f"V{track} is busy at {session.to_tc(hit['start'])}; "
+                                   "leave track_index out to use a new track")
     style = {k: a[k] for k in ("font", "size", "y") if k in a}
     r = session.call("add_title_cards", cards=cards, folder=a.get("folder") or CAPTION_BIN, track_index=track, **style)
     session.invalidate()
     placed = session.as_list(r.get("placed"))
-    ok = len(placed) == len(cards) and all(p["duration"] == c["frames"] for p, c in zip(placed, cards))
+    ok = len(placed) == len(cards) and all(p["duration"] == c["frames"] for p, c in zip(placed, cards, strict=False))
     return outcome.op("success" if ok else ("partial" if placed else "failed"), ok,
                       {"captions_added": len(placed), "track": f"V{track}"}, [r["error"]] if r.get("error") else [])
 

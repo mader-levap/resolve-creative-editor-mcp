@@ -32,7 +32,7 @@ Start with edit__timeline_summary (the user may have edited by hand), then edit_
 Destructive edit__ tools return a preview first: show it to the user, then repeat with confirm=true. Use edit__batch for
 several changes. Never rebuild a whole timeline, never delete clips without asking, never render unless told to.
 Do not mix legacy__ and resolve__ edits on one timeline. Read resolve__knowledge for editorial, colour and audio craft.
-You cannot hear audio: say so rather than implying it."""
+You cannot hear audio: say so rather than implying it."""  # noqa: E501  (sent to the client as written)
 
 
 def _prefix_tool(tool: dict[str, Any], prefix: str, warning: str = "") -> dict[str, Any]:
@@ -46,7 +46,8 @@ def _prefix_tool(tool: dict[str, Any], prefix: str, warning: str = "") -> dict[s
 
 def _media_tools() -> list[dict[str, Any]]:
     names = {"probe_media", "extract_audio", "detect_silence", "transcribe_audio", "make_contact_sheet"}
-    return [_prefix_tool(t, "media__", "Local media analysis; source files are read-only.") for t in legacy_schema.TOOLS if t["name"] in names]
+    return [_prefix_tool(t, "media__", "Local media analysis; source files are read-only.")
+            for t in legacy_schema.TOOLS if t["name"] in names]
 
 
 def _edit_tools() -> list[dict[str, Any]]:
@@ -76,7 +77,8 @@ def _run_media_tool(name: str, args: dict[str, Any]) -> dict[str, Any]:
         if name == "make_contact_sheet":
             return {"content": [
                 {"type": "image", "data": result["image"], "mimeType": result["mimeType"]},
-                {"type": "text", "text": json.dumps({k:v for k,v in result.items() if k not in {"image","mimeType"}}, indent=2)}
+                {"type": "text",
+                 "text": json.dumps({k:v for k,v in result.items() if k not in {"image","mimeType"}}, indent=2)}
             ]}
         return {"content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False, indent=2)}]}
     except Exception as exc:
@@ -143,11 +145,13 @@ class Gateway:
             tools.append(t)
             self.tool_routes[t["name"]] = ("resolve", tool["name"])
         for tool in (self.legacy.tools if self.legacy else []):
-            if tool["name"] in {"probe_media", "extract_audio", "detect_silence", "transcribe_audio", "make_contact_sheet"}:
+            if tool["name"] in {"probe_media", "extract_audio", "detect_silence", "transcribe_audio",
+                                "make_contact_sheet"}:
                 continue
             t = _prefix_tool(
                 tool, "legacy__",
-                "FALLBACK ONLY: prefer the matching resolve__ tool. Do not mix legacy__ and resolve__ timeline mutations in one edit."
+                "FALLBACK ONLY: prefer the matching resolve__ tool. "
+                "Do not mix legacy__ and resolve__ timeline mutations in one edit."
             )
             if tool["name"] in GUARDED_LEGACY:
                 t = _with_confirm(t)
@@ -164,7 +168,6 @@ class Gateway:
     def handle(self, msg: dict[str, Any]) -> dict[str, Any] | None:
         method = msg.get("method")
         params = msg.get("params") or {}
-        msg_id = msg.get("id")
         if method == "initialize":
             requested = params.get("protocolVersion", self.protocol)
             self.start(requested)
@@ -206,7 +209,8 @@ class Gateway:
                 args = {k: v for k, v in args.items() if k != "confirm"}
             child = self.resolve if backend == "resolve" else self.legacy
             if child is None:
-                return {"isError": True, "content": [{"type": "text", "text": f"The {backend} backend is not available."}]}
+                return {"isError": True,
+                        "content": [{"type": "text", "text": f"The {backend} backend is not available."}]}
             response = child.request("tools/call", {"name": original, "arguments": args}, timeout=1800.0)
             if "error" in response:
                 return {"isError": True, "content": [{"type": "text", "text": str(response["error"])}]}
@@ -227,8 +231,10 @@ class Gateway:
         raise LookupError(method)
 
     def close(self):
-        if self.resolve: self.resolve.close()
-        if self.legacy: self.legacy.close()
+        if self.resolve:
+            self.resolve.close()
+        if self.legacy:
+            self.legacy.close()
 
 
 def main() -> None:
@@ -266,7 +272,8 @@ def main() -> None:
                 except LookupError as exc:
                     output = {"jsonrpc": "2.0", "id": message["id"], "error": {"code": -32601, "message": str(exc)}}
                 except Exception as exc:
-                    output = {"jsonrpc": "2.0", "id": message["id"], "error": {"code": -32000, "message": f"{type(exc).__name__}: {exc}"}}
+                    output = {"jsonrpc": "2.0", "id": message["id"],
+                              "error": {"code": -32000, "message": f"{type(exc).__name__}: {exc}"}}
                 sys.stdout.write(json.dumps(output, ensure_ascii=False) + "\n")
                 sys.stdout.flush()
             except Exception as exc:
