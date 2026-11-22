@@ -30,8 +30,9 @@ How each item is known:
 | [I-12](#i-12) | Low | The live transition test accepts a refusal as a pass | Code |
 | [I-13](#i-13) | ~~Critical~~ **Fixed** | Bridge replies fail when half-written or over 65 KB | Live, fake |
 | [I-14](#i-14) | Low | The gateway test writes to the real audit log | Live |
+| [I-15](#i-15) | High | Two clients sharing the bridge lose or drop requests and replies | Live, fake, code |
 
-Suggested order: I-02 and I-03, then the `add_transition` group (I-04, I-06 to I-10), then the rest.
+Suggested order: I-02 and I-03, I-15, then the `add_transition` group (I-04, I-06 to I-10), then the rest.
 
 ## Issues
 
@@ -265,6 +266,64 @@ B was deterministic. Estimated limits: about 70 clips for `item_details`, 320 fo
 **Fix:** set it to a temporary folder in the test's environment.
 
 **Done when:** running all tests leaves the real audit log unchanged.
+
+<a id="i-15"></a>
+### I-15 Two clients sharing the bridge collide (high)
+
+**Where:** `mcp_server.py:175` (`call_bridge`), `resolve_bridge.lua:21` and `resolve_bridge.lua:24`
+
+**Problem:** every client uses the same `request.lua`, `request.lua.tmp` and reply slot (`reply.csv` on 21.2), with
+no lock between processes. A client is any process that calls the bridge: another session's MCP server, or a script
+that imports `editor_tools` while the server is in use. A server that gets no Resolve calls doesn't interfere.
+
+**Repro, fake:** the real `call_bridge` in a temporary folder, a simulated bridge and forced timing. A and B are two
+clients making writes.
+
+| | Timing | A gets | What ran |
+|---|---|---|---|
+| 1 | B overwrites A's unread request | "Bridge not running" | B only |
+| 2 | B's ack replaces A's reply before A saw its ack | "Bridge not running" | **A** and B |
+| 3 | B's ack replaces A's reply after A saw its ack | `TimeoutError` | **A** and B |
+| 4 | A's cleanup deletes B's unread request | Success | A only, B's request is lost |
+| 5 | B renames the shared `.tmp` first | `FileNotFoundError` | Nothing of A's |
+| 6 | B overwrites the shared `.tmp` before A renames it | "Bridge not running" | B only |
+
+In 2 and 3 the edit is made and an error is reported, so a retry makes it twice. "Bridge not running" also sends
+the user to restart a bridge that works.
+
+**Repro, live 2026-11-22:** processes calling the read-only `get_state` as fast as they can, with a 4 s ack timeout.
+This is a stress rate, not a forecast for normal use.
+
+| Clients | Calls | Failed |
+|---|---|---|
+| 1 | 60 | 0 |
+| 2 | 860 | 19: 18 "Bridge not running", 1 `PermissionError` (WinError 32, file in use) |
+| 2, with a file lock around `call_bridge` (candidate) | 200 | 0 |
+
+The line that raised the `PermissionError` wasn't recorded and it didn't recur. By the code it is the write or
+rename of the request (`mcp_server.py:183-187`), because reading and cleanup catch `OSError`.
+
+**Not affected, by the code:** parallel tool calls in one session. The gateway handles one request at a time and
+waits for its legacy child. A bridge call gives up after 120 s, well inside the gateway's 1800 s limit for a
+child's tool call.
+
+**Fix:** hold an OS file lock in the bridge folder from writing the request to cleanup (`msvcrt` on Windows, `fcntl`
+elsewhere). The OS releases it if the process dies.
+
+- Bound the wait, and then fail with "bridge busy, nothing was sent". `edit__` calls have no gateway timeout, so
+  after an unbounded wait a write could run long after the client gave up on the call.
+- A unique `.tmp` name alone fixes only 5 and 6.
+- Servers started before the fix ignore the lock until restarted.
+
+**Limits of that fix:**
+
+- It serializes single bridge calls, not whole tools. Another client can still switch timelines or edit between a
+  tool's read and its write (see I-06).
+- After a timeout the lock is released while Resolve may still be busy, so the next call can still report "Bridge
+  not running".
+
+**Done when:** a test with two processes and a fake bridge loses nothing, a waiter that gives up sends nothing, and
+the live two-client run has no failures.
 
 ## Live tests
 
