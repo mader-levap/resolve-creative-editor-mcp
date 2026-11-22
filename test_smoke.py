@@ -24,9 +24,34 @@ FAKE = r"""
 local clip = {GetMediaId=function() return "id1" end, GetName=function() return "a.mp4" end,
   GetClipProperty=function() return {Frames="240", FPS="24", ["File Path"]="C:\\v\\a.mp4"} end}
 local folder = {GetClipList=function() return {clip} end, GetSubFolderList=function() return {} end}
+local made = {}
+local placed = {GetUniqueId=function() return "item1" end, GetName=function() return "placed" end,
+  GetStart=function() return 0 end, GetEnd=function() return 10 end, GetDuration=function() return 10 end}
+local function timeline(name)
+  if not made[name] then
+    local tool = {SetInput=function() end}
+    local title = {GetFusionCompByIndex=function() return {FindToolByID=function() return tool end} end}
+    made[name] = {GetName=function() return name end,
+      GetSetting=function() return "30" end, GetStartFrame=function() return 0 end,
+      GetEndFrame=function() return 100 end, GetCurrentTimecode=function() return "01:00:00:00" end,
+      GetMediaPoolItem=function() return {} end,
+      AddMarker=function() wrote("marker", current()); return true end,
+      InsertFusionTitleIntoTimeline=function() wrote("title", current()); return title end}
+  end
+  return made[name]
+end
 local pool = {GetRootFolder=function() return folder end,
-  AppendToTimeline=function(self, list) record(list[1].startFrame, list[1].endFrame); return {} end}
-local proj = {GetName=function() return "demo" end, GetCurrentTimeline=function() return nil end,
+  AddSubFolder=function() return folder end, GetCurrentFolder=function() return folder end,
+  SetCurrentFolder=function() return true end,
+  CreateEmptyTimeline=function(self, name) created(name); return timeline(name) end,
+  AppendToTimeline=function(self, list)
+    record(list[1].startFrame, list[1].endFrame); wrote("append", current()); return {placed}
+  end}
+local proj = {GetName=function() return project_name() end,
+  GetCurrentTimeline=function() local n = current(); if n then return timeline(n) end end,
+  GetTimelineCount=function() return count() end,
+  GetTimelineByIndex=function(self, i) return timeline(name_at(i)) end,
+  SetCurrentTimeline=function(self, t) return switch(t:GetName()) end,
   GetMediaPool=function() return pool end}
 resolve = {GetVersionString=function() return "21.1-fake" end, GetCurrentPage=function() return "edit" end,
   GetProjectManager=function() return {GetCurrentProject=function() return proj end} end}
@@ -34,6 +59,20 @@ resolve = {GetVersionString=function() return "21.1-fake" end, GetCurrentPage=fu
 
 L = {}
 appended = []
+world = {"project": "demo", "names": [], "cur": None, "wrote": [], "ignore": {}}
+
+
+def created(name):  # Resolve makes a new timeline current
+    world["names"].append(name)
+    world["cur"] = name
+
+
+def switch(name):
+    if world["ignore"].get(name, 0):  # Resolve not staying where it was told
+        world["ignore"][name] -= 1
+    else:
+        world["cur"] = name
+    return True
 
 
 prefs = os.path.join(tmp, "Fusion.prefs")
@@ -51,6 +90,12 @@ def run_bridge():
     g = lua.globals()
     g.BRIDGE_DIR = bridge_dir + "\\"
     g.record = lambda s, e: appended.append((s, e))
+    g.wrote = lambda what, at: world["wrote"].append((what, at))
+    g.current = lambda: world["cur"]
+    g.project_name = lambda: world["project"]
+    g.count = lambda: len(world["names"])
+    g.name_at = lambda i: world["names"][int(i) - 1]
+    g.created, g.switch = created, switch
     # mimic Resolve's sandbox: no io/require; loadfile reads, fusion prefs is the only writer
     lua.execute("io = nil; require = nil; bmd = {}; fusion = {}")
     g.bmd.wait = time.sleep
@@ -106,6 +151,47 @@ r = rpc(6, "tools/call", {"name": "set_item_properties", "arguments": {"item_id"
 assert r["isError"] and "not allowed" in text(r), r
 r = rpc(8,"tools/call", {"name": "add_marker", "arguments": {"frame": 5}})
 assert r["isError"] and "No current timeline" in text(r), r
+
+# A request pinned to a timeline runs there or not at all (ISSUES.md I-16). Real Lua, real call_bridge.
+os.environ.update(RESOLVE_BRIDGE_DIR=bridge_dir, RESOLVE_FUSION_PREFS=prefs)
+import mcp_server as M
+
+MARKER = {"frame": 5}
+PIN = {"project": "demo", "name": "WORK"}
+
+
+def reset(cur="OTHER", project="demo", names=("WORK", "OTHER"), ignore=None):
+    world.update(project=project, names=list(names), cur=cur, wrote=[], ignore=ignore or {})
+
+
+reset()
+r = M.call_bridge("get_state", {})
+assert r["ok"] and r["result"]["pins"] is True, r
+r = M.call_bridge("add_marker", MARKER)
+assert r["ok"] and world["wrote"] == [("marker", "OTHER")] and not r.get("switched_from"), (r, world)  # no pin
+reset()
+r = M.call_bridge("add_marker", MARKER, timeline=PIN)
+assert r["ok"] and world["wrote"] == [("marker", "WORK")] and r["switched_from"] == "OTHER", (r, world)
+reset(cur="WORK")
+r = M.call_bridge("add_marker", MARKER, timeline=PIN)
+assert r["ok"] and world["wrote"] == [("marker", "WORK")] and not r.get("switched_from"), (r, world)
+for case in (dict(project="another", cur="WORK"), dict(names=["OTHER"]), dict(ignore={"WORK": 99})):
+    reset(**case)
+    r = M.call_bridge("add_marker", MARKER, timeline=PIN)
+    assert not r["ok"] and "not run" in r["error"] and world["wrote"] == [], (case, r, world)
+
+CARDS = {"folder": "bin", "track_index": 2, "cards": [
+    {"name": "card1", "text": "Hi", "frames": 10, "record_frame": 20},
+    {"name": "card2", "text": "Yo", "frames": 10, "record_frame": 40}]}
+reset(cur="WORK", ignore={"WORK": 1, "card2": 1})
+r = M.call_bridge("add_title_cards", CARDS, timeline=PIN)
+assert r["ok"] and len(r["result"]["placed"]) == 2, (r, world)
+assert [w for w in world["wrote"] if w[0] == "append"] == [("append", "WORK")] * 2, world
+assert [w for w in world["wrote"] if w[0] == "title"] == [("title", "card1"), ("title", "card2")], world
+reset(cur="WORK", ignore={"WORK": 99})
+r = M.call_bridge("add_title_cards", CARDS, timeline=PIN)
+assert r["ok"] and r["result"]["error"], r
+assert not [w for w in world["wrote"] if w[0] == "append"], world
 
 data["claude_bridge_inst"] = "other"  # a newer run took over: stops the Lua loop
 time.sleep(0.5)

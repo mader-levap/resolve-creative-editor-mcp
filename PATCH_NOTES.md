@@ -6,6 +6,8 @@
   a step can't confirm itself, and only the boolean `true` counts as `confirm` for every `edit__` tool.
 - Fixed: on Resolve 21.2 every bridge reply over about 65 KB timed out, and a half-written one could crash the
   call (ISSUES.md I-13).
+- Fixed: edits and backups could land on the wrong timeline when the current timeline changed (ISSUES.md I-16).
+  A writing `edit__` call now stays on the timeline it started on. Needs the new bridge script.
 
 ## Stage-two audit (2026-11-11)
 

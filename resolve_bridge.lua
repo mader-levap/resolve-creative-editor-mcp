@@ -252,6 +252,41 @@ end
 
 local function pool() return proj():GetMediaPool() end
 
+local function current_name(p)
+  local t = p:GetCurrentTimeline()
+  return t and t:GetName()
+end
+
+local function go_to(p, name)
+  for i = 1, p:GetTimelineCount() do
+    local t = p:GetTimelineByIndex(i)
+    if t:GetName() == name then
+      -- Resolve can switch timelines again a moment later (e.g. after DuplicateTimeline), so check it stuck.
+      for _ = 1, 6 do
+        p:SetCurrentTimeline(t)
+        sleep(0.3)
+        if current_name(p) == name then return end
+      end
+      error("Resolve did not stay on timeline " .. name, 0)
+    end
+  end
+  error("timeline not found: " .. tostring(name), 0)
+end
+
+-- Ops act on the current timeline, so a request can name the one it is meant for. It runs there or not at all.
+-- Returns the name of the timeline that was current, if it had to switch.
+local function pin(want)
+  local p = proj()
+  if p:GetName() ~= want.project then
+    error("the project changed from " .. tostring(want.project) .. " to " .. p:GetName() .. "; op not run", 0)
+  end
+  local from = current_name(p)
+  if from == want.name then return nil end
+  local ok, err = pcall(go_to, p, want.name)
+  if not ok then error(tostring(err) .. "; op not run", 0) end
+  return from or "(no timeline)"
+end
+
 local function all_clips(folder, out)
   out = out or {}
   folder = folder or pool():GetRootFolder()
@@ -321,6 +356,7 @@ function OPS.get_state()
   local p = resolve:GetProjectManager():GetCurrentProject()
   local t = p and p:GetCurrentTimeline()
   return { resolve = resolve:GetVersionString(), page = resolve:GetCurrentPage(), project = p and p:GetName(),
+           pins = true,  -- requests may name their timeline (see pin)
            timeline = t and t:GetName(), timeline_fps = t and t:GetSetting("timelineFrameRate"),
            timeline_drop_frame = t and t:GetSetting("timelineDropFrameTimecode"),
            timeline_start_frame = t and t:GetStartFrame(), timeline_end_frame = t and t:GetEndFrame(),
@@ -334,20 +370,8 @@ function OPS.list_timelines()
 end
 
 function OPS.set_current_timeline(a)
-  local p = proj()
-  for i = 1, p:GetTimelineCount() do
-    local t = p:GetTimelineByIndex(i)
-    if t:GetName() == a.name then
-      -- Resolve can switch timelines again a moment later (e.g. after DuplicateTimeline), so check it stuck.
-      for _ = 1, 6 do
-        p:SetCurrentTimeline(t)
-        sleep(0.3)
-        if p:GetCurrentTimeline():GetName() == a.name then return { ok = true } end
-      end
-      error("Resolve did not stay on timeline " .. a.name, 0)
-    end
-  end
-  error("timeline not found: " .. tostring(a.name), 0)
+  go_to(proj(), a.name)
+  return { ok = true }
 end
 
 function OPS.list_media()
@@ -947,18 +971,22 @@ function OPS.add_title_cards(a)
   local previous = mp:GetCurrentFolder()
   mp:SetCurrentFolder(folder)
   local out = {}
+  local function focus(t)  -- the insert and the append both go to whichever timeline is current
+    p:SetCurrentTimeline(t)
+    if current_name(p) ~= t:GetName() then go_to(p, t:GetName()) end
+  end
   local ok, err = pcall(function()
     for i, c in ipairs(a.cards) do
       local inner = mp:CreateEmptyTimeline(c.name)
       if not inner then error("could not create timeline " .. c.name, 0) end
-      p:SetCurrentTimeline(inner)
+      focus(inner)
       local title = inner:InsertFusionTitleIntoTimeline("Text+")
       if not title then error("Text+ insert failed", 0) end
       local tool = text_tool(title)
       tool:SetInput("StyledText", c.text)
       apply_text_style(tool, a)
       local item = try(inner, "GetMediaPoolItem")
-      p:SetCurrentTimeline(target)
+      focus(target)
       if not item then error("this Resolve build gives timelines no media pool item", 0) end
       local placed = each(mp:AppendToTimeline({ { mediaPoolItem = item, startFrame = 0, endFrame = c.frames,
                                                    trackIndex = a.track_index, recordFrame = c.record_frame, mediaType = 1 } }))
@@ -1010,6 +1038,7 @@ while fu:GetData("claude_bridge_inst") == me do
     last = id
     if not loadfile then fu:SetData("claude_bridge_req", "") end  -- consumed: never hand it out again
     reply(id)  -- ack
+    local switched
     local good, out = pcall(function()
       local op = OPS[req.op]
       if not op then error("unknown op: " .. tostring(req.op), 0) end
@@ -1017,9 +1046,11 @@ while fu:GetData("claude_bridge_inst") == me do
       if age and age > MAX_REQUEST_AGE then
         error("stale request ignored (" .. math.floor(age) .. " s old): " .. tostring(req.op), 0)
       end
+      if type(req.timeline) == "table" then switched = pin(req.timeline) end
       return { id = id, ok = true, result = op(req.args or {}) }
     end)
     if not good then out = { id = id, ok = false, error = tostring(out) } end
+    out.switched_from = switched
     reply(id, json.encode(out))
     if reload_requested then
       if not loadfile then  -- 21.2+: start the new copy; it takes over and this loop exits

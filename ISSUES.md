@@ -1,9 +1,9 @@
 # Issues
 
-Found while testing `edit__add_transition`, 2026-11-22. This is the base for fixes. Fixed so far: I-01, I-13.
+Found while testing `edit__add_transition`, 2026-11-22. This is the base for fixes. Fixed so far: I-01, I-13, I-16.
 
 - Environment: free DaVinci Resolve 21.2.0.6, Windows 10, 60 fps timeline.
-- Code: branch `fix/issues`. Line numbers are as of the I-13 fix.
+- Code: branch `fix/issues`. Line numbers are as of the I-16 fix.
 
 How each item is known:
 
@@ -21,7 +21,7 @@ How each item is known:
 | [I-03](#i-03) | High | `batch` continues after a `partial` step | Fake |
 | [I-04](#i-04) | High | `add_transition` verifies only the length | Fake |
 | [I-05](#i-05) | Medium | `ripple_trim` ignores transitions on other tracks | Fake |
-| [I-06](#i-06) | Medium | `add_transition` has no preview, backup or timeline-switch guard | Fake, code |
+| [I-06](#i-06) | Medium | `add_transition` has no preview or backup | Fake, code |
 | [I-07](#i-07) | Medium | Linked audio keeps a hard cut, without a warning | Live |
 | [I-08](#i-08) | Medium | Zero and negative durations aren't rejected | Fake |
 | [I-09](#i-09) | Low | Every refusal blames spare source frames | Code |
@@ -31,8 +31,12 @@ How each item is known:
 | [I-13](#i-13) | ~~Critical~~ **Fixed** | Bridge replies fail when half-written or over 65 KB | Live, fake |
 | [I-14](#i-14) | Low | The gateway test writes to the real audit log | Live |
 | [I-15](#i-15) | High | Two clients sharing the bridge lose or drop requests and replies | Live, fake, code |
+| [I-16](#i-16) | ~~Critical~~ **Fixed** | Edits and backups can hit the wrong timeline | Live, fake |
+| [I-17](#i-17) | High | A confirm isn't tied to the previewed timeline | Code |
+| [I-18](#i-18) | Medium | `batch` reports `passed` for unverified steps | Fake |
+| [I-19](#i-19) | Medium | Markers without a name are never added | Live |
 
-Suggested order: I-02 and I-03, I-15, then the `add_transition` group (I-04, I-06 to I-10), then the rest.
+Order, one fix at a time, worst first: I-03, I-17, I-02, I-15, I-04, then medium, then low. Re-rank after each fix.
 
 ## Issues
 
@@ -69,7 +73,7 @@ a preview still write when called directly (I-06).
 <a id="i-02"></a>
 ### I-02 An error inside `batch` loses the results and backup name (high)
 
-**Where:** `editor_tools.py:1002` (`batch`), `editor_tools.py:1037` (`run`)
+**Where:** `editor_tools.py:1007` (`batch`), `editor_tools.py:1042` (`run`)
 
 **Problem:** `_b()` raises on a bridge error and `batch` doesn't catch it. The caller gets only the error: not the
 completed steps and not the name of the backup that was made. The failed batch isn't written to the audit log.
@@ -85,12 +89,14 @@ batch is audited.
 <a id="i-03"></a>
 ### I-03 `batch` continues after a `partial` step (high)
 
-**Where:** `editor_tools.py:1018`
+**Where:** `editor_tools.py:1023`
 
 **Problem:** it stops only on `failed` and `blocked`. `partial` is what tools return when verification fails, so
 later steps run on a timeline that isn't in the expected state.
 
-**Repro:** a transition returns the wrong length (`partial`); the following `set_enabled` still runs.
+**Repro:** a transition returns the wrong length (`partial`); the following `set_enabled` still runs. The same
+happens for all 9 tools that can return `partial`. The batch also drops that step's warnings and changes, so the
+result doesn't say why it is partial.
 
 **Fix:** also stop on `partial`.
 
@@ -99,7 +105,7 @@ later steps run on a timeline that isn't in the expected state.
 <a id="i-04"></a>
 ### I-04 `add_transition` verifies only the length (high)
 
-**Where:** `editor_tools.py:687`
+**Where:** `editor_tools.py:692`
 
 **Problem:** type, category, position, alignment and track are never compared with the request. With no
 `duration`, nothing is compared and the result is still `passed`.
@@ -117,7 +123,7 @@ position, alignment and length, and that neighbouring clips didn't change. Resol
 <a id="i-05"></a>
 ### I-05 `ripple_trim` ignores transitions on other tracks (medium)
 
-**Where:** `editor_tools.py:583`
+**Where:** `editor_tools.py:588`
 
 **Problem:** transitions block a trim only on the same video track. On audio or other video tracks they skip the
 overlap check completely, although ripple delete shifts all tracks.
@@ -130,23 +136,23 @@ What Resolve then does to that transition is untested.
 **Done when:** the A1 and V2 cases are blocked.
 
 <a id="i-06"></a>
-### I-06 `add_transition` has no preview, backup or timeline-switch guard (medium)
+### I-06 `add_transition` has no preview or backup (medium)
 
-**Where:** `editor_tools.py:687`, `editor_tools.py:1041`
+**Where:** `editor_tools.py:692`
 
-**Problem:** it writes on the first call and takes no backup. `run()` only guards against Resolve switching
-timelines when `confirm` is set, which this tool never receives when called directly. There is also no tool made
+**Problem:** it writes on the first call and takes no backup. (The timeline-switch guard it lacked came with
+the I-16 fix.) There is also no tool made
 for removing or changing a transition, and whether `legacy__delete_items` can remove one is untested.
 
 **Fix:** add `confirm` with a preview (item, cut, expected span, available spare frames) and `backup` (default
 true), like move and trim.
 
-**Done when:** no write without `confirm`, a backup is returned, and the guard runs.
+**Done when:** no write without `confirm`, and a backup is returned.
 
 <a id="i-07"></a>
 ### I-07 Linked audio keeps a hard cut, without a warning (medium)
 
-**Where:** `editor_tools.py:687`
+**Where:** `editor_tools.py:692`
 
 **Problem:** a transition on a video item lands only on the video track. In test T1, A1 kept a hard cut under a
 1 s dissolve and `warnings` was empty.
@@ -162,7 +168,7 @@ of the two succeeds.
 <a id="i-08"></a>
 ### I-08 Zero and negative durations aren't rejected (medium)
 
-**Where:** `editor_tools.py:687`
+**Where:** `editor_tools.py:692`
 
 **Problem:** `if a.get("duration")` treats 0 as "not given", so Resolve picks a length and the result is
 `passed`. Negative values are sent to Resolve unchanged.
@@ -176,7 +182,7 @@ of the two succeeds.
 <a id="i-09"></a>
 ### I-09 Every refusal blames spare source frames (low)
 
-**Where:** `resolve_bridge.lua:856`
+**Where:** `resolve_bridge.lua:880`
 
 **Problem:** `AddTransition` returns nil without a reason and the bridge always suggests missing spare frames. A
 misspelled name, wrong category or unsupported item would get the same hint.
@@ -189,7 +195,7 @@ checking them.
 <a id="i-10"></a>
 ### I-10 `at` in the transition result is ambiguous (low)
 
-**Where:** `editor_tools.py:695`
+**Where:** `editor_tools.py:700`
 
 **Problem:** `at` is where the transition starts (01:00:04:30 in T1) and is easily read as the cut (01:00:05:00).
 
@@ -200,7 +206,7 @@ checking them.
 <a id="i-11"></a>
 ### I-11 `timeline_summary` hides empty tracks (low)
 
-**Where:** `editor_tools.py:253` (`analyze`), `editor_tools.py:281`
+**Where:** `editor_tools.py:258` (`analyze`), `editor_tools.py:286`
 
 **Problem:** tracks are derived from items. After `legacy__add_track` returned a count of 3, the summary still
 listed only V1 and V2, so a new track can't be verified or seen.
@@ -301,7 +307,7 @@ This is a stress rate, not a forecast for normal use.
 | 2, with a file lock around `call_bridge` (candidate) | 200 | 0 |
 
 The line that raised the `PermissionError` wasn't recorded and it didn't recur. By the code it is the write or
-rename of the request (`mcp_server.py:183-187`), because reading and cleanup catch `OSError`.
+rename of the request (`mcp_server.py:186-190`), because reading and cleanup catch `OSError`.
 
 **Not affected, by the code:** parallel tool calls in one session. The gateway handles one request at a time and
 waits for its legacy child. A bridge call gives up after 120 s, well inside the gateway's 1800 s limit for a
@@ -317,13 +323,100 @@ elsewhere). The OS releases it if the process dies.
 
 **Limits of that fix:**
 
-- It serializes single bridge calls, not whole tools. Another client can still switch timelines or edit between a
-  tool's read and its write (see I-06).
+- It serializes single bridge calls, not whole tools. Another client can still edit between a tool's read and
+  its write. A timeline switch there is undone by the pin (I-16).
 - After a timeout the lock is released while Resolve may still be busy, so the next call can still report "Bridge
   not running".
 
 **Done when:** a test with two processes and a fake bridge loses nothing, a waiter that gives up sends nothing, and
 the live two-client run has no failures.
+
+<a id="i-16"></a>
+### I-16 Edits and backups can hit the wrong timeline (critical, fixed)
+
+**Where:** `editor_tools.py` (`run`, `_b`), `resolve_bridge.lua` (dispatcher, `add_title_cards`)
+
+**Problem:** every bridge op acts on the timeline that is current when it runs, and a tool makes many bridge calls.
+The old guard looked only before and after, per batch step, and only for calls with `confirm`.
+
+| | Trigger | Effect before the fix, all reported `success` / `passed` |
+|---|---|---|
+| A | Resolve re-switches to the copy after a backup | Edits landed in the backup |
+| B | The user switches during a batch | Later steps edited that timeline, which had no backup |
+| C | The user switched under 3 s after a read (stale cache) | The backup named after one timeline copied another, then the first was edited |
+| D | As C, `snapshot_timeline` alone | A wrong backup, without a warning |
+
+A failed switch back after a backup also left the user on the backup.
+
+**Fix:** a writing call reads the current project and timeline once and pins every bridge request to them. The bridge
+switches back before the op and reports it, or doesn't run the op. `add_title_cards` checks each of its own switches.
+An older bridge is refused. Previews and reads are never pinned.
+
+**Verified 2026-11-22:**
+
+- `TimelinePin` tests switch timelines before each bridge call of all 17 writing tools. They failed before the fix.
+- `test_smoke.py` runs the pin, its refusals and the title cards on the real Lua.
+- Live with scripted switches: A to D were wrong before the fix, correct after it.
+- Live: 20 normal batches on target, median 7.0 s before and 5.3 s after. Move, trim, captions, transition, fades and
+  snapshot pass on a scratch timeline.
+- Live: the new server code refused to write through the old bridge.
+- Through MCP after a server restart: a confirmed batch and its backup are correct. Case D, sent to a fresh
+  gateway as raw requests, is correct too.
+- Live with real clicks: during a 40-step batch (38 s) the user kept double-clicking another timeline in the Media
+  Pool. The bridge saw 8 switches and undid all 8, seven in under 1 s and the first in 2.9 s. All 40 markers landed on
+  the right timeline, none on the other or in the backup, and the result had the warning.
+- Live with real clicks through MCP: in a 20-step batch the user double-clicked the other timeline exactly four
+  times. All four switches were logged and undone, all 20 markers landed on the right timeline, none on the other or
+  in the backup. The same batch without clicks had no switch at all.
+- An earlier click run through MCP was also correct, but its only warning named the backup. Most likely the user
+  double-clicked the backup, not proven: the new backup takes the place of the timeline they were aiming at in the
+  Media Pool, and repeated switches from one timeline give one warning.
+
+**Limits:** a switch inside a single op can't be fully prevented. Timelines are matched by project and name, so a
+rename during an edit stops it. `legacy__` tools still act on the current timeline.
+
+<a id="i-17"></a>
+### I-17 A confirm isn't tied to the previewed timeline (high)
+
+**Where:** `editor_tools.py` (`run`, `_cached`)
+
+**Problem:** `confirm=true` edits the timeline that is current at that moment. If the user switched after the
+preview, tools that work by position (`place_clips`, markers, captions) apply the approved plan to another timeline.
+Reads can also describe the previous timeline for up to 3 s after a switch by hand.
+
+**Fix:** previews return their timeline and the confirm names it, otherwise it is blocked. Don't serve cached reads
+across a timeline switch.
+
+**Done when:** a switch between preview and confirm gives no write.
+
+<a id="i-18"></a>
+### I-18 `batch` reports `passed` for unverified steps (medium)
+
+**Where:** `editor_tools.py` (`batch`)
+
+**Problem:** verification is derived from the step statuses. A batch with only `copy_grade`, which can't be read
+back and returns `unverified`, reports `passed`.
+
+**Fix:** report `unverified` if any successful writing step was.
+
+**Done when:** that batch reports `unverified`.
+
+<a id="i-19"></a>
+### I-19 Markers without a name are never added (medium)
+
+**Where:** `resolve_bridge.lua` (`add_marker`, `add_markers`), `editor_tools.py` (`add_markers`)
+
+**Problem:** Resolve 21.2 refuses `AddMarker` with an empty name, which is the default. `edit__add_markers` then
+returns `partial` with "a marker already exists at some of those frames", and `legacy__add_marker` returns
+`ok: false`.
+
+**Repro, live:** on a scratch timeline at free frames, three unnamed markers through `add_markers` and one through
+`add_marker` were refused. Named ones were added.
+
+**Fix:** default to a non-empty name and correct the warning. Check whether `copy_settings` fails the same way for
+unnamed clip markers (not run).
+
+**Done when:** a marker without a name is added by both tools.
 
 ## Live tests
 
@@ -384,6 +477,6 @@ bug until that is known.
 
 ## After fixing
 
-- `python -m unittest tests.test_editor_tools` (baseline after the I-13 fix: 45 tests, all pass).
+- `python -m unittest tests.test_editor_tools` (baseline after the I-16 fix: 56 tests, all pass).
 - Restart the MCP server, and the bridge if the Lua changed, then repeat the affected live tests.
 - Update the transitions row in `README.md`, plus `AGENTS.md` and `PATCH_NOTES.md`.

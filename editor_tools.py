@@ -163,6 +163,8 @@ def seconds_to_frames(seconds, fps):
 
 # ---------- bridge access, cache, audit ----------
 _cache = {}
+_pin = None  # {project, name} of the timeline the running write is bound to (see run)
+_switched = set()  # timelines the bridge had to switch back from during that write
 
 
 def invalidate():
@@ -170,7 +172,10 @@ def invalidate():
 
 
 def _b(op, **args):
-    res = M.call_bridge(op, args)
+    pin = {"timeline": _pin} if _pin and op != "set_current_timeline" else {}
+    res = M.call_bridge(op, args, **pin)
+    if res.get("switched_from"):
+        _switched.add(res["switched_from"])
     if not res.get("ok"):
         raise RuntimeError(res.get("error", "bridge error"))
     return res.get("result")
@@ -1035,18 +1040,50 @@ PREVIEWABLE = {"place_clips", "move_item", "trim_item", "ripple_trim", "normaliz
 
 
 def run(name, args):
+    """Entry point of every edit__ tool. Resolve acts on the current timeline, so a call that writes is pinned to
+    the one that was current when it started, batch steps included (ISSUES.md I-16)."""
     if "confirm" in args:
         args = {**args, "confirm": args["confirm"] is True}  # "false", "no" and 1 are truthy but are not approval
-    expected = None
-    if name not in READ_ONLY and args.get("confirm"):
-        expected = _b("get_state").get("timeline")  # catch Resolve switching timelines under us mid-edit
+    if _pin is None and name not in READ_ONLY:
+        invalidate()  # the user may have switched since the last read
+        if _writes(name, args):
+            return _run_pinned(name, args)
+    return _dispatch(name, args)
+
+
+def _writes(name, args):
+    if name == "export_srt" or (args.get("dry_run") and name in ("add_audio_markers", "add_captions")):
+        return False  # no Resolve timeline involved, or nothing written to it
+    return bool(args.get("confirm")) or (name not in PREVIEWABLE and name != "batch")
+
+
+def _run_pinned(name, args):
+    global _pin
+    state = _state()
+    if not state.get("timeline"):
+        return _blocked("no current timeline")
+    if not state.get("pins"):
+        return _blocked("the Resolve bridge is older than this server and can't hold an edit on one timeline; "
+                        "restart the bridge (Workspace > Scripts > resolve_bridge)")
+    _pin = {"project": state.get("project"), "name": state["timeline"]}
+    _switched.clear()
+    warnings = []
+    try:
+        result = _dispatch(name, args)
+    finally:
+        try:
+            _b("get_state")  # pinned, so this also takes Resolve back to the timeline
+        except Exception as exc:  # must not hide the tool's own result or error
+            warnings.append(f"could not return to {_pin['name']}: {exc}")
+        target, _pin = _pin["name"], None
+    warnings += [f"Resolve had switched to {other}; switched back to {target}" for other in sorted(_switched)]
+    if warnings:
+        result.setdefault("_operation", {}).setdefault("warnings", []).extend(warnings)
+    return result
+
+
+def _dispatch(name, args):
     result = HANDLERS[name](args)
-    if expected and isinstance(result, dict):
-        now = _b("get_state").get("timeline")
-        if now != expected:
-            _b("set_current_timeline", name=expected)
-            result.setdefault("_operation", {}).setdefault("warnings", []).append(
-                f"Resolve had switched to {now}; switched back to {expected}")
     status = result.get("_operation", {}).get("status") if isinstance(result, dict) else None
     if name not in READ_ONLY and status not in (None, "preview", "planned", "blocked"):
         invalidate()

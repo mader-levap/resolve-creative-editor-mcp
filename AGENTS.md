@@ -152,6 +152,8 @@ Observed on free DaVinci Resolve 21.2.0.6 through this server's Lua bridge. Othe
 - `edit__move_item` and `edit__trim_item` rebuild the clip and copy grade, transform, audio levels, fades, colour, flags and markers, but not keyframes. They refuse titles and generators (no Media Pool item, Fusion comp).
 - `edit__ripple_trim` shortens clip ends and pulls everything after them earlier, keeping the gaps. It works on titles because nothing is rebuilt: it trims in place (`trim_tail`), drops a filler from a Media Pool timeline into the gap, and ripple-deletes the filler. Verified: `DeleteClips(..., ripple=true)` shifts later clips on **all** tracks by the deleted length, and a title's text, fades and ID survive. Titles can't be moved directly, so this ripple trick is the only way to shift them.
 - `edit__add_transition` needs Resolve 21.1+ and spare source frames on both sides of the cut.
+- A writing `edit__` call stays on the timeline that was current when it started: if the user clicks another one
+  meanwhile, Resolve jumps back and the result has a warning. `legacy__` calls don't do this.
 - Take `edit__snapshot_timeline` before multi-step changes; it gives the user a one-step way back.
 
 ## Modifying scripts and mcp

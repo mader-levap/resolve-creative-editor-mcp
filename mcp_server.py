@@ -172,12 +172,15 @@ def lua_long_string(s):
     return "[" + "=" * n + "[" + s + "]" + "=" * n + "]"
 
 
-def call_bridge(op, args, timeout=120, ack_timeout=15):  # Resolve can stall a few seconds (e.g. LUT rescans)
+def call_bridge(op, args, timeout=120, ack_timeout=15, timeline=None):  # Resolve can stall a few seconds (e.g. LUT rescans)
     req_path = os.path.join(DIR, "request.lua")
     rid = uuid.uuid4().hex
     ensure_token_png()
     # ts lets the bridge refuse a leftover request instead of running it again (see resolve_bridge.lua main loop).
-    body = lua_long_string(json.dumps({"id": rid, "ts": int(time.time()), "op": op, "args": args}, ensure_ascii=False))
+    request = {"id": rid, "ts": int(time.time()), "op": op, "args": args}
+    if timeline:
+        request["timeline"] = timeline  # {project, name}: the bridge runs the op there or not at all
+    body = lua_long_string(json.dumps(request, ensure_ascii=False))
     # 21.1 and older load this with loadfile and use the returned string; 21.2+ runs it with
     # fusion:RunScript, which cannot return values, so it also hands the JSON over with fusion:SetData.
     with open(req_path + ".tmp", "w", encoding="utf-8") as f:
