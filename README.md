@@ -18,7 +18,7 @@ It works with the **free version** of Resolve and with **Studio**, through
 
 | | Resolve **free** | Resolve **Studio** |
 |---|---|---|
-| Main tools | `edit__` (23), `legacy__` (29), `media__` (5) | the same, plus all 37 `resolve__` tools |
+| Main tools | `edit__` (24), `legacy__` (29), `media__` (5) | the same, plus all 37 `resolve__` tools |
 | One-time Resolve setting | None | Preferences > General > External scripting using > **Local** |
 | Each time you open Resolve | Run one line in the Console ([step 3](#3-start-the-bridge)) | Nothing for `resolve__`; the line for `edit__` |
 
