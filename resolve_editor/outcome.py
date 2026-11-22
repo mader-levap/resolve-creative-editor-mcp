@@ -17,4 +17,5 @@ def blocked(reason: str) -> dict[str, Any]:
 
 
 def preview(plan: Any, warnings: Iterable[str] = ()) -> dict[str, Any]:
-    return op("preview", plan=plan, warnings=warnings, next="Show this to the user; call again with confirm=true.")
+    return op("preview", plan=plan, warnings=warnings,
+              next="Show this to the user; call again with confirm=true and timeline=<this result's timeline>.")

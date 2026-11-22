@@ -1,5 +1,11 @@
 # Patch notes — DaVinci Resolve MCP
 
+## 2026-11-23
+
+- Fixed: a confirm could apply a preview to another timeline when the current one changed in between (ISSUES.md
+  I-17). Previews now name their timeline, and `confirm=true` must pass it as `timeline`, or nothing is changed.
+  Reads no longer describe the previous timeline for a few seconds after a switch.
+
 ## 2026-11-22
 
 - Fixed: `edit__batch` previews could make real changes (ISSUES.md I-01). Only tools with a preview are called,

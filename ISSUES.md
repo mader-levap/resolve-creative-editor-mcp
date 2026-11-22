@@ -1,6 +1,6 @@
 # Issues
 
-Found while testing `edit__add_transition`, 2026-11-22. This is the base for fixes. Fixed so far: I-01, I-03, I-13, I-14, I-16.
+Found while testing `edit__add_transition`, 2026-11-22. This is the base for fixes. Fixed so far: I-01, I-03, I-13, I-14, I-16, I-17.
 
 - Environment: free DaVinci Resolve 21.2.0.6, Windows 10, 60 fps timeline.
 - Code is named by file and function, with paths from the repo root.
@@ -32,14 +32,14 @@ How each item is known:
 | [I-14](#i-14) | ~~Low~~ **Fixed** | The gateway test writes to the real audit log | Live |
 | [I-15](#i-15) | High | Two clients sharing the bridge lose or drop requests and replies | Live, fake, code |
 | [I-16](#i-16) | ~~Critical~~ **Fixed** | Edits and backups can hit the wrong timeline | Live, fake |
-| [I-17](#i-17) | High | A confirm isn't tied to the previewed timeline | Code |
+| [I-17](#i-17) | ~~High~~ **Fixed** | A confirm isn't tied to the previewed timeline | Live, fake |
 | [I-18](#i-18) | Medium | `batch` reports `passed` for unverified steps | Fake |
 | [I-19](#i-19) | Medium | Markers without a name are never added | Live |
 | [I-20](#i-20) | Medium | `batch` drops the warnings of successful steps | Fake |
 | [I-21](#i-21) | High | A long caption fails and takes the following ones with it | Live |
 | [I-22](#i-22) | Medium | The bridge can stop answering, cause unknown | Live, once |
 
-Order, one fix at a time, worst first: I-17, I-21, I-02, I-15, I-04, then medium (I-19 first, as it now stops
+Order, one fix at a time, worst first: I-21, I-02, I-15, I-04, then medium (I-19 first, as it now stops
 batches), then low. Re-rank after each fix.
 
 ## Issues
@@ -390,18 +390,30 @@ An older bridge is refused. Previews and reads are never pinned.
 rename during an edit stops it. `legacy__` tools still act on the current timeline.
 
 <a id="i-17"></a>
-### I-17 A confirm isn't tied to the previewed timeline (high)
+### I-17 A confirm isn't tied to the previewed timeline (high, fixed)
 
-**Where:** `resolve_editor/dispatch.py` (`run`), `resolve_editor/session.py` (`_cached`)
+**Where:** `resolve_editor/dispatch.py` (`run`, `_run_pinned`), `resolve_editor/session.py` (`_cached`, `drop_if_switched`)
 
 **Problem:** `confirm=true` edits the timeline that is current at that moment. If the user switched after the
 preview, tools that work by position (`place_clips`, markers, captions) apply the approved plan to another timeline.
 Reads can also describe the previous timeline for up to 3 s after a switch by hand.
 
-**Fix:** previews return their timeline and the confirm names it, otherwise it is blocked. Don't serve cached reads
-across a timeline switch.
+**Fix:** a preview of the 9 tools that take `confirm` (`dispatch.CONFIRMABLE`) returns `timeline`. `confirm=true`
+must pass it back as `timeline`; a missing or different name is blocked before anything is written. Batch steps are
+covered by the batch's own `timeline`. `timeline_summary`, `inspect_range` and `find_media` first ask which project and
+timeline are current and drop the cache if that changed.
 
-**Done when:** a switch between preview and confirm gives no write.
+**Verified 2026-11-23:**
+
+- `ConfirmNamesTimeline` tests, for all 9 tools: the preview names its timeline, a confirm without it or after a
+  switch writes nothing and makes no backup, a confirm on the previewed timeline runs. Reads re-read after a switch
+  and reuse the cache otherwise. They failed before the fix, and each fails again when its part of the fix is removed.
+- Live on scratch timelines, old code: a `place_clips` confirm after a switch placed the clip on the other timeline
+  and reported `success`, and `timeline_summary` described the previous timeline after a switch. New code: the
+  confirm is refused and nothing is placed on either timeline; without `timeline` it is refused; with the right name
+  it places; the summary follows the switch at once.
+- Through MCP after a server restart: the preview names its timeline; the confirm after a switch and the one
+  without `timeline` are refused and leave both timelines empty; the right name places the clip.
 
 <a id="i-18"></a>
 ### I-18 `batch` reports `passed` for unverified steps (medium)

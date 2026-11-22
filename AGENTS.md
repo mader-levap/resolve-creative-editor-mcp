@@ -3,7 +3,7 @@
 ## Working rules
 
 - Prefer `edit__`; use `legacy__` only for what `edit__` can't do.
-- Start with `edit__timeline_summary`, then `edit__inspect_range` for just the part you will change. Don't list whole timelines repeatedly. Reads are cached for a few seconds; writes clear the cache.
+- Start with `edit__timeline_summary`, then `edit__inspect_range` for just the part you will change. Don't list whole timelines repeatedly. Reads are cached for a few seconds; writes and a timeline switch clear the cache.
 - Show previews to the user before confirming. Some writing tools have no preview and run on the first call.
 - Group several changes with `edit__batch`.
 - Prefer `edit__set_enabled` (reversible) over deleting clips.
@@ -38,7 +38,7 @@ In order: story/emotion, clarity, rhythm, continuity, visual polish.
 
 ## Available tools
 
-All tools come from the `resolve-creative-editor` MCP server (61 on free Resolve; `resolve__` timeline tools need Studio and are hidden). `edit__` tools that take `confirm` return a preview first; repeat with `confirm=true`. The others run on the first call.
+All tools come from the `resolve-creative-editor` MCP server (61 on free Resolve; `resolve__` timeline tools need Studio and are hidden). `edit__` tools that take `confirm` return a preview first; repeat with `confirm=true` and `timeline` set to the timeline the preview names (refused if another timeline is current). The others run on the first call.
 
 ### `edit__`: checked editing (preferred)
 

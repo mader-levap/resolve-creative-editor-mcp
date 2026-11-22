@@ -61,6 +61,10 @@ READ_ONLY = {"doctor", "timeline_summary", "inspect_range", "find_media", "audit
 # Tools that change nothing until confirm=true. A batch preview calls only these, so add a tool here only if that holds.
 PREVIEWABLE = {"place_clips", "move_item", "trim_item", "ripple_trim", "normalize_audio", "set_speed", "copy_grade",
                "add_captions"}
+# Tools that take confirm=true. Their previews name the timeline, and a confirm must name it too (ISSUES.md I-17).
+CONFIRMABLE = PREVIEWABLE | {"batch"}
+# Reads that may follow a switch by hand, so they check the current timeline before using cached reads.
+TIMELINE_READS = {"timeline_summary", "inspect_range", "find_media"}
 
 
 def run(name: str, args: dict[str, Any]) -> dict[str, Any]:
@@ -68,11 +72,16 @@ def run(name: str, args: dict[str, Any]) -> dict[str, Any]:
     the one that was current when it started, batch steps included (ISSUES.md I-16)."""
     if "confirm" in args:
         args = {**args, "confirm": args["confirm"] is True}  # "false", "no" and 1 are truthy but are not approval
+    if session.pin is None and name in TIMELINE_READS:
+        session.drop_if_switched()
     if session.pin is None and name not in READ_ONLY:
         session.invalidate()  # the user may have switched since the last read
         if _writes(name, args):
             return _run_pinned(name, args)
-    return _dispatch(name, args)
+    result = _dispatch(name, args)
+    if session.pin is None and name in CONFIRMABLE and result.get("_operation", {}).get("status") == "preview":
+        result["timeline"] = session.get_state()["timeline"]  # the confirm must name it
+    return result
 
 
 def _writes(name: str, args: dict[str, Any]) -> bool:
@@ -88,6 +97,14 @@ def _run_pinned(name: str, args: dict[str, Any]) -> dict[str, Any]:
     if not state.get("pins"):
         return outcome.blocked("the Resolve bridge is older than this server and can't hold an edit on one timeline; "
                                "restart the bridge (Workspace > Scripts > resolve_bridge)")
+    if name in CONFIRMABLE and args.get("confirm") is True:
+        given, current = args.get("timeline"), state["timeline"]
+        if not given:
+            return outcome.blocked(f"confirm=true needs timeline=<name> from the preview (now current: {current}); "
+                                   "preview again if you don't have it")
+        if given != current:
+            return outcome.blocked(f"the preview was for {given}, but {current} is current now; nothing was changed. "
+                                   "Switch back to it or preview again")
     session.pin = {"project": state.get("project"), "name": state["timeline"]}
     session.switched.clear()
     warnings = []

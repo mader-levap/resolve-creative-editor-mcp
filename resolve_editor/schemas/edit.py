@@ -4,6 +4,8 @@ from .common import B, I, N, S, T
 IDS = {"type": "array", "items": S}
 WHEN = {"type": ["integer", "string"], "description": "Absolute timeline frame or timecode like 01:00:12:05"}
 CONFIRM = {"type": "boolean", "description": "Omit for a preview. Set true only after the user approves."}
+TIMELINE = {"type": "string", "description": "With confirm=true: the timeline named in the preview. The edit is "
+            "refused if another timeline is current."}
 SEGMENTS = {"type": "array", "items": {"type": "object", "properties": {"start": N, "end": N, "text": S},
                                        "required": ["start", "end", "text"]},
             "description": "Caption lines in seconds. Omit to transcribe `path` instead."}
@@ -22,18 +24,19 @@ TOOLS = [
       {"clips": {"type": "array", "items": {"type": "object", "properties": {
           "clip": S, "start_frame": I, "end_frame": I, "record": WHEN, "track_index": I,
           "media_type": {"type": "integer", "enum": [1, 2], "description": "1 video only, 2 audio only"}},
-          "required": ["clip", "record"]}}, "confirm": CONFIRM}, ["clips"]),
+          "required": ["clip", "record"]}}, "confirm": CONFIRM, "timeline": TIMELINE}, ["clips"]),
     T("move_item", "Move a clip (and its linked audio/video) to a new frame or track. Builds the replacement first and "
       "copies grade, transform, audio levels, fades, colour, flags and markers onto it. Keyframes are not copied.",
-      {"item_id": S, "record": WHEN, "track_index": I, "include_linked": B, "confirm": CONFIRM},
+      {"item_id": S, "record": WHEN, "track_index": I, "include_linked": B, "confirm": CONFIRM, "timeline": TIMELINE},
       ["item_id", "record"]),
     T("trim_item", "Trim a clip (and its linked audio/video). Positive frames shorten that end, negative extend it "
       "into spare source media. Same settings-preserving method as move_item.",
-      {"item_id": S, "head_frames": I, "tail_frames": I, "include_linked": B, "confirm": CONFIRM}, ["item_id"]),
+      {"item_id": S, "head_frames": I, "tail_frames": I, "include_linked": B, "confirm": CONFIRM, "timeline": TIMELINE},
+      ["item_id"]),
     T("ripple_trim", "Shorten clips' ends by tail_frames and pull everything after them earlier on all tracks, so the "
       "gaps stay the same. Works on Text+ titles and generators: nothing is rebuilt, so text, style, fades and "
       "keyframes stay. Video items without linked audio only.",
-      {"item_ids": IDS, "tail_frames": I, "confirm": CONFIRM}, ["item_ids", "tail_frames"]),
+      {"item_ids": IDS, "tail_frames": I, "confirm": CONFIRM, "timeline": TIMELINE}, ["item_ids", "tail_frames"]),
     T("set_enabled", "Disable or enable clips: a reversible alternative to deleting them.",
       {"item_ids": IDS, "enabled": B}, ["item_ids", "enabled"]),
     T("set_fades", "Set video or audio fade-in/out lengths in frames on clips, with read-back. An end you leave out "
@@ -50,11 +53,11 @@ TOOLS = [
     T("normalize_audio", "Normalize audio clips with Resolve's own loudness modes (e.g. 'EBU R128', 'YouTube').",
       {"item_ids": IDS, "mode": S, "target_level": N, "target_loudness": N,
        "independent": {"type": "boolean", "description": "Level each clip separately instead of keeping balance"},
-       "confirm": CONFIRM}, ["item_ids"]),
+       "confirm": CONFIRM, "timeline": TIMELINE}, ["item_ids"]),
     T("set_speed", "Change clip speed (percentage, 0 = freeze). Doesn't ripple the timeline.",
-      {"item_id": S, "percentage": N, "confirm": CONFIRM}, ["item_id", "percentage"]),
-    T("copy_grade", "Copy one clip's grade onto other clips.", {"from_id": S, "to_ids": IDS, "confirm": CONFIRM},
-      ["from_id", "to_ids"]),
+      {"item_id": S, "percentage": N, "confirm": CONFIRM, "timeline": TIMELINE}, ["item_id", "percentage"]),
+    T("copy_grade", "Copy one clip's grade onto other clips.",
+      {"from_id": S, "to_ids": IDS, "confirm": CONFIRM, "timeline": TIMELINE}, ["from_id", "to_ids"]),
     T("add_markers", "Add several timeline markers at once.",
       {"markers": {"type": "array", "items": {"type": "object", "properties": {
           "at": WHEN, "name": S, "note": S, "color": S, "duration": I}, "required": ["at"]}}}, ["markers"]),
@@ -66,7 +69,7 @@ TOOLS = [
       "record is where the audio starts (default timeline start). Each caption is a small timeline in a bin, "
       "placed like a clip; long lines are split. dry_run only lists them.",
       {"path": S, "segments": SEGMENTS, "record": WHEN, "track_index": I, "max_chars": I, "model": S, "language": S,
-       "font": S, "size": N, "y": N, "dry_run": B, "confirm": CONFIRM}),
+       "font": S, "size": N, "y": N, "dry_run": B, "confirm": CONFIRM, "timeline": TIMELINE}),
     T("export_srt", "Write an .srt subtitle file from segments or by transcribing `path`. Import it in Resolve with "
       "File > Import > Subtitle (importing subtitles by script can crash Resolve 21).",
       {"path": S, "segments": SEGMENTS, "output": S, "model": S, "language": S, "max_chars": I}),
@@ -81,7 +84,7 @@ TOOLS = [
       {"operations": {"type": "array",
                       "items": {"type": "object", "properties": {"tool": S, "args": {"type": "object"}},
                                 "required": ["tool"]}},
-       "confirm": CONFIRM}, ["operations"]),
+       "confirm": CONFIRM, "timeline": TIMELINE}, ["operations"]),
     T("audit_log", "Recent changes made through this server.", {"limit": I}),
 ]
 NAMES = {t["name"] for t in TOOLS}

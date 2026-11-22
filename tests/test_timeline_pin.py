@@ -65,7 +65,7 @@ class TimelinePin(Base):
 
     def batch(self, fake):
         self.use(fake)
-        return dispatch.run("batch", {"confirm": True, "operations": [self.PLACE, self.MARK]})
+        return dispatch.run("batch", {"confirm": True, "timeline": "T", "operations": [self.PLACE, self.MARK]})
 
     @staticmethod
     def once(when, to="OTHER"):
@@ -96,7 +96,8 @@ class TimelinePin(Base):
                 dispatch.run("timeline_summary", {})
                 f.cur = "OTHER"  # the user switched less than 3 s after that read
                 f.landed.clear()
-                dispatch.run(tool, {"confirm": True, "operations": [self.PLACE]} if tool == "batch" else {})
+                dispatch.run(tool, {"confirm": True, "timeline": "OTHER", "operations": [self.PLACE]} if tool == "batch"
+                             else {})  # previewed on OTHER
                 self.assertEqual(list(f.backup_of.values()), ["OTHER"])
                 self.assertTrue(next(iter(f.backup_of)).startswith("OTHER "), "the backup is named after its source")
                 self.assertEqual({at for _, at in f.writes()}, {"OTHER"})
@@ -122,13 +123,14 @@ class TimelinePin(Base):
                 return super().__call__(op, args, **kw)
 
         f = self.use(SwapFails())
-        r = dispatch.run("move_item", {"item_id": "a", "record": 1100, "confirm": True, "backup": False})
+        r = dispatch.run("move_item", {"item_id": "a", "record": 1100, "confirm": True, "timeline": "T",
+                                       "backup": False})
         self.assertEqual(r["_operation"]["status"], "failed")
         self.assertEqual((f.astray(), f.cur), ([], "T"))
 
     def test_switch_before_any_call_of_any_writing_tool(self):
         for tool in sorted(set(dispatch.HANDLERS) - dispatch.READ_ONLY - {"export_srt"}):
-            args = dict(SAMPLE_ARGS[tool], confirm=True)
+            args = dict(SAMPLE_ARGS[tool], confirm=True, timeline="T")
             if tool == "batch":
                 args["operations"] = [self.PLACE, self.MARK]
             clean = self.use(TimelineFake())
@@ -146,7 +148,7 @@ class TimelinePin(Base):
 
         f = self.use(TimelineFake(vanish))
         try:
-            dispatch.run("place_clips", dict(SAMPLE_ARGS["place_clips"], confirm=True))
+            dispatch.run("place_clips", dict(SAMPLE_ARGS["place_clips"], confirm=True, timeline="T"))
         except RuntimeError:
             pass
         self.assertEqual(f.writes(), [])
@@ -191,3 +193,77 @@ class TimelinePin(Base):
         with tempfile.TemporaryDirectory() as folder:
             r = dispatch.run("export_srt", dict(SAMPLE_ARGS["export_srt"], output=os.path.join(folder, "a.srt")))
             self.assertEqual(r["_operation"]["status"], "success")
+
+
+class ConfirmNamesTimeline(Base):
+    """A confirm applies only to the timeline its preview was for (ISSUES.md I-17)."""
+
+    CONFIRMABLE = sorted(dispatch.PREVIEWABLE | {"batch"})
+
+    def setUp(self):
+        patch = mock.patch.object(media, "run_media_tool", lambda name, args: {"duration": 5})
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    @staticmethod
+    def args(tool, **extra):
+        a = dict(SAMPLE_ARGS[tool], **extra)
+        if tool == "batch":
+            a["operations"] = [TimelinePin.PLACE, TimelinePin.MARK]
+        return a
+
+    def test_preview_names_its_timeline(self):
+        for tool in self.CONFIRMABLE:
+            with self.subTest(tool=tool):
+                self.use(TimelineFake())
+                r = dispatch.run(tool, self.args(tool))
+                self.assertEqual((r["_operation"]["status"], r.get("timeline")), ("preview", "T"), r)
+                self.assertIn("timeline=", r["next"])
+
+    def test_confirm_without_timeline_is_refused(self):
+        for tool in self.CONFIRMABLE:
+            with self.subTest(tool=tool):
+                f = self.use(TimelineFake())
+                r = dispatch.run(tool, self.args(tool, confirm=True))
+                self.assertEqual(r["_operation"]["status"], "blocked", r)
+                self.assertIn("timeline=", r["reason"])
+                self.assertEqual((f.writes(), f.backup_of), ([], {}))
+
+    def test_switch_after_preview_gets_no_write(self):
+        for tool in self.CONFIRMABLE:
+            with self.subTest(tool=tool):
+                f = self.use(TimelineFake())
+                preview = dispatch.run(tool, self.args(tool))
+                f.cur = "OTHER"  # the user switched while looking at the preview
+                f.landed.clear()
+                r = dispatch.run(tool, self.args(tool, confirm=True, timeline=preview.get("timeline", "T")))
+                self.assertEqual(r["_operation"]["status"], "blocked", r)
+                self.assertIn("OTHER", r["reason"])
+                self.assertEqual((f.writes(), f.backup_of, f.cur), ([], {}, "OTHER"))
+
+    def test_confirm_on_the_previewed_timeline_runs(self):
+        for tool in self.CONFIRMABLE:
+            with self.subTest(tool=tool):
+                f = self.use(TimelineFake())
+                r = dispatch.run(tool, self.args(tool, confirm=True, timeline="T"))
+                self.assertNotEqual(r["_operation"]["status"], "blocked", r)
+                if tool == "batch":  # its steps need no timeline of their own
+                    self.assertEqual(r["_operation"]["status"], "success", r)
+                self.assertTrue(f.writes())
+                self.assertEqual(f.astray(), [])
+
+    def test_reads_drop_the_cache_only_after_a_switch(self):
+        for tool in ("timeline_summary", "inspect_range", "find_media"):
+            with self.subTest(tool=tool):
+                op = "list_media" if tool == "find_media" else "list_timeline_items"
+                f = self.use(TimelineFake())
+                dispatch.run(tool, dict(SAMPLE_ARGS[tool]))
+                n = f.calls.count(op)
+                dispatch.run(tool, dict(SAMPLE_ARGS[tool]))
+                self.assertEqual(f.calls.count(op), n, "same timeline: the cached read is reused")
+                f.cur = "OTHER"  # switched by hand less than 3 s later
+                r = dispatch.run(tool, dict(SAMPLE_ARGS[tool]))
+                self.assertGreater(f.calls.count(op), n, "after a switch: read again")
+                if tool == "timeline_summary":
+                    self.assertEqual(r["timeline"], "OTHER")
+

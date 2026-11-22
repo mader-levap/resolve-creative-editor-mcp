@@ -11,6 +11,7 @@ from . import bridge, timecode
 _cache: dict[str, tuple[float, Any]] = {}
 pin: dict[str, Any] | None = None  # {project, name} of the timeline the running write is bound to (see dispatch.run)
 switched: set[str] = set()  # timelines the bridge had to switch back from during that write
+_cached_for: tuple[Any, Any] | None = None  # (project, timeline) the cache was last checked against
 
 
 class _ItemKeys(TypedDict):
@@ -30,7 +31,20 @@ class Item(_ItemKeys, total=False):
 
 
 def invalidate() -> None:
+    global _cached_for
     _cache.clear()
+    _cached_for = None
+
+
+def drop_if_switched() -> None:
+    """Before a read: clear the cache if another project or timeline is current now (ISSUES.md I-17)."""
+    global _cached_for
+    state = call("get_state")
+    now = (state.get("project"), state.get("timeline"))
+    if now != _cached_for:
+        invalidate()
+    _cached_for = now
+    _cache["state"] = (time.monotonic(), state)
 
 
 def call(op: str, **args: Any) -> Any:

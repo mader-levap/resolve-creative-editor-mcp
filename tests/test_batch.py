@@ -56,7 +56,7 @@ class BatchStop(Base):
         self.addCleanup(patch.stop)
 
     def batch(self, *ops):
-        return dispatch.run("batch", {"confirm": True, "operations": list(ops)})
+        return dispatch.run("batch", {"confirm": True, "timeline": "T", "operations": list(ops)})
 
     def test_stops_after_each_tool_that_can_be_partial(self):
         for tool, answers in PARTIALS.items():

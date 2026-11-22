@@ -14,7 +14,7 @@ class Ripple(Base):
         self.assertEqual(r["_operation"]["status"], "preview")
         self.assertNotIn("trim_tail", f.calls)
         self.assertEqual(r["plan"]["trim"][1]["now"], [session.to_tc(1170), session.to_tc(1240)])
-        r = dispatch.run("ripple_trim", {"item_ids": ["t1", "t3"], "tail_frames": 30, "confirm": True})
+        r = dispatch.run("ripple_trim", {"item_ids": ["t1", "t3"], "tail_frames": 30, "confirm": True, "timeline": "T"})
         self.assertEqual(r["_operation"]["verification"], "passed", r)
         got = {x["id"]: (x["start"], x["end"]) for x in f.items}
         self.assertEqual(got, {"t1": (1000, 1070), "t2": (1080, 1130), "t3": (1170, 1240), "up": (1220, 1240)})
@@ -33,7 +33,7 @@ class Ripple(Base):
     def test_ripple_trim_restores_end_when_ripple_fails(self):
         f = self.use(FakeResolve([item("a", 1000, 100, name="Text+"), item("b", 1200, 100, name="Text+")],
                                  fail_on={"delete_items": 1}))
-        r = dispatch.run("ripple_trim", {"item_ids": ["a"], "tail_frames": 30, "confirm": True})
+        r = dispatch.run("ripple_trim", {"item_ids": ["a"], "tail_frames": 30, "confirm": True, "timeline": "T"})
         self.assertEqual(r["_operation"]["status"], "failed")
         self.assertEqual({x["id"]: (x["start"], x["end"]) for x in f.items}, {"a": (1000, 1100), "b": (1200, 1300)})
 
@@ -43,7 +43,7 @@ class Ripple(Base):
         def no_ripple(op, args, **kw):  # Resolve deletes the filler but doesn't shift what follows
             return f(op, dict(args, ripple=False) if op == "delete_items" else args, **kw)
         self.use(no_ripple)
-        r = dispatch.run("ripple_trim", {"item_ids": ["a"], "tail_frames": 30, "confirm": True})
+        r = dispatch.run("ripple_trim", {"item_ids": ["a"], "tail_frames": 30, "confirm": True, "timeline": "T"})
         self.assertEqual(r["_operation"]["status"], "failed", r)
         self.assertIn("doesn't match the plan", r["reason"])
         self.assertEqual(r["_operation"]["changes"], {"trimmed": 0})

@@ -103,6 +103,6 @@ class PreviewSafety(Base):
         ops = [{"tool": "add_transition", "args": {"item_id": "a"}},
                {"tool": "set_speed", "args": {"item_id": "a", "percentage": 50, "confirm": False}}]
         dispatch.run("batch", {"operations": ops})
-        dispatch.run("batch", {"operations": ops, "confirm": True})
+        dispatch.run("batch", {"operations": ops, "confirm": True, "timeline": "T"})
         writes = [c for c in f.calls if c not in READ_OPS and c != "set_current_timeline"]
         self.assertEqual(writes, ["duplicate_timeline", "add_transition", "set_speed"])

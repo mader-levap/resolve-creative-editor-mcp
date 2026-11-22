@@ -62,10 +62,10 @@ def main():
         guard()
         r = dispatch.run("place_clips", {"clips": [{"clip": clip, "start_frame": 30, "end_frame": 90, "record": start},
                                             {"clip": clip, "start_frame": 120, "end_frame": 180, "record": start + 60}],
-                                  "confirm": True})
+                                  "confirm": True, "timeline": name})
         check("place_clips with linked audio", status(r) == "success", r)
         r = dispatch.run("place_clips", {"clips": [{"clip": clip, "start_frame": 0, "end_frame": 10,
-                                                    "record": start + 5}], "confirm": True})
+                                                    "record": start + 5}], "confirm": True, "timeline": name})
         check("place_clips refuses overwrite", status(r) == "blocked", r)
 
         video = sorted([x for x in session.items() if x["track_type"] == "video"], key=lambda x: x["start"])
@@ -81,7 +81,8 @@ def main():
         r = dispatch.run("move_item", {"item_id": first["id"], "record": start + 200})
         check("move preview lists linked audio", status(r) == "preview" and len(r["plan"]["move"]) == 2, r)
         guard()
-        r = dispatch.run("move_item", {"item_id": first["id"], "record": start + 200, "confirm": True})
+        r = dispatch.run("move_item", {"item_id": first["id"], "record": start + 200, "confirm": True,
+                                       "timeline": name})
         check("move keeps settings and verifies", status(r) == "success", r)
         moved = [c["new_id"] for c in r.get("_operation", {}).get("changes", {}).get("replaced", [])]
         details = {d["id"]: d for d in B("item_details", item_ids=moved)} if moved else {}
@@ -98,7 +99,8 @@ def main():
         check("staging tracks removed", B("get_state") and len({x["track"] for x in session.items()
                                                                  if x["track_type"] == "video"}) == 1)
 
-        r = dispatch.run("trim_item", {"item_id": vid["id"], "head_frames": 5, "tail_frames": 10, "confirm": True})
+        r = dispatch.run("trim_item", {"item_id": vid["id"], "head_frames": 5, "tail_frames": 10, "confirm": True,
+                                       "timeline": name})
         trimmed = (r.get("_operation", {}).get("changes", {}).get("replaced") or [{}])[0]
         check("trim preserves and verifies", status(r) == "success" and trimmed.get("to", [None, 0])[1] == 45, r)
 
@@ -118,7 +120,8 @@ def main():
 
         segs = [{"start": 0.5, "end": 2.0, "text": "First caption"},
                 {"start": 2.2, "end": 9.0, "text": "A long second one"}]
-        r = dispatch.run("add_captions", {"segments": segs, "confirm": True, "folder": "_RCE_LIVE_CAPTIONS"})
+        r = dispatch.run("add_captions", {"segments": segs, "confirm": True, "timeline": name,
+                                          "folder": "_RCE_LIVE_CAPTIONS"})
         cards = [x for x in session.items() if x["track_type"] == "video" and x["track"] == max(
             x["track"] for x in session.items() if x["track_type"] == "video")]
         check("captions placed with exact lengths", status(r) == "success", r)

@@ -25,7 +25,7 @@ class Captions(Base):
         r = dispatch.run("add_captions", {"segments": segs})
         self.assertEqual(r["_operation"]["status"], "preview")
         self.assertNotIn("add_title_cards", f.calls)
-        r = dispatch.run("add_captions", {"segments": segs, "confirm": True})
+        r = dispatch.run("add_captions", {"segments": segs, "confirm": True, "timeline": "T"})
         self.assertEqual(r["_operation"]["verification"], "passed", r)
 
     def test_srt(self):

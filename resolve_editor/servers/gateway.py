@@ -29,8 +29,8 @@ READ_ONLY_LEGACY = {"get_state", "list_timelines", "list_media", "list_timeline_
                     "set_current_timeline"}
 INSTRUCTIONS = """Controls DaVinci Resolve. On free Resolve use edit__ (preferred) and legacy__; resolve__ timeline tools need Studio.
 Start with edit__timeline_summary (the user may have edited by hand), then edit__inspect_range for the part you will change.
-Destructive edit__ tools return a preview first: show it to the user, then repeat with confirm=true. Use edit__batch for
-several changes. Never rebuild a whole timeline, never delete clips without asking, never render unless told to.
+Destructive edit__ tools return a preview first: show it to the user, then repeat with confirm=true and the timeline the
+preview names. Use edit__batch for several changes. Never rebuild a whole timeline, never delete clips without asking, never render unless told to.
 Do not mix legacy__ and resolve__ edits on one timeline. Read resolve__knowledge for editorial, colour and audio craft.
 You cannot hear audio: say so rather than implying it."""  # noqa: E501  (sent to the client as written)
 

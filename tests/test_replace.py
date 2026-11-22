@@ -13,7 +13,7 @@ class Replace(Base):
 
     def test_move_keeps_settings(self):
         f = self.use(FakeResolve([item("a", 1000, 10, src=5)]))
-        r = dispatch.run("move_item", {"item_id": "a", "record": "00:00:35:00", "confirm": True})
+        r = dispatch.run("move_item", {"item_id": "a", "record": "00:00:35:00", "confirm": True, "timeline": "T"})
         self.assertEqual(r["_operation"]["verification"], "passed", r)
         moved = [x for x in f.items if x["track"] == 1]
         self.assertEqual([(x["start"], x["source_start"]) for x in moved], [(1050, 5)])
@@ -22,18 +22,19 @@ class Replace(Base):
 
     def test_backup_made_before_edit(self):
         f = self.use(FakeResolve([item("a", 1000, 10, src=5)]))
-        r = dispatch.run("move_item", {"item_id": "a", "record": 1050, "confirm": True})
+        r = dispatch.run("move_item", {"item_id": "a", "record": 1050, "confirm": True, "timeline": "T"})
         self.assertTrue(r["snapshot"].startswith("T before edit"))
         self.assertLess(f.calls.index("duplicate_timeline"), f.calls.index("add_track"))
 
     def test_original_deleted_only_after_replacement_is_ready(self):
         f = self.use(FakeResolve([item("a", 1000, 10, src=5)]))
-        dispatch.run("move_item", {"item_id": "a", "record": 1050, "confirm": True, "backup": False})
+        dispatch.run("move_item", {"item_id": "a", "record": 1050, "confirm": True, "timeline": "T", "backup": False})
         self.assertLess(f.calls.index("copy_settings"), f.calls.index("delete_items"))
 
     def test_staging_failure_leaves_original(self):
         f = self.use(FakeResolve([item("a", 1000, 10, src=5)], fail_on={"copy_settings": 1}))
-        r = dispatch.run("move_item", {"item_id": "a", "record": 1050, "confirm": True, "backup": False})
+        r = dispatch.run("move_item", {"item_id": "a", "record": 1050, "confirm": True, "timeline": "T",
+                                       "backup": False})
         self.assertEqual(r["_operation"]["status"], "failed")
         self.assertIn("a", [x["id"] for x in f.items])
         self.assertEqual(f.tracks["video"], 1)
@@ -47,7 +48,8 @@ class Replace(Base):
                         return {"ok": False, "error": "refused"}
                 return super().__call__(op, args, **kw)
         f = self.use(FailSecondAppend([item("a", 1000, 10, src=5)]))
-        r = dispatch.run("move_item", {"item_id": "a", "record": 1050, "confirm": True, "backup": False})
+        r = dispatch.run("move_item", {"item_id": "a", "record": 1050, "confirm": True, "timeline": "T",
+                                       "backup": False})
         self.assertEqual(r["_operation"]["status"], "failed")
         back = [x for x in f.items if x["track"] == 1]
         self.assertEqual([(x["start"], x["source_start"], x["duration"]) for x in back], [(1000, 5, 10)])
@@ -57,7 +59,7 @@ class Replace(Base):
         items = [item("v", 1000, 60, src=10), item("a", 1000, 60, src=10, kind="audio")]
         f = self.use(FakeResolve(items, details={"v": {"linked": ["a"]}, "a": {"linked": ["v"]}}))
         r = dispatch.run("trim_item", {"item_id": "v", "head_frames": 5, "tail_frames": 10, "confirm": True,
-                                       "backup": False})
+                                       "timeline": "T", "backup": False})
         self.assertEqual(r["_operation"]["status"], "success", r)
         got = sorted((x["track_type"], x["start"], x["duration"], x["source_start"])
                      for x in f.items if x["track"] == 1)
@@ -69,7 +71,7 @@ class Replace(Base):
                  ({"media_id": None}, "media-pool")]
         for detail, word in cases:
             self.use(FakeResolve([item("a", 1000, 10)], details={"a": detail}))
-            r = dispatch.run("move_item", {"item_id": "a", "record": 1050, "confirm": True})
+            r = dispatch.run("move_item", {"item_id": "a", "record": 1050, "confirm": True, "timeline": "T"})
             self.assertEqual(r["_operation"]["status"], "blocked")
             self.assertIn(word, r["reason"])
 
