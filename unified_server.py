@@ -165,14 +165,14 @@ def _media_tools() -> list[dict[str, Any]]:
 
 
 def _edit_tools() -> list[dict[str, Any]]:
-    import editor_tools
-    return [_prefix_tool(t, "edit__") for t in editor_tools.TOOLS]
+    from resolve_editor.schemas.edit import TOOLS
+    return [_prefix_tool(t, "edit__") for t in TOOLS]
 
 
 def _run_edit_tool(name: str, args: dict[str, Any]) -> dict[str, Any]:
-    import editor_tools
+    from resolve_editor import dispatch
     try:
-        result = editor_tools.run(name, args)
+        result = dispatch.run(name, args)
         return {"content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False, indent=1)}],
                 "isError": result.get("_operation", {}).get("status") == "failed"}
     except Exception as exc:
@@ -330,9 +330,9 @@ class Gateway:
                 return {"isError": True, "content": [{"type": "text", "text": str(response["error"])}]}
             result = response.get("result", {})
             if backend == "legacy" and original not in READ_ONLY_LEGACY:
-                import editor_tools
-                editor_tools.invalidate()
-                editor_tools.log_audit(name, args, "failed" if result.get("isError") else "success")
+                from resolve_editor import audit, session
+                session.invalidate()
+                audit.log_audit(name, args, "failed" if result.get("isError") else "success")
             return result
         if method in {"resources/list", "resources/read", "prompts/list", "prompts/get"}:
             if not self.resolve:
@@ -353,9 +353,9 @@ class Gateway:
 def main() -> None:
     if "--doctor" in sys.argv:
         py = _upstream_python()
-        import editor_tools
+        from resolve_editor.tools import diagnostics
         print(json.dumps({
-            **editor_tools.doctor(),
+            **diagnostics.doctor(),
             "upstream_repo": str(UPSTREAM_REPO),
             "upstream_server_exists": UPSTREAM_SERVER.is_file(),
             "upstream_python": str(py),

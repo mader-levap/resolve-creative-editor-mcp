@@ -1,0 +1,42 @@
+"""Timeline export and checks of rendered files."""
+import os
+import re
+import subprocess
+
+from .. import media, outcome, paths, session
+
+
+def export_timeline(a):
+    suffix = {"OTIO": ".otio", "FCPXML": ".fcpxml", "EDL": ".edl", "AAF": ".aaf", "DRT": ".drt"}[a["format"]]
+    output = paths.new_output(a, suffix)
+    ok = session.call("export_timeline", path=output, format=a["format"]).get("ok") and os.path.exists(output)
+    return outcome.op("success" if ok else "failed", ok, {"file_written": output if ok else None})
+
+
+def parse_qc(log):
+    def last(pattern):
+        hits = re.findall(pattern, log)
+        return float(hits[-1]) if hits else None
+    black = [[float(a), float(b)] for a, b in re.findall(r"black_start:([\d.]+) black_end:([\d.]+)", log)]
+    freeze = [float(x) for x in re.findall(r"freeze_start: ([\d.]+)", log)]
+    silence = [float(x) for x in re.findall(r"silence_start: ([\d.]+)", log)]
+    return {"integrated_lufs": last(r"I:\s+(-?[\d.]+) LUFS"), "loudness_range_lu": last(r"LRA:\s+([\d.]+) LU"),
+            "true_peak_dbfs": last(r"Peak:\s+(-?[\d.]+) dBFS"), "black_segments": black[:20],
+            "frozen_at_seconds": freeze[:20], "silence_at_seconds": silence[:20]}
+
+
+def qc_file(a):
+    ffmpeg = media.binary("ffmpeg", "FFMPEG")
+    proc = subprocess.run([ffmpeg, "-nostdin", "-hide_banner", "-i", media.media_path(a["path"]),
+                           "-vf", "blackdetect=d=0.5:pix_th=0.10,freezedetect=n=-60dB:d=2",
+                           "-af", "ebur128=peak=true,silencedetect=n=-50dB:d=1", "-f", "null", "-"],
+                          capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=3600)
+    if proc.returncode:
+        raise RuntimeError(proc.stderr[-2000:])
+    report = parse_qc(proc.stderr)
+    notes = []
+    if report["true_peak_dbfs"] is not None and report["true_peak_dbfs"] > -1:
+        notes.append("true peak above -1 dBFS may clip after upload encoding")
+    if report["integrated_lufs"] is not None and not -16 <= report["integrated_lufs"] <= -12:
+        notes.append("YouTube-style targets are around -14 LUFS")
+    return outcome.op("success", True, warnings=notes, qc=report)

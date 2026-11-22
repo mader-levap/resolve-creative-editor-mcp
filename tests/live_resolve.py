@@ -8,8 +8,7 @@ import json, os, pathlib, subprocess, sys, time
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-import editor_tools as E
-from resolve_editor import paths
+from resolve_editor import dispatch, paths, session
 
 RESULTS = []
 
@@ -20,7 +19,7 @@ def check(name, ok, detail=""):
 
 
 def B(op, **a):
-    return E._b(op, **a)
+    return session.call(op, **a)
 
 
 def status(r):
@@ -46,36 +45,36 @@ def main():
         clip = media[0]["id"] if media else B("import_media", paths=[clip_path])[0]["id"]
         B("create_timeline", name=name)
         B("set_current_timeline", name=name)
-        E.invalidate()
+        session.invalidate()
         start = B("get_state")["timeline_start_frame"]
         guard = lambda: B("get_state")["timeline"] == name or sys.exit("wrong timeline, stopping")
 
-        r = E.run("place_clips", {"clips": [{"clip": clip, "start_frame": 30, "end_frame": 90, "record": start},
+        r = dispatch.run("place_clips", {"clips": [{"clip": clip, "start_frame": 30, "end_frame": 90, "record": start},
                                             {"clip": clip, "start_frame": 120, "end_frame": 180, "record": start + 60}]})
         check("place_clips previews first", status(r) == "preview", r)
         guard()
-        r = E.run("place_clips", {"clips": [{"clip": clip, "start_frame": 30, "end_frame": 90, "record": start},
+        r = dispatch.run("place_clips", {"clips": [{"clip": clip, "start_frame": 30, "end_frame": 90, "record": start},
                                             {"clip": clip, "start_frame": 120, "end_frame": 180, "record": start + 60}],
                                   "confirm": True})
         check("place_clips with linked audio", status(r) == "success", r)
-        r = E.run("place_clips", {"clips": [{"clip": clip, "start_frame": 0, "end_frame": 10, "record": start + 5}],
+        r = dispatch.run("place_clips", {"clips": [{"clip": clip, "start_frame": 0, "end_frame": 10, "record": start + 5}],
                                   "confirm": True})
         check("place_clips refuses overwrite", status(r) == "blocked", r)
 
-        video = sorted([x for x in E._items() if x["track_type"] == "video"], key=lambda x: x["start"])
+        video = sorted([x for x in session.items() if x["track_type"] == "video"], key=lambda x: x["start"])
         first, second = video[0], video[1]
         B("set_item_properties", item_id=first["id"], properties={"ZoomX": 1.4, "ZoomY": 1.4, "Opacity": 75.0})
         B("set_grade", item_ids=[first["id"]], slope="1.1 1.0 0.9", saturation=1.2)
         B("set_fades", item_id=first["id"], fade_in=6, fade_out=0)
         B("review_item", item_id=first["id"], color="Orange", flag="Blue")
-        audio_of_first = [x for x in E._items() if x["track_type"] == "audio" and x["start"] == first["start"]][0]
-        r = E.run("set_audio", {"item_ids": [audio_of_first["id"]], "volume_db": -6})
+        audio_of_first = [x for x in session.items() if x["track_type"] == "audio" and x["start"] == first["start"]][0]
+        r = dispatch.run("set_audio", {"item_ids": [audio_of_first["id"]], "volume_db": -6})
         check("set_audio read-back", status(r) == "success", r)
 
-        r = E.run("move_item", {"item_id": first["id"], "record": start + 200})
+        r = dispatch.run("move_item", {"item_id": first["id"], "record": start + 200})
         check("move preview lists linked audio", status(r) == "preview" and len(r["plan"]["move"]) == 2, r)
         guard()
-        r = E.run("move_item", {"item_id": first["id"], "record": start + 200, "confirm": True})
+        r = dispatch.run("move_item", {"item_id": first["id"], "record": start + 200, "confirm": True})
         check("move keeps settings and verifies", status(r) == "success", r)
         moved = [c["new_id"] for c in r.get("_operation", {}).get("changes", {}).get("replaced", [])]
         details = {d["id"]: d for d in B("item_details", item_ids=moved)} if moved else {}
@@ -88,39 +87,39 @@ def main():
         check("moved clips relinked", set(vid.get("linked") or []) == {aud.get("id")}, vid.get("linked"))
         probe = B("probe_color", item_id=vid["id"]) if vid else {}
         check("moved video still has its grade node", (probe or {}).get("item_nodes", 0) >= 1, probe)
-        check("staging tracks removed", B("get_state") and len({x["track"] for x in E._items()
+        check("staging tracks removed", B("get_state") and len({x["track"] for x in session.items()
                                                                  if x["track_type"] == "video"}) == 1)
 
-        r = E.run("trim_item", {"item_id": vid["id"], "head_frames": 5, "tail_frames": 10, "confirm": True})
+        r = dispatch.run("trim_item", {"item_id": vid["id"], "head_frames": 5, "tail_frames": 10, "confirm": True})
         trimmed = (r.get("_operation", {}).get("changes", {}).get("replaced") or [{}])[0]
         check("trim preserves and verifies", status(r) == "success" and trimmed.get("to", [None, 0])[1] == 45, r)
 
-        r = E.run("add_transition", {"item_id": second["id"], "position": "start", "duration": 10})
+        r = dispatch.run("add_transition", {"item_id": second["id"], "position": "start", "duration": 10})
         check("transition refused or added honestly", status(r) in ("success", "partial") or "refused" in str(r), r)
-        r = E.run("set_fades", {"item_ids": [second["id"]], "fade_in": 0, "fade_out": 8})
+        r = dispatch.run("set_fades", {"item_ids": [second["id"]], "fade_in": 0, "fade_out": 8})
         check("set_fades read-back", status(r) == "success", r)
-        r = E.run("set_enabled", {"item_ids": [second["id"]], "enabled": False})
+        r = dispatch.run("set_enabled", {"item_ids": [second["id"]], "enabled": False})
         check("disable clip read-back", status(r) == "success", r)
-        E.run("set_enabled", {"item_ids": [second["id"]], "enabled": True})
+        dispatch.run("set_enabled", {"item_ids": [second["id"]], "enabled": True})
 
-        r = E.run("add_markers", {"markers": [{"at": start + 15, "name": "a"}, {"at": E._tc(start + 30), "name": "b"}]})
+        r = dispatch.run("add_markers", {"markers": [{"at": start + 15, "name": "a"}, {"at": session.to_tc(start + 30), "name": "b"}]})
         check("markers by frame and timecode", status(r) == "success" and set(B("list_markers")) >= {"15", "30"}, r)
-        r = E.run("add_audio_markers", {"path": clip_path, "kind": "beats", "dry_run": True})
+        r = dispatch.run("add_audio_markers", {"path": clip_path, "kind": "beats", "dry_run": True})
         check("beat analysis runs", status(r) == "planned", r)
 
         segs = [{"start": 0.5, "end": 2.0, "text": "First caption"}, {"start": 2.2, "end": 9.0, "text": "A long second one"}]
-        r = E.run("add_captions", {"segments": segs, "confirm": True, "folder": "_RCE_LIVE_CAPTIONS"})
-        cards = [x for x in E._items() if x["track_type"] == "video" and x["track"] == max(
-            x["track"] for x in E._items() if x["track_type"] == "video")]
+        r = dispatch.run("add_captions", {"segments": segs, "confirm": True, "folder": "_RCE_LIVE_CAPTIONS"})
+        cards = [x for x in session.items() if x["track_type"] == "video" and x["track"] == max(
+            x["track"] for x in session.items() if x["track_type"] == "video")]
         check("captions placed with exact lengths", status(r) == "success", r)
         check("caption lengths 45/150/54", sorted(x["duration"] for x in cards) == [45, 54, 150], cards)
 
-        r = E.run("timeline_summary", {})
+        r = dispatch.run("timeline_summary", {})
         check("summary counts transitions separately", "transitions" in r and r["overlaps"]["count"] == 0, r)
-        r = E.run("inspect_range", {"start": start, "end": start + 400, "details": True})
+        r = dispatch.run("inspect_range", {"start": start, "end": start + 400, "details": True})
         check("inspect_range details", r["count"] > 0, r)
         out = os.path.join(folder, f"rce_live_{int(time.time())}.otio")
-        r = E.run("export_timeline", {"format": "OTIO", "output": out})
+        r = dispatch.run("export_timeline", {"format": "OTIO", "output": out})
         check("OTIO export", status(r) == "success", r)
     except SystemExit:
         raise
@@ -130,7 +129,7 @@ def main():
         if original.startswith("_RCE_"):  # never leave the user on a scratch timeline
             original = next((t for t in B("list_timelines") if not t.startswith("_RCE_")), original)
         B("set_current_timeline", name=original)
-        E.invalidate()
+        session.invalidate()
         after = (B("list_timeline_items", track_type="video"), B("list_timeline_items", track_type="audio"))
         check("your current timeline is unchanged", after == before)
         if not keep:

@@ -1,0 +1,70 @@
+"""Read-only inspection of the timeline and the Media Pool."""
+from .. import session
+
+
+def analyze(items, limit=10, tc=str):
+    """Pure timeline analysis: gaps, overlaps, transitions, reused source clips."""
+    tracks, gaps, overlaps, used, transitions = {}, [], [], {}, 0
+    for it in items:
+        if it.get("type") == "transition":
+            transitions += 1
+            continue
+        tracks.setdefault((it["track_type"], it["track"]), []).append(it)
+        if it["track_type"] == "video" and it.get("type") != "generator":
+            used.setdefault(it["name"], []).append(it["start"])
+    for (kind, track), row in sorted(tracks.items()):
+        row.sort(key=lambda x: x["start"])
+        for a, b in zip(row, row[1:]):
+            where = f"{'V' if kind == 'video' else 'A'}{track}"
+            if b["start"] > a["end"]:
+                gaps.append({"track": where, "at": tc(a["end"]), "frames": b["start"] - a["end"]})
+            elif b["start"] < a["end"]:
+                overlaps.append({"track": where, "at": tc(b["start"]), "frames": a["end"] - b["start"],
+                                 "items": [a["id"], b["id"]]})
+    reused = {n: [tc(s) for s in starts] for n, starts in sorted(used.items()) if len(starts) > 1}
+    return {"items": len(items) - transitions, "transitions": transitions,
+            "tracks": {f"{'V' if k == 'video' else 'A'}{t}": len(r) for (k, t), r in sorted(tracks.items())},
+            "gaps": {"count": len(gaps), "first": gaps[:limit]},
+            "overlaps": {"count": len(overlaps), "first": overlaps[:limit],
+                         "note": "Same-track audio overlaps are usually crossfades." if overlaps else None},
+            "reused_clips": reused}
+
+
+def timeline_summary(a):
+    _, _, state = session.clock()
+    report = analyze(session.items(), a.get("limit") or 10, session.to_tc)
+    report.update({"timeline": state["timeline"], "fps": state["timeline_fps"],
+                   "range": [session.to_tc(state["timeline_start_frame"]), session.to_tc(state["timeline_end_frame"])]})
+    return report
+
+
+DEFAULTS = {"Pan": 0, "Tilt": 0, "ZoomX": 1, "ZoomY": 1, "RotationAngle": 0, "Opacity": 100, "CropLeft": 0,
+            "CropRight": 0, "CropTop": 0, "CropBottom": 0, "FlipX": False, "FlipY": False, "CompositeMode": 0,
+            "AudioVolume": 0, "AudioPan": 0, "AudioPitchSemiTones": 0}
+
+
+def inspect_range(a):
+    start, end = session.to_frame(a["start"]), session.to_frame(a["end"])
+    hits = [x for x in session.items() if x["start"] < end and start < x["end"]]
+    rows = [{"id": x["id"], "name": x["name"], "track": f"{x['track_type'][0].upper()}{x['track']}",
+             "type": x.get("type"), "in": session.to_tc(x["start"]), "out": session.to_tc(x["end"]), "frames": x["duration"],
+             "source_start": x.get("source_start")} for x in sorted(hits, key=lambda x: (x["start"], x["track_type"]))]
+    if a.get("details") and rows:
+        details = {d["id"]: d for d in session.as_list(session.call("item_details", item_ids=[r["id"] for r in rows if r["type"] != "transition"]))}
+        for r in rows:
+            d = details.get(r["id"])
+            if d:
+                props = d.get("properties") or {}
+                r.update({"speed": (d.get("speed") or {}).get("Percentage"), "fades": d.get("fades"),
+                          "enabled": d.get("enabled"), "color": d.get("color") or None, "markers": len(d.get("markers") or {}),
+                          "linked": d.get("linked"), "fusion_comps": d.get("fusion_comps"),
+                          "changed_settings": {k: v for k, v in props.items()
+                                               if k in DEFAULTS and v != DEFAULTS[k]}})
+    return {"range": [session.to_tc(start), session.to_tc(end)], "count": len(rows), "items": rows}
+
+
+def find_media(a):
+    query, limit = (a.get("query") or "").lower(), a.get("limit") or 20
+    hits = [m for m in session.media_pool() if query in (m.get("name") or "").lower()]
+    return {"count": len(hits), "media": [{k: m.get(k) for k in ("id", "name", "frames", "fps", "type")}
+                                          for m in hits[:limit]]}

@@ -10,8 +10,9 @@ from unittest import mock
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 os.environ["RESOLVE_BRIDGE_DIR"] = tempfile.mkdtemp()
-import editor_tools as E
-from resolve_editor import bridge, media, paths
+from resolve_editor import audit, bridge, dispatch, media, outcome, paths, session, timecode
+from resolve_editor.schemas import edit as schema
+from resolve_editor.tools import captions, delivery, inspection, markers
 
 
 def item(id, start, dur, name="a.mp4", src=0, track=1, kind="video", type=None):
@@ -112,31 +113,31 @@ class Base(unittest.TestCase):
     def use(self, fake):
         old = bridge.call_bridge
         bridge.call_bridge = fake
-        E.invalidate()
+        session.invalidate()
         self.addCleanup(setattr, bridge, "call_bridge", old)
-        self.addCleanup(E.invalidate)
+        self.addCleanup(session.invalidate)
         return fake
 
 
 class Timecode(unittest.TestCase):
     def test_fps(self):
-        self.assertEqual(E.parse_fps(30), 30)
-        self.assertEqual(E.parse_fps("29.97"), Fraction(30000, 1001))
-        self.assertEqual(E.parse_fps("23.976"), Fraction(24000, 1001))
+        self.assertEqual(timecode.parse_fps(30), 30)
+        self.assertEqual(timecode.parse_fps("29.97"), Fraction(30000, 1001))
+        self.assertEqual(timecode.parse_fps("23.976"), Fraction(24000, 1001))
 
     def test_round_trip(self):
         for fps, drop in ((30, False), (Fraction(30000, 1001), True), (Fraction(24000, 1001), False), (25, False)):
             for frame in (0, 1, 1799, 1800, 17982, 107892, 108000, 215784):
-                self.assertEqual(E.tc_to_frame(E.frame_to_tc(frame, fps, drop), fps, drop), frame, (fps, drop, frame))
+                self.assertEqual(timecode.tc_to_frame(timecode.frame_to_tc(frame, fps, drop), fps, drop), frame, (fps, drop, frame))
 
     def test_drop_frame_known_values(self):
         df = Fraction(30000, 1001)
-        self.assertEqual(E.frame_to_tc(1800, df, True), "00:01:00;02")
-        self.assertEqual(E.frame_to_tc(17982, df, True), "00:10:00;00")
-        self.assertEqual(E.frame_to_tc(108000, 30), "01:00:00:00")
+        self.assertEqual(timecode.frame_to_tc(1800, df, True), "00:01:00;02")
+        self.assertEqual(timecode.frame_to_tc(17982, df, True), "00:10:00;00")
+        self.assertEqual(timecode.frame_to_tc(108000, 30), "01:00:00:00")
 
     def test_seconds_to_frames_ntsc(self):
-        self.assertEqual(E.seconds_to_frames(1.001, Fraction(30000, 1001)), 30)
+        self.assertEqual(timecode.seconds_to_frames(1.001, Fraction(30000, 1001)), 30)
 
 
 class Inspection(Base):
@@ -144,33 +145,33 @@ class Inspection(Base):
         items = [item("a", 1000, 10), item("t", 1005, 10, name="Cross Dissolve", type="transition"), item("b", 1010, 10)]
         items += [item(f"g{i}", 1100 + i * 20, 10, name=f"x{i}") for i in range(30)]
         self.use(FakeResolve(items))
-        r = E.run("timeline_summary", {"limit": 3})
+        r = dispatch.run("timeline_summary", {"limit": 3})
         self.assertEqual(r["transitions"], 1)
         self.assertEqual(r["overlaps"]["count"], 0)
         self.assertEqual(len(r["gaps"]["first"]), 3)
         self.assertEqual(r["gaps"]["first"][0]["at"], "00:00:34:00")  # frame 1020 at 30 fps
 
     def test_reused_clips(self):
-        r = E.analyze([item("a", 0, 10), item("b", 20, 10), item("c", 25, 10, name="z")])
+        r = inspection.analyze([item("a", 0, 10), item("b", 20, 10), item("c", 25, 10, name="z")])
         self.assertEqual(r["reused_clips"], {"a.mp4": ["0", "20"]})
 
     def test_cache_avoids_repeat_reads(self):
         f = self.use(FakeResolve([item("a", 1000, 10)]))
-        E.run("timeline_summary", {})
-        E.run("timeline_summary", {})
+        dispatch.run("timeline_summary", {})
+        dispatch.run("timeline_summary", {})
         self.assertEqual(f.calls.count("list_timeline_items"), 2)  # video + audio once, not twice per call
 
 
 class Replace(Base):
     def test_preview_changes_nothing(self):
         f = self.use(FakeResolve([item("a", 1000, 10, src=5)]))
-        r = E.run("move_item", {"item_id": "a", "record": 1050})
+        r = dispatch.run("move_item", {"item_id": "a", "record": 1050})
         self.assertEqual(r["_operation"]["status"], "preview")
         self.assertFalse({"delete_items", "append_clips", "add_track"} & set(f.calls))
 
     def test_move_keeps_settings(self):
         f = self.use(FakeResolve([item("a", 1000, 10, src=5)]))
-        r = E.run("move_item", {"item_id": "a", "record": "00:00:35:00", "confirm": True})
+        r = dispatch.run("move_item", {"item_id": "a", "record": "00:00:35:00", "confirm": True})
         self.assertEqual(r["_operation"]["verification"], "passed", r)
         moved = [x for x in f.items if x["track"] == 1]
         self.assertEqual([(x["start"], x["source_start"]) for x in moved], [(1050, 5)])
@@ -179,18 +180,18 @@ class Replace(Base):
 
     def test_backup_made_before_edit(self):
         f = self.use(FakeResolve([item("a", 1000, 10, src=5)]))
-        r = E.run("move_item", {"item_id": "a", "record": 1050, "confirm": True})
+        r = dispatch.run("move_item", {"item_id": "a", "record": 1050, "confirm": True})
         self.assertTrue(r["snapshot"].startswith("T before edit"))
         self.assertLess(f.calls.index("duplicate_timeline"), f.calls.index("add_track"))
 
     def test_original_deleted_only_after_replacement_is_ready(self):
         f = self.use(FakeResolve([item("a", 1000, 10, src=5)]))
-        E.run("move_item", {"item_id": "a", "record": 1050, "confirm": True, "backup": False})
+        dispatch.run("move_item", {"item_id": "a", "record": 1050, "confirm": True, "backup": False})
         self.assertLess(f.calls.index("copy_settings"), f.calls.index("delete_items"))
 
     def test_staging_failure_leaves_original(self):
         f = self.use(FakeResolve([item("a", 1000, 10, src=5)], fail_on={"copy_settings": 1}))
-        r = E.run("move_item", {"item_id": "a", "record": 1050, "confirm": True, "backup": False})
+        r = dispatch.run("move_item", {"item_id": "a", "record": 1050, "confirm": True, "backup": False})
         self.assertEqual(r["_operation"]["status"], "failed")
         self.assertIn("a", [x["id"] for x in f.items])
         self.assertEqual(f.tracks["video"], 1)
@@ -204,7 +205,7 @@ class Replace(Base):
                         return {"ok": False, "error": "refused"}
                 return super().__call__(op, args, **kw)
         f = self.use(FailSecondAppend([item("a", 1000, 10, src=5)]))
-        r = E.run("move_item", {"item_id": "a", "record": 1050, "confirm": True, "backup": False})
+        r = dispatch.run("move_item", {"item_id": "a", "record": 1050, "confirm": True, "backup": False})
         self.assertEqual(r["_operation"]["status"], "failed")
         back = [x for x in f.items if x["track"] == 1]
         self.assertEqual([(x["start"], x["source_start"], x["duration"]) for x in back], [(1000, 5, 10)])
@@ -213,7 +214,7 @@ class Replace(Base):
     def test_trim_moves_linked_audio_too(self):
         items = [item("v", 1000, 60, src=10), item("a", 1000, 60, src=10, kind="audio")]
         f = self.use(FakeResolve(items, details={"v": {"linked": ["a"]}, "a": {"linked": ["v"]}}))
-        r = E.run("trim_item", {"item_id": "v", "head_frames": 5, "tail_frames": 10, "confirm": True, "backup": False})
+        r = dispatch.run("trim_item", {"item_id": "v", "head_frames": 5, "tail_frames": 10, "confirm": True, "backup": False})
         self.assertEqual(r["_operation"]["status"], "success", r)
         got = sorted((x["track_type"], x["start"], x["duration"], x["source_start"]) for x in f.items if x["track"] == 1)
         self.assertEqual(got, [("audio", 1005, 45, 15), ("video", 1005, 45, 15)])
@@ -223,7 +224,7 @@ class Replace(Base):
         cases = [({"speed": {"Percentage": 50}}, "speed"), ({"fusion_comps": 1}, "Fusion"), ({"media_id": None}, "media-pool")]
         for detail, word in cases:
             self.use(FakeResolve([item("a", 1000, 10)], details={"a": detail}))
-            r = E.run("move_item", {"item_id": "a", "record": 1050, "confirm": True})
+            r = dispatch.run("move_item", {"item_id": "a", "record": 1050, "confirm": True})
             self.assertEqual(r["_operation"]["status"], "blocked")
             self.assertIn(word, r["reason"])
 
@@ -231,11 +232,11 @@ class Replace(Base):
         titles = [item("t1", 1000, 100, name="Text+"), item("t2", 1110, 50, name="Text+"),
                   item("t3", 1200, 100, name="Text+"), item("up", 1250, 20, name="Text+", track=2)]
         f = self.use(FakeResolve(titles, details={i: {"fusion_comps": 1, "media_id": None} for i in ("t1", "t2", "t3", "up")}))
-        r = E.run("ripple_trim", {"item_ids": ["t1", "t3"], "tail_frames": 30})
+        r = dispatch.run("ripple_trim", {"item_ids": ["t1", "t3"], "tail_frames": 30})
         self.assertEqual(r["_operation"]["status"], "preview")
         self.assertNotIn("trim_tail", f.calls)
-        self.assertEqual(r["plan"]["trim"][1]["now"], [E._tc(1170), E._tc(1240)])
-        r = E.run("ripple_trim", {"item_ids": ["t1", "t3"], "tail_frames": 30, "confirm": True})
+        self.assertEqual(r["plan"]["trim"][1]["now"], [session.to_tc(1170), session.to_tc(1240)])
+        r = dispatch.run("ripple_trim", {"item_ids": ["t1", "t3"], "tail_frames": 30, "confirm": True})
         self.assertEqual(r["_operation"]["verification"], "passed", r)
         got = {x["id"]: (x["start"], x["end"]) for x in f.items}
         self.assertEqual(got, {"t1": (1000, 1070), "t2": (1080, 1130), "t3": (1170, 1240), "up": (1220, 1240)})
@@ -244,81 +245,81 @@ class Replace(Base):
 
     def test_ripple_trim_refusals(self):
         self.use(FakeResolve([item("a", 1000, 100), item("b", 1080, 100, track=2)]))
-        self.assertIn("overlaps", E.run("ripple_trim", {"item_ids": ["a"], "tail_frames": 30})["reason"])
+        self.assertIn("overlaps", dispatch.run("ripple_trim", {"item_ids": ["a"], "tail_frames": 30})["reason"])
         self.use(FakeResolve([item("a", 1000, 100)], details={"a": {"linked": ["x"]}}))
-        self.assertIn("linked", E.run("ripple_trim", {"item_ids": ["a"], "tail_frames": 30})["reason"])
+        self.assertIn("linked", dispatch.run("ripple_trim", {"item_ids": ["a"], "tail_frames": 30})["reason"])
         self.use(FakeResolve([item("a", 1000, 20)]))
-        self.assertIn("only 20", E.run("ripple_trim", {"item_ids": ["a"], "tail_frames": 30})["reason"])
-        self.assertIn("positive", E.run("ripple_trim", {"item_ids": ["a"], "tail_frames": -5})["reason"])
+        self.assertIn("only 20", dispatch.run("ripple_trim", {"item_ids": ["a"], "tail_frames": 30})["reason"])
+        self.assertIn("positive", dispatch.run("ripple_trim", {"item_ids": ["a"], "tail_frames": -5})["reason"])
 
     def test_ripple_trim_restores_end_when_ripple_fails(self):
         f = self.use(FakeResolve([item("a", 1000, 100, name="Text+"), item("b", 1200, 100, name="Text+")],
                                  fail_on={"delete_items": 1}))
-        r = E.run("ripple_trim", {"item_ids": ["a"], "tail_frames": 30, "confirm": True})
+        r = dispatch.run("ripple_trim", {"item_ids": ["a"], "tail_frames": 30, "confirm": True})
         self.assertEqual(r["_operation"]["status"], "failed")
         self.assertEqual({x["id"]: (x["start"], x["end"]) for x in f.items}, {"a": (1000, 1100), "b": (1200, 1300)})
 
     def test_mixed_fps_refused(self):
         self.use(FakeResolve([item("a", 1000, 10)], fps=25))
-        self.assertIn("frame rate", E.run("move_item", {"item_id": "a", "record": 1050})["reason"])
+        self.assertIn("frame rate", dispatch.run("move_item", {"item_id": "a", "record": 1050})["reason"])
 
     def test_collision_and_transition_refused(self):
         self.use(FakeResolve([item("a", 1000, 10), item("b", 1050, 10)]))
-        self.assertIn("overwrite", E.run("move_item", {"item_id": "a", "record": 1045})["reason"])
+        self.assertIn("overwrite", dispatch.run("move_item", {"item_id": "a", "record": 1045})["reason"])
         self.use(FakeResolve([item("a", 1000, 10), item("t", 1005, 10, type="transition")]))
-        self.assertIn("transition", E.run("move_item", {"item_id": "a", "record": 1100})["reason"])
+        self.assertIn("transition", dispatch.run("move_item", {"item_id": "a", "record": 1100})["reason"])
 
     def test_trim_past_source(self):
         self.use(FakeResolve([item("a", 1000, 60, src=0)]))
-        self.assertIn("outside", E.run("trim_item", {"item_id": "a", "head_frames": -5})["reason"])
+        self.assertIn("outside", dispatch.run("trim_item", {"item_id": "a", "head_frames": -5})["reason"])
 
 
 class Fades(Base):
     def test_missing_end_keeps_current_length(self):
         f = self.use(FakeResolve([item("a", 1000, 60)], details={"a": {"fades": {"FadeIn": 30, "FadeOut": 10}}}))
-        r = E.run("set_fades", {"item_ids": ["a"], "fade_out": 60})
+        r = dispatch.run("set_fades", {"item_ids": ["a"], "fade_out": 60})
         self.assertEqual(r["_operation"]["verification"], "passed", r)
         self.assertEqual(f.settings["a"]["fades"], {"FadeIn": 30, "FadeOut": 60})
         self.assertIn("lost when Resolve restarts", r["_operation"]["warnings"][0])
-        E.run("set_fades", {"item_ids": ["a"], "fade_in": 0})
+        dispatch.run("set_fades", {"item_ids": ["a"], "fade_in": 0})
         self.assertEqual(f.settings["a"]["fades"], {"FadeIn": 0, "FadeOut": 60})
 
     def test_both_ends_given_skips_read(self):
         f = self.use(FakeResolve([item("a", 1000, 60)]))
-        E.run("set_fades", {"item_ids": ["a"], "fade_in": 5, "fade_out": 6})
+        dispatch.run("set_fades", {"item_ids": ["a"], "fade_in": 5, "fade_out": 6})
         self.assertNotIn("item_details", f.calls)
         self.assertEqual(f.settings["a"]["fades"], {"FadeIn": 5, "FadeOut": 6})
 
     def test_nothing_given_is_refused(self):
         f = self.use(FakeResolve([item("a", 1000, 60)]))
-        self.assertEqual(E.run("set_fades", {"item_ids": ["a"]})["_operation"]["status"], "blocked")
+        self.assertEqual(dispatch.run("set_fades", {"item_ids": ["a"]})["_operation"]["status"], "blocked")
         self.assertNotIn("set_fades", f.calls)
 
 
 class Captions(Base):
     def test_split_and_no_overlap(self):
-        segs = E.split_segments([{"start": 0, "end": 4, "text": "one two three four five six seven eight nine ten"},
+        segs = captions.split_segments([{"start": 0, "end": 4, "text": "one two three four five six seven eight nine ten"},
                                  {"start": 3.5, "end": 5, "text": "next"}], max_chars=20)
         self.assertTrue(all(len(s["text"]) <= 20 for s in segs))
         for a, b in zip(segs, segs[1:]):
             self.assertLessEqual(a["end"], b["start"])
 
     def test_cards_cap_at_five_seconds(self):
-        cards = E.caption_cards([{"start": 0, "end": 7, "text": "long"}], 30, 1000, "T")
+        cards = captions.caption_cards([{"start": 0, "end": 7, "text": "long"}], 30, 1000, "T")
         self.assertEqual([(c["record_frame"], c["frames"]) for c in cards], [(1000, 150), (1150, 60)])
         self.assertEqual(len({c["name"] for c in cards}), 2)
 
     def test_add_captions_preview_then_apply(self):
         f = self.use(FakeResolve([]))
         segs = [{"start": 1, "end": 2.5, "text": "hi"}]
-        r = E.run("add_captions", {"segments": segs})
+        r = dispatch.run("add_captions", {"segments": segs})
         self.assertEqual(r["_operation"]["status"], "preview")
         self.assertNotIn("add_title_cards", f.calls)
-        r = E.run("add_captions", {"segments": segs, "confirm": True})
+        r = dispatch.run("add_captions", {"segments": segs, "confirm": True})
         self.assertEqual(r["_operation"]["verification"], "passed", r)
 
     def test_srt(self):
-        self.assertEqual(E.to_srt([{"start": 61.5, "end": 62, "text": "hi"}]), "1\n00:01:01,500 --> 00:01:02,000\nhi\n\n")
+        self.assertEqual(captions.to_srt([{"start": 61.5, "end": 62, "text": "hi"}]), "1\n00:01:01,500 --> 00:01:02,000\nhi\n\n")
 
 
 class Analysis(Base):
@@ -326,18 +327,18 @@ class Analysis(Base):
         rate, s = 11025, []
         for _ in range(4):
             s += [0.8] * 1000 + [0.0] * (rate // 2 - 1000)
-        self.assertGreaterEqual(len(E.onsets(s, rate)), 3)
+        self.assertGreaterEqual(len(markers.onsets(s, rate)), 3)
 
     def test_qc_parse(self):
         log = ("[blackdetect] black_start:0 black_end:0.8\n[freezedetect] freeze_start: 3.2\n"
                "  Integrated loudness:\n    I:         -14.2 LUFS\n  Loudness range:\n    LRA:         5.1 LU\n"
                "  True peak:\n    Peak:       -0.5 dBFS\n")
-        r = E.parse_qc(log)
+        r = delivery.parse_qc(log)
         self.assertEqual((r["integrated_lufs"], r["true_peak_dbfs"], r["black_segments"]), (-14.2, -0.5, [[0.0, 0.8]]))
 
     def test_batch_previews_without_writing(self):
         f = self.use(FakeResolve([item("a", 1000, 10, src=5)]))
-        r = E.run("batch", {"operations": [{"tool": "move_item", "args": {"item_id": "a", "record": 1050}}]})
+        r = dispatch.run("batch", {"operations": [{"tool": "move_item", "args": {"item_id": "a", "record": 1050}}]})
         self.assertEqual(r["_operation"]["status"], "preview")
         self.assertNotIn("delete_items", f.calls)
 
@@ -388,7 +389,7 @@ class PreviewSafety(Base):
             return call
 
         for target, name, fake in ((builtins, "open", guarded_open),
-                                   (E, "log_audit", lambda *args: self.effects.append(("audit", args[0]))),
+                                   (audit, "log_audit", lambda *args: self.effects.append(("audit", args[0]))),
                                    (media, "run_media_tool", forbid("media tool")),
                                    (subprocess, "run", forbid("subprocess"))):
             patch = mock.patch.object(target, name, fake)
@@ -400,20 +401,20 @@ class PreviewSafety(Base):
         f = self.use(FakeResolve([item("a", 1000, 10, src=5)]))
         self.effects.clear()
         try:
-            r = E.run(tool, args)
+            r = dispatch.run(tool, args)
         except Exception as exc:
             r = {"error": repr(exc)}
         return r, [op for op in f.calls if op not in READ_OPS] + self.effects
 
     def test_every_handler_has_sample_args(self):
-        self.assertEqual(set(SAMPLE_ARGS), set(E.HANDLERS))
+        self.assertEqual(set(SAMPLE_ARGS), set(dispatch.HANDLERS))
 
     def test_previewable_matches_schemas(self):
-        with_confirm = {t["name"] for t in E.TOOLS if "confirm" in t["inputSchema"]["properties"]}
-        self.assertEqual(E.PREVIEWABLE, with_confirm - {"batch"})
+        with_confirm = {t["name"] for t in schema.TOOLS if "confirm" in t["inputSchema"]["properties"]}
+        self.assertEqual(dispatch.PREVIEWABLE, with_confirm - {"batch"})
 
     def test_batch_preview_changes_nothing_for_any_tool(self):
-        for tool in sorted(set(E.HANDLERS) - {"batch"}):
+        for tool in sorted(set(dispatch.HANDLERS) - {"batch"}):
             for inner in ({}, {"confirm": True}):
                 with self.subTest(tool=tool, inner=inner):
                     r, effects = self.attempt("batch", {"operations": [{"tool": tool,
@@ -421,7 +422,7 @@ class PreviewSafety(Base):
                     self.assertEqual(effects, [])
                     self.assertEqual(r.get("_operation", {}).get("status"), "preview", r)
                     step = r["plan"][0]
-                    if tool in E.PREVIEWABLE:
+                    if tool in dispatch.PREVIEWABLE:
                         self.assertEqual(step["preview"]["_operation"]["status"], "preview", step)
                     else:
                         self.assertIn("not_run", step)
@@ -430,14 +431,14 @@ class PreviewSafety(Base):
 
     def test_unknown_new_handler_is_never_called(self):
         new = mock.Mock(return_value={})
-        with mock.patch.dict(E.HANDLERS, {"brand_new_tool": new}):
+        with mock.patch.dict(dispatch.HANDLERS, {"brand_new_tool": new}):
             r, effects = self.attempt("batch", {"operations": [{"tool": "brand_new_tool"}]})
         new.assert_not_called()
         self.assertEqual(effects, [])
         self.assertIn("not_run", r["plan"][0])
 
     def test_only_boolean_true_confirms(self):
-        cases = {t["name"]: SAMPLE_ARGS[t["name"]] for t in E.TOOLS if "confirm" in t["inputSchema"]["properties"]}
+        cases = {t["name"]: SAMPLE_ARGS[t["name"]] for t in schema.TOOLS if "confirm" in t["inputSchema"]["properties"]}
         cases["batch"] = {"operations": [{"tool": "add_transition", "args": {"item_id": "a"}}]}
         for tool, args in cases.items():
             for value in ("false", "true", "no", 1, [1], False, None):
@@ -458,8 +459,8 @@ class PreviewSafety(Base):
         f = self.use(FakeResolve([item("a", 1000, 10, src=5)]))
         ops = [{"tool": "add_transition", "args": {"item_id": "a"}},
                {"tool": "set_speed", "args": {"item_id": "a", "percentage": 50, "confirm": False}}]
-        E.run("batch", {"operations": ops})
-        E.run("batch", {"operations": ops, "confirm": True})
+        dispatch.run("batch", {"operations": ops})
+        dispatch.run("batch", {"operations": ops, "confirm": True})
         writes = [c for c in f.calls if c not in READ_OPS and c != "set_current_timeline"]
         self.assertEqual(writes, ["duplicate_timeline", "add_transition", "set_speed"])
 
@@ -520,7 +521,7 @@ class TimelinePin(Base):
 
     def batch(self, fake):
         self.use(fake)
-        return E.run("batch", {"confirm": True, "operations": [self.PLACE, self.MARK]})
+        return dispatch.run("batch", {"confirm": True, "operations": [self.PLACE, self.MARK]})
 
     @staticmethod
     def once(when, to="OTHER"):
@@ -548,10 +549,10 @@ class TimelinePin(Base):
         for tool in ("batch", "snapshot_timeline"):
             with self.subTest(tool=tool):
                 f = self.use(TimelineFake())
-                E.run("timeline_summary", {})
+                dispatch.run("timeline_summary", {})
                 f.cur = "OTHER"  # the user switched less than 3 s after that read
                 f.landed.clear()
-                E.run(tool, {"confirm": True, "operations": [self.PLACE]} if tool == "batch" else {})
+                dispatch.run(tool, {"confirm": True, "operations": [self.PLACE]} if tool == "batch" else {})
                 self.assertEqual(list(f.backup_of.values()), ["OTHER"])
                 self.assertTrue(next(iter(f.backup_of)).startswith("OTHER "), "the backup is named after its source")
                 self.assertEqual({at for _, at in f.writes()}, {"OTHER"})
@@ -561,7 +562,7 @@ class TimelinePin(Base):
         f = self.use(TimelineFake())
         f.refuse_switch = 1
         with self.assertRaises(RuntimeError):
-            E.run("snapshot_timeline", {})
+            dispatch.run("snapshot_timeline", {})
         self.assertEqual(f.cur, "T")
 
     def test_move_rollback_stays_on_timeline(self):
@@ -577,21 +578,21 @@ class TimelinePin(Base):
                 return super().__call__(op, args, **kw)
 
         f = self.use(SwapFails())
-        r = E.run("move_item", {"item_id": "a", "record": 1100, "confirm": True, "backup": False})
+        r = dispatch.run("move_item", {"item_id": "a", "record": 1100, "confirm": True, "backup": False})
         self.assertEqual(r["_operation"]["status"], "failed")
         self.assertEqual((f.astray(), f.cur), ([], "T"))
 
     def test_switch_before_any_call_of_any_writing_tool(self):
-        for tool in sorted(set(E.HANDLERS) - E.READ_ONLY - {"export_srt"}):
+        for tool in sorted(set(dispatch.HANDLERS) - dispatch.READ_ONLY - {"export_srt"}):
             args = dict(SAMPLE_ARGS[tool], confirm=True)
             if tool == "batch":
                 args["operations"] = [self.PLACE, self.MARK]
             clean = self.use(TimelineFake())
-            E.run(tool, dict(args))
+            dispatch.run(tool, dict(args))
             for at in range(1, len(clean.calls)):  # a switch before call 0 is simply the timeline to edit
                 with self.subTest(tool=tool, before_call=at, op=clean.calls[at]):
                     f = self.use(TimelineFake(self.once(lambda f, op, n: n == at)))
-                    E.run(tool, dict(args))
+                    dispatch.run(tool, dict(args))
                     self.assertEqual((f.astray(), f.cur), ([], "T"))
 
     def test_unreachable_timeline_gets_no_write(self):
@@ -601,37 +602,37 @@ class TimelinePin(Base):
 
         f = self.use(TimelineFake(vanish))
         try:
-            E.run("place_clips", dict(SAMPLE_ARGS["place_clips"], confirm=True))
+            dispatch.run("place_clips", dict(SAMPLE_ARGS["place_clips"], confirm=True))
         except RuntimeError:
             pass
         self.assertEqual(f.writes(), [])
-        self.assertIsNone(getattr(E, "_pin", None))
+        self.assertIsNone(session.pin)
 
     def test_bridge_without_pins_is_refused(self):
         f = self.use(TimelineFake())
         f.pins = False
-        r = E.run("add_markers", SAMPLE_ARGS["add_markers"])
+        r = dispatch.run("add_markers", SAMPLE_ARGS["add_markers"])
         self.assertEqual((r["_operation"]["status"], f.writes()), ("blocked", []))
         self.assertIn("bridge", r["reason"])
 
     def test_pin_is_cleared(self):
         self.use(TimelineFake())
-        E.run("add_markers", SAMPLE_ARGS["add_markers"])
-        self.assertIsNone(getattr(E, "_pin", None))
+        dispatch.run("add_markers", SAMPLE_ARGS["add_markers"])
+        self.assertIsNone(session.pin)
         self.use(TimelineFake(fail_on={"add_markers": 1}))
         with self.assertRaises(RuntimeError):
-            E.run("add_markers", SAMPLE_ARGS["add_markers"])
-        self.assertIsNone(getattr(E, "_pin", None))
+            dispatch.run("add_markers", SAMPLE_ARGS["add_markers"])
+        self.assertIsNone(session.pin)
 
     def test_previews_and_reads_never_switch(self):
-        calls = [(t, SAMPLE_ARGS[t]) for t in sorted(E.PREVIEWABLE)]
+        calls = [(t, SAMPLE_ARGS[t]) for t in sorted(dispatch.PREVIEWABLE)]
         calls += [("timeline_summary", {}), ("inspect_range", SAMPLE_ARGS["inspect_range"]),
                   ("batch", {"operations": [self.PLACE, self.MARK]}),
                   ("add_captions", dict(SAMPLE_ARGS["add_captions"], dry_run=True, confirm=True))]
         for tool, args in calls:
             with self.subTest(tool=tool):
                 f = self.use(TimelineFake(self.once(lambda f, op, n: n == 1)))
-                E.run(tool, dict(args))
+                dispatch.run(tool, dict(args))
                 if len(f.calls) > 1:
                     self.assertEqual(f.cur, "OTHER")
                 self.assertNotIn("set_current_timeline", f.calls)
@@ -641,10 +642,10 @@ class TimelinePin(Base):
             raise AssertionError("Resolve was called")
 
         self.use(no_bridge)
-        self.assertEqual(E.run("add_audio_markers", dict(SAMPLE_ARGS["add_audio_markers"], dry_run=True))
+        self.assertEqual(dispatch.run("add_audio_markers", dict(SAMPLE_ARGS["add_audio_markers"], dry_run=True))
                          ["_operation"]["status"], "planned")
         with tempfile.TemporaryDirectory() as folder:
-            r = E.run("export_srt", dict(SAMPLE_ARGS["export_srt"], output=os.path.join(folder, "a.srt")))
+            r = dispatch.run("export_srt", dict(SAMPLE_ARGS["export_srt"], output=os.path.join(folder, "a.srt")))
             self.assertEqual(r["_operation"]["status"], "success")
 
 
@@ -689,7 +690,7 @@ class BatchStop(Base):
         self.addCleanup(patch.stop)
 
     def batch(self, *ops):
-        return E.run("batch", {"confirm": True, "operations": list(ops)})
+        return dispatch.run("batch", {"confirm": True, "operations": list(ops)})
 
     def test_stops_after_each_tool_that_can_be_partial(self):
         for tool, answers in PARTIALS.items():
@@ -706,8 +707,8 @@ class BatchStop(Base):
                                 ("preview", False), ("failed", False), ("blocked", False), ("something_new", False)):
             with self.subTest(status=status):
                 f = self.use(Answers({}))
-                result = {"count": 1} if status is None else E._op(status)  # a read has no _operation
-                with mock.patch.dict(E.HANDLERS, {"stub": lambda a: dict(result)}):
+                result = {"count": 1} if status is None else outcome.op(status)  # a read has no _operation
+                with mock.patch.dict(dispatch.HANDLERS, {"stub": lambda a: dict(result)}):
                     r = self.batch({"tool": "stub"}, self.NEXT)
                 self.assertEqual("copy_grade" in f.calls, goes_on)
                 self.assertEqual(r["_operation"]["status"], "success" if goes_on else "partial")

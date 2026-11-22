@@ -176,7 +176,7 @@ or from the menu: `Workspace > Scripts > resolve_bridge`.
 
 ### MCP server and tools
 
-New or changed `edit__` tools need the MCP server restarted. Until then they can be run by importing `editor_tools` in a Python script.
+New or changed `edit__` tools need the MCP server restarted. Until then they can be run by importing `resolve_editor.dispatch` in a Python script and calling `run(name, args)`.
 
 Ask user to reconnect with tool via:
 ```bash
