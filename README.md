@@ -225,8 +225,9 @@ Optional environment variables: `RESOLVE_MCP_REPO`, `RESOLVE_MCP_PYTHON`, `RESOL
 python -m unittest -v
 python -m pip install lupa
 python tests/smoke_bridge.py
-python -m pip install ruff
+python -m pip install ruff mypy
 python -m ruff check .
+python -m mypy
 ```
 
 **Live** (needs Resolve open with a project and the bridge running; works only on a new `_RCE_LIVE_` scratch timeline, checks your current timeline is unchanged, then deletes the scratch timeline):

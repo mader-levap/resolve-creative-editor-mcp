@@ -69,7 +69,7 @@ class TimelinePin(Base):
 
     @staticmethod
     def once(when, to="OTHER"):
-        done = []
+        done: list[int] = []
 
         def click(fake, op, n):
             if not done and when(fake, op, n):
@@ -113,7 +113,7 @@ class TimelinePin(Base):
         class SwapFails(TimelineFake):
             appends = 0
 
-            def __call__(self, op, args, **kw):
+            def __call__(self, op, args, **kw):  # type: ignore[override]  # timeline= goes through **kw
                 if op == "append_clips":
                     self.appends += 1
                     if self.appends == 2:

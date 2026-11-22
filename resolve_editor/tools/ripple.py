@@ -117,7 +117,7 @@ def ripple_trim(a):
     snapshot = (timeline.snapshot_timeline({"label": "before ripple trim"}).get("snapshot")
                 if a.get("backup", True) else None)
     filler = _filler_source(n, prefer=snapshot, exclude={state["timeline"]})
-    done = []
+    done: list[str] = []
     for p in sorted(plan, key=lambda x: x["start"], reverse=True):  # later first, so earlier positions don't change
         failed = _trim_one(p, n, filler, items, done, snapshot)
         if failed:

@@ -1,4 +1,6 @@
 """Moving and trimming by settings-preserving replacement."""
+from typing import Any
+
 from .. import outcome, session, timecode, timeline
 
 REFUSE_REASONS = [
@@ -55,6 +57,7 @@ def _matches(old, new):
 def _replace(plan, backup=True):
     """Build replacements on staging tracks, copy settings, then swap. Original survives any failure before the swap."""
     snapshot = timeline.snapshot_timeline({"label": "before edit"}).get("snapshot") if backup else None
+    staged: list[dict[str, Any]]
     staging, staged, done = {}, [], []
 
     def stage_track(kind):

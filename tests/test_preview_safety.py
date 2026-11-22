@@ -2,6 +2,7 @@
 import builtins
 import os
 import subprocess
+from typing import Any
 from unittest import mock
 
 from tests.support import READ_OPS, SAMPLE_ARGS, Base, FakeResolve, item
@@ -14,6 +15,7 @@ class PreviewSafety(Base):
     """Without confirm=true (the boolean, at the top level) nothing may be changed (ISSUES.md I-01)."""
 
     def setUp(self):
+        self.effects: list[tuple[str, object]]
         self.effects, real_open = [], builtins.open
 
         def guarded_open(file, mode="r", *args, **kw):
@@ -88,6 +90,7 @@ class PreviewSafety(Base):
                     self.assertEqual(r.get("_operation", {}).get("status"), "preview", r)
 
     def test_captions_from_path_are_not_transcribed(self):
+        segments: dict[str, list[Any]]
         for segments in ({}, {"segments": []}):
             with self.subTest(segments=segments):
                 r, effects = self.attempt("batch", {"operations": [{"tool": "add_captions",

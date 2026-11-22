@@ -1,5 +1,6 @@
 """Text+ captions and SRT files."""
 import time
+from typing import Any
 
 from .. import media, outcome, paths, session, timecode, timeline
 
@@ -9,7 +10,7 @@ MAX_CARD_FRAMES = 150  # Text+ is inserted at Resolve's standard 5 s length and 
 
 def split_segments(segments, max_chars=42):
     """Split long lines at word boundaries, sharing time by length, and stop lines overlapping."""
-    out = []
+    out: list[dict[str, Any]] = []
     for s in segments:
         words, text = s["text"].split(), s["text"].strip()
         if not text:

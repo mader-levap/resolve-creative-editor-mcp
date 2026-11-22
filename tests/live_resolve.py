@@ -9,12 +9,13 @@ import pathlib
 import subprocess
 import sys
 import time
+from typing import Any
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from resolve_editor import dispatch, paths, session  # noqa: E402  (needs the sys.path line above)
 
-RESULTS = []
+RESULTS: list[tuple[str, bool]] = []
 
 
 def check(name, ok, detail=""):
@@ -84,8 +85,8 @@ def main():
         check("move keeps settings and verifies", status(r) == "success", r)
         moved = [c["new_id"] for c in r.get("_operation", {}).get("changes", {}).get("replaced", [])]
         details = {d["id"]: d for d in B("item_details", item_ids=moved)} if moved else {}
-        vid = next((d for d in details.values() if d.get("type") == "video"), {})
-        aud = next((d for d in details.values() if d.get("type") == "audio"), {})
+        vid: dict[str, Any] = next((d for d in details.values() if d.get("type") == "video"), {})
+        aud: dict[str, Any] = next((d for d in details.values() if d.get("type") == "audio"), {})
         check("moved video kept zoom/opacity/fade/colour",
               (vid.get("properties") or {}).get("ZoomX") == 1.4 and (vid.get("properties") or {}).get("Opacity") == 75
               and int((vid.get("fades") or {}).get("FadeIn", 0)) == 6 and vid.get("color") == "Orange", vid)

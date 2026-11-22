@@ -9,6 +9,7 @@ import sys
 import tempfile
 import threading
 import time
+from typing import Any
 
 try:
     import lupa.luajit21 as lua_mod  # Resolve uses LuaJIT; fall back to plain Lua
@@ -58,9 +59,9 @@ resolve = {GetVersionString=function() return "21.1-fake" end, GetCurrentPage=fu
   GetProjectManager=function() return {GetCurrentProject=function() return proj end} end}
 """
 
-L = {}
-appended = []
-world = {"project": "demo", "names": [], "cur": None, "wrote": [], "ignore": {}}
+L: dict[str, Any] = {}
+appended: list[tuple[int, int]] = []
+world: dict[str, Any] = {"project": "demo", "names": [], "cur": None, "wrote": [], "ignore": {}}
 
 
 def created(name):  # Resolve makes a new timeline current

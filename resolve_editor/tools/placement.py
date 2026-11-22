@@ -3,6 +3,7 @@ from .. import outcome, session, timeline
 
 
 def place_clips(a):
+    warnings: list[str]
     plan, warnings = [], []
     for spec in a["clips"]:
         clip = timeline.find_clip(spec["clip"])

@@ -111,8 +111,9 @@ class Gateway:
         if forced in {"all", "offline"} or not self.resolve:
             return forced if self.resolve else "offline"
         def ask(action: str) -> dict[str, Any]:
-            return self.resolve.request("tools/call", {"name": "resolve_control", "arguments": {"action": action}},
-                                        timeout=30.0).get("result", {})
+            return self.resolve.request(  # type: ignore[union-attr]  # only called after the check above
+                "tools/call", {"name": "resolve_control", "arguments": {"action": action}}, timeout=30.0
+            ).get("result", {})
         try:
             first = ask("runtime_mode")
             try:

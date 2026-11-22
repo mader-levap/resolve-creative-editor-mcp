@@ -10,7 +10,7 @@ dependencies = []
 
 [project.optional-dependencies]
 transcription = ["faster-whisper"]
-dev = ["ruff", "lupa"]
+dev = ["ruff", "mypy", "lupa"]
 
 [build-system]
 requires = ["setuptools>=77"]
@@ -38,3 +38,19 @@ section-order = ["future", "standard-library", "third-party", "tests-support", "
 
 [tool.ruff.lint.isort.sections]
 "tests-support" = ["tests"]
+
+[tool.mypy]
+python_version = "3.10"
+files = ["resolve_editor", "tests", "mcp_server.py", "unified_server.py"]
+check_untyped_defs = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+
+[[tool.mypy.overrides]]
+module = ["faster_whisper", "faster_whisper.*", "lupa", "lupa.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# these talk to a child process through Popen pipes, which typeshed marks optional
+module = ["tests.test_gateway", "tests.smoke_bridge"]
+disable_error_code = ["union-attr"]

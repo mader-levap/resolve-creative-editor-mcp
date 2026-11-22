@@ -2,12 +2,13 @@
 
 Use it as session.pin, never `from .session import pin`: a copy would not follow the running write."""
 import time
+from typing import Any
 
 from . import bridge, timecode
 
-_cache = {}
-pin = None  # {project, name} of the timeline the running write is bound to (see dispatch.run)
-switched = set()  # timelines the bridge had to switch back from during that write
+_cache: dict[str, tuple[float, Any]] = {}
+pin: dict[str, Any] | None = None  # {project, name} of the timeline the running write is bound to (see dispatch.run)
+switched: set[str] = set()  # timelines the bridge had to switch back from during that write
 
 
 def invalidate():
@@ -15,7 +16,7 @@ def invalidate():
 
 
 def call(op, **args):
-    pinned = {"timeline": pin} if pin and op != "set_current_timeline" else {}
+    pinned: dict[str, Any] = {"timeline": pin} if pin and op != "set_current_timeline" else {}
     res = bridge.call_bridge(op, args, **pinned)
     if res.get("switched_from"):
         switched.add(res["switched_from"])

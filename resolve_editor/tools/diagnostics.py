@@ -2,6 +2,7 @@
 import json
 import os
 import shutil
+import sys
 
 from .. import audit, bridge, paths
 
@@ -21,7 +22,7 @@ def doctor(a=None):
         whisper = importlib.util.find_spec("faster_whisper") is not None
     except Exception:
         whisper = False
-    report = {"python": os.sys.version.split()[0], "ffmpeg": bool(shutil.which("ffmpeg") or os.environ.get("FFMPEG")),
+    report = {"python": sys.version.split()[0], "ffmpeg": bool(shutil.which("ffmpeg") or os.environ.get("FFMPEG")),
               "ffprobe": bool(shutil.which("ffprobe") or os.environ.get("FFPROBE")), "faster_whisper": whisper,
               "bridge_folder": paths.DIR}
     try:

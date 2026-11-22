@@ -11,6 +11,7 @@ import pathlib
 import sys
 import tempfile
 import unittest
+from typing import Any
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -29,9 +30,10 @@ class FakeResolve:
     def __init__(self, items, fail_on=None, details=None, fps=30):
         self.items, self.fail_on, self.calls, self.n, self.fps = items, dict(fail_on or {}), [], 0, fps
         self.tracks, self.timelines = {"video": 1, "audio": 1}, ["T"]
-        self.settings = {x["id"]: {"properties": {"ZoomX": 1.5}, "fades": {"FadeIn": 4, "FadeOut": 0},
-                                   "color": "Orange", "enabled": True, "speed": {"Percentage": 100}, "linked": [],
-                                   "fusion_comps": 0, "takes": 0, "media_id": "c1"} for x in items}
+        self.settings: dict[str, dict[str, Any]] = {
+            x["id"]: {"properties": {"ZoomX": 1.5}, "fades": {"FadeIn": 4, "FadeOut": 0},
+                      "color": "Orange", "enabled": True, "speed": {"Percentage": 100}, "linked": [],
+                      "fusion_comps": 0, "takes": 0, "media_id": "c1"} for x in items}
         for k, v in (details or {}).items():
             self.settings[k].update(v)
 
@@ -40,7 +42,7 @@ class FakeResolve:
         if self.fail_on.get(op):
             self.fail_on[op] -= 1
             return {"ok": False, "error": f"{op} failed"}
-        r = None
+        r: Any = None
         if op == "list_timeline_items":
             r = [x for x in self.items if x["track_type"] == args["track_type"]]
         elif op == "list_media":
@@ -130,7 +132,7 @@ class Base(unittest.TestCase):
 READ_OPS = {"get_state", "list_timeline_items", "list_media", "item_details", "list_markers", "list_timelines",
             "audio_modes"}
 # Valid args for every handler: a new tool has to be added here before the suite passes.
-SAMPLE_ARGS = {
+SAMPLE_ARGS: dict[str, dict[str, Any]] = {
     "doctor": {}, "timeline_summary": {}, "inspect_range": {"start": 1000, "end": 1010}, "find_media": {},
     "audit_log": {}, "qc_file": {"path": "a.mp4"}, "snapshot_timeline": {},
     "place_clips": {"clips": [{"clip": "c1", "end_frame": 10, "record": 1200}]},

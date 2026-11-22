@@ -1,9 +1,13 @@
 """Read-only inspection of the timeline and the Media Pool."""
+from typing import Any
+
 from .. import session
 
 
 def analyze(items, limit=10, tc=str):
     """Pure timeline analysis: gaps, overlaps, transitions, reused source clips."""
+    tracks: dict[tuple[str, int], list[Any]]
+    used: dict[str, list[int]]
     tracks, gaps, overlaps, used, transitions = {}, [], [], {}, 0
     for it in items:
         if it.get("type") == "transition":
