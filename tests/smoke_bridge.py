@@ -1,6 +1,6 @@
 """Smoke test: fake `resolve` (Lua) -> real resolve_bridge.lua -> real mcp_server.py over stdio.
 
-Needs `pip install lupa` (a Lua runtime for Python). Run: python test_smoke.py
+Needs `pip install lupa` (a Lua runtime for Python). Run: python tests/smoke_bridge.py
 """
 import json
 import os
@@ -15,7 +15,8 @@ try:
 except ImportError:
     import lupa as lua_mod
 
-here = os.path.dirname(os.path.abspath(__file__))
+here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # the repo root
+sys.path.insert(0, here)
 tmp = tempfile.mkdtemp()
 bridge_dir = os.path.join(tmp, "resolve-claude-bridge")
 os.makedirs(bridge_dir)
