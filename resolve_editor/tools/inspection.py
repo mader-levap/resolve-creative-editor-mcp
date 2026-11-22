@@ -1,10 +1,12 @@
 """Read-only inspection of the timeline and the Media Pool."""
+from collections.abc import Callable
 from typing import Any
 
 from .. import session
 
 
-def analyze(items, limit=10, tc=str):
+def analyze(items: list[session.Item], limit: int = 10,
+            tc: Callable[[int], str] = str) -> dict[str, Any]:
     """Pure timeline analysis: gaps, overlaps, transitions, reused source clips."""
     tracks: dict[tuple[str, int], list[Any]]
     used: dict[str, list[int]]
@@ -34,7 +36,7 @@ def analyze(items, limit=10, tc=str):
             "reused_clips": reused}
 
 
-def timeline_summary(a):
+def timeline_summary(a: dict[str, Any]) -> dict[str, Any]:
     _, _, state = session.clock()
     report = analyze(session.items(), a.get("limit") or 10, session.to_tc)
     report.update({"timeline": state["timeline"], "fps": state["timeline_fps"],
@@ -47,13 +49,14 @@ DEFAULTS = {"Pan": 0, "Tilt": 0, "ZoomX": 1, "ZoomY": 1, "RotationAngle": 0, "Op
             "AudioVolume": 0, "AudioPan": 0, "AudioPitchSemiTones": 0}
 
 
-def inspect_range(a):
+def inspect_range(a: dict[str, Any]) -> dict[str, Any]:
     start, end = session.to_frame(a["start"]), session.to_frame(a["end"])
     hits = [x for x in session.items() if x["start"] < end and start < x["end"]]
-    rows = [{"id": x["id"], "name": x["name"], "track": f"{x['track_type'][0].upper()}{x['track']}",
-             "type": x.get("type"), "in": session.to_tc(x["start"]), "out": session.to_tc(x["end"]),
-             "frames": x["duration"], "source_start": x.get("source_start")}
-            for x in sorted(hits, key=lambda x: (x["start"], x["track_type"]))]
+    rows: list[dict[str, Any]] = [
+        {"id": x["id"], "name": x["name"], "track": f"{x['track_type'][0].upper()}{x['track']}",
+         "type": x.get("type"), "in": session.to_tc(x["start"]), "out": session.to_tc(x["end"]),
+         "frames": x["duration"], "source_start": x.get("source_start")}
+        for x in sorted(hits, key=lambda x: (x["start"], x["track_type"]))]
     if a.get("details") and rows:
         details = {d["id"]: d for d in session.as_list(
             session.call("item_details", item_ids=[r["id"] for r in rows if r["type"] != "transition"]))}
@@ -70,7 +73,7 @@ def inspect_range(a):
     return {"range": [session.to_tc(start), session.to_tc(end)], "count": len(rows), "items": rows}
 
 
-def find_media(a):
+def find_media(a: dict[str, Any]) -> dict[str, Any]:
     query, limit = (a.get("query") or "").lower(), a.get("limit") or 20
     hits = [m for m in session.media_pool() if query in (m.get("name") or "").lower()]
     return {"count": len(hits), "media": [{k: m.get(k) for k in ("id", "name", "frames", "fps", "type")}

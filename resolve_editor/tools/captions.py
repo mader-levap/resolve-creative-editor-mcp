@@ -1,5 +1,6 @@
 """Text+ captions and SRT files."""
 import time
+from fractions import Fraction
 from typing import Any
 
 from .. import media, outcome, paths, session, timecode, timeline
@@ -8,7 +9,7 @@ CAPTION_BIN = "Captions (Resolve Creative Editor)"
 MAX_CARD_FRAMES = 150  # Text+ is inserted at Resolve's standard 5 s length and can't be lengthened by script
 
 
-def split_segments(segments, max_chars=42):
+def split_segments(segments: list[dict[str, Any]], max_chars: int = 42) -> list[dict[str, Any]]:
     """Split long lines at word boundaries, sharing time by length, and stop lines overlapping."""
     out: list[dict[str, Any]] = []
     for s in segments:
@@ -34,7 +35,7 @@ def split_segments(segments, max_chars=42):
     return [x for x in out if x["end"] > x["start"]]
 
 
-def _segments(a):
+def _segments(a: dict[str, Any]) -> list[dict[str, Any]]:
     if a.get("segments"):
         return split_segments(a["segments"], a.get("max_chars") or 42)
     if not a.get("path"):
@@ -45,7 +46,8 @@ def _segments(a):
     return split_segments(media.run_media_tool("transcribe_audio", args)["segments"], a.get("max_chars") or 42)
 
 
-def caption_cards(segments, fps, base, timeline, stamp=""):
+def caption_cards(segments: list[dict[str, Any]], fps: Fraction | float, base: int, timeline: str,
+                  stamp: str = "") -> list[dict[str, Any]]:
     """Timeline names must be unique in a project, so each run's cards carry a time stamp."""
     cards, timeline = [], f"{timeline} {stamp}".strip()
     for n, s in enumerate(segments, 1):
@@ -59,7 +61,7 @@ def caption_cards(segments, fps, base, timeline, stamp=""):
     return cards
 
 
-def add_captions(a):
+def add_captions(a: dict[str, Any]) -> dict[str, Any]:
     segments = _segments(a)
     fps, _, state = session.clock()
     base = session.to_frame(a["record"]) if a.get("record") is not None else state["timeline_start_frame"]
@@ -85,18 +87,18 @@ def add_captions(a):
                       {"captions_added": len(placed), "track": f"V{track}"}, [r["error"]] if r.get("error") else [])
 
 
-def _stamp(seconds):
+def _stamp(seconds: float) -> str:
     ms = round(seconds * 1000)
     return f"{ms // 3600000:02d}:{ms // 60000 % 60:02d}:{ms // 1000 % 60:02d},{ms % 1000:03d}"
 
 
-def to_srt(segments):
+def to_srt(segments: list[dict[str, Any]]) -> str:
     rows = [s for s in segments if s["text"].strip()]
     return "".join(f"{i}\n{_stamp(s['start'])} --> {_stamp(s['end'])}\n{s['text'].strip()}\n\n"
                    for i, s in enumerate(rows, 1))
 
 
-def export_srt(a):
+def export_srt(a: dict[str, Any]) -> dict[str, Any]:
     output = paths.new_output(a, ".srt")
     with open(output, "w", encoding="utf-8") as f:
         f.write(to_srt(_segments(a)))

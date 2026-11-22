@@ -1,20 +1,25 @@
 """Ripple trim: in place, no rebuild."""
+from collections.abc import Collection
+from typing import Any
+
 from .. import outcome, session, timeline
 
 
 # Titles can't be moved by script, but a ripple delete shifts everything after the deleted item on all tracks. So:
 # shorten the item in place (trim_tail), drop an n-frame filler into the gap it leaves, ripple-delete the filler.
-def _filler_source(frames, prefer=None, exclude=()):
+def _filler_source(frames: int, prefer: str | None = None,
+                   exclude: Collection[str] = ()) -> dict[str, Any] | None:
     usable = [m for m in session.media_pool() if m.get("type") == "Timeline" and m.get("name") not in exclude
               and int(float(m.get("frames") or 0)) >= frames]
     return next((m for m in usable if m.get("name") == prefer), None) or (usable[0] if usable else None)
 
 
-def _positions():
+def _positions() -> dict[str, tuple[int, int]]:
     return {x["id"]: (x["start"], x["end"]) for x in session.items() if x.get("type") != "transition"}
 
 
-def _plan(items, ids, n):
+def _plan(items: dict[str, session.Item], ids: list[str],
+          n: int) -> list[session.Item] | dict[str, Any]:
     """Check every item; returns the items to trim, or a blocked result."""
     details = {d["id"]: d for d in session.as_list(session.call("item_details", item_ids=ids))}
     plan = []
@@ -42,7 +47,8 @@ def _plan(items, ids, n):
     return plan
 
 
-def _trim_one(p, n, filler, items, done, snapshot):
+def _trim_one(p: session.Item, n: int, filler: dict[str, Any] | None, items: dict[str, Any],
+              done: list[str], snapshot: str | None) -> dict[str, Any] | None:
     """Trim one item and ripple what follows; returns a failed result, or None if the timeline matches the plan."""
     before = _positions()
     old_end = before[p["id"]][1]
@@ -56,7 +62,7 @@ def _trim_one(p, n, filler, items, done, snapshot):
     if later:
         f = None
         try:
-            f = timeline.append_one(filler["id"], "video", 0, n, new_end, p["track"])
+            f = timeline.append_one(filler["id"], "video", 0, n, new_end, p["track"])  # type: ignore[index]  # later implies filler (checked above)
             session.call("delete_items", item_ids=[f["id"]], ripple=True)
         except Exception as exc:
             session.invalidate()
@@ -84,7 +90,7 @@ def _trim_one(p, n, filler, items, done, snapshot):
     return None
 
 
-def ripple_trim(a):
+def ripple_trim(a: dict[str, Any]) -> dict[str, Any]:
     n = a.get("tail_frames") or 0
     if n <= 0:
         return outcome.blocked("tail_frames must be a positive number of frames (this tool only shortens)")
@@ -97,7 +103,7 @@ def ripple_trim(a):
     if isinstance(plan, dict):
         return plan
 
-    def shift(x):  # total frames x moves back once every planned trim is done
+    def shift(x: session.Item) -> int:  # total frames x moves back once every planned trim is done
         return n * sum(1 for p in plan if p["end"] <= x["start"])
     rows = [{"item": p["name"], "track": f"V{p['track']}", "was": [session.to_tc(p["start"]), session.to_tc(p["end"])],
              "now": [session.to_tc(p["start"] - shift(p)), session.to_tc(p["end"] - n - shift(p))]}

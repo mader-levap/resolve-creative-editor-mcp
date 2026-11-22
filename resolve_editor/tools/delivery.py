@@ -2,19 +2,20 @@
 import os
 import re
 import subprocess
+from typing import Any
 
 from .. import media, outcome, paths, session
 
 
-def export_timeline(a):
+def export_timeline(a: dict[str, Any]) -> dict[str, Any]:
     suffix = {"OTIO": ".otio", "FCPXML": ".fcpxml", "EDL": ".edl", "AAF": ".aaf", "DRT": ".drt"}[a["format"]]
     output = paths.new_output(a, suffix)
     ok = session.call("export_timeline", path=output, format=a["format"]).get("ok") and os.path.exists(output)
     return outcome.op("success" if ok else "failed", ok, {"file_written": output if ok else None})
 
 
-def parse_qc(log):
-    def last(pattern):
+def parse_qc(log: str) -> dict[str, Any]:
+    def last(pattern: str) -> float | None:
         hits = re.findall(pattern, log)
         return float(hits[-1]) if hits else None
     black = [[float(a), float(b)] for a, b in re.findall(r"black_start:([\d.]+) black_end:([\d.]+)", log)]
@@ -25,7 +26,7 @@ def parse_qc(log):
             "frozen_at_seconds": freeze[:20], "silence_at_seconds": silence[:20]}
 
 
-def qc_file(a):
+def qc_file(a: dict[str, Any]) -> dict[str, Any]:
     ffmpeg = media.binary("ffmpeg", "FFMPEG")
     proc = subprocess.run([ffmpeg, "-nostdin", "-hide_banner", "-i", media.media_path(a["path"]),
                            "-vf", "blackdetect=d=0.5:pix_th=0.10,freezedetect=n=-60dB:d=2",

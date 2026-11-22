@@ -14,6 +14,8 @@
   ISSUES.md I-14 fixed). Run tests with `python -m unittest` and `python tests/smoke_bridge.py`.
 - Changed: `pyproject.toml` with ruff lint settings (`python -m ruff check .`), lint findings fixed, and the three longest
   functions split (media tools, gateway tool calls, ripple trim). No tool changes.
+- Changed: type checking with mypy (`python -m mypy`): every function in the package is annotated, timeline items
+  have an `Item` type, and new package code must be annotated. No tool changes.
 
 ## Stage-two audit (2026-11-11)
 

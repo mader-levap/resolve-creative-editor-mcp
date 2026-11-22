@@ -10,6 +10,7 @@ import struct
 import time
 import uuid
 import zlib
+from typing import Any
 
 from . import paths
 
@@ -33,7 +34,7 @@ TOKEN_PNG = os.path.join(paths.DIR, "bridge_token.png")
 VALUE_RE = re.compile(r"(?<![0-9a-f])([0-9a-f]{32}):([0-9a-f]*)")
 
 
-def _read_prefs_reply():
+def _read_prefs_reply() -> tuple[str | None, str | None]:
     try:
         with open(PREFS, encoding="utf-8", errors="replace") as f:
             m = RES_RE.search(f.read())
@@ -42,7 +43,7 @@ def _read_prefs_reply():
         return None, None
 
 
-def _read_csv_reply():
+def _read_csv_reply() -> tuple[str | None, str | None]:
     try:
         with open(REPLY_CSV, encoding="utf-16", newline="") as f:
             m = VALUE_RE.search(f.read())
@@ -51,7 +52,7 @@ def _read_csv_reply():
     return (m.group(1), m.group(2)) if m else (None, None)
 
 
-def read_reply(want=None):
+def read_reply(want: str | None = None) -> tuple[str | None, str | None]:
     """Latest reply from either transport; with `want`, only a reply for that request id."""
     for reader in (_read_csv_reply, _read_prefs_reply):
         got, payload = reader()
@@ -60,12 +61,12 @@ def read_reply(want=None):
     return None, None
 
 
-def ensure_token_png():
+def ensure_token_png() -> None:
     """The 21.2+ bridge imports this 16x16 black PNG as its reply carrier; Resolve's Lua cannot create it."""
     if os.path.isfile(TOKEN_PNG):
         return
 
-    def chunk(kind, data):
+    def chunk(kind: bytes, data: bytes) -> bytes:
         return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
 
     raw = b"".join(b"\x00" + b"\x00\x00\x00" * 16 for _ in range(16))
@@ -76,7 +77,7 @@ def ensure_token_png():
     os.replace(TOKEN_PNG + ".tmp", TOKEN_PNG)
 
 
-def lua_long_string(s):
+def lua_long_string(s: str) -> str:
     n = 0
     while "]" + "=" * n + "]" in s:
         n += 1
@@ -84,7 +85,8 @@ def lua_long_string(s):
 
 
 # The timeout allows for Resolve stalling a few seconds (e.g. LUT rescans).
-def call_bridge(op, args, timeout=120, ack_timeout=15, timeline=None):
+def call_bridge(op: str, args: dict[str, Any], timeout: float = 120, ack_timeout: float = 15,
+                timeline: dict[str, Any] | None = None) -> dict[str, Any]:
     req_path = os.path.join(paths.DIR, "request.lua")
     rid = uuid.uuid4().hex
     ensure_token_png()

@@ -3,11 +3,13 @@ import array
 import math
 import statistics
 import subprocess
+from collections.abc import Sequence
+from typing import Any
 
 from .. import media, outcome, session, timecode
 
 
-def add_markers(a):
+def add_markers(a: dict[str, Any]) -> dict[str, Any]:
     _, _, state = session.clock()
     start = state["timeline_start_frame"]
     markers = [{"frame": session.to_frame(m["at"]) - start, "name": m.get("name") or "", "note": m.get("note") or "",
@@ -18,7 +20,8 @@ def add_markers(a):
                       [] if added == len(markers) else ["a marker already exists at some of those frames"])
 
 
-def onsets(samples, rate, hop=512, min_gap=0.25):
+def onsets(samples: Sequence[float], rate: int, hop: int = 512,
+           min_gap: float = 0.25) -> list[float]:
     """Energy-flux onset times in seconds. Works best on percussive audio."""
     energy = []
     for i in range(0, len(samples) - hop, hop):
@@ -37,7 +40,7 @@ def onsets(samples, rate, hop=512, min_gap=0.25):
     return out
 
 
-def _beats(path):
+def _beats(path: str) -> list[float]:
     rate = 11025
     ffmpeg = media.binary("ffmpeg", "FFMPEG")
     proc = subprocess.run([ffmpeg, "-nostdin", "-v", "error", "-i", media.media_path(path), "-map", "0:a:0", "-ac", "1",
@@ -49,7 +52,7 @@ def _beats(path):
     return onsets([x / 32768 for x in samples], rate)
 
 
-def add_audio_markers(a):
+def add_audio_markers(a: dict[str, Any]) -> dict[str, Any]:
     if a["kind"] == "beats":
         found = [{"start": t, "end": t} for t in _beats(a["path"])]
         name, color = "beat", a.get("color") or "Cyan"

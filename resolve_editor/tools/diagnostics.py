@@ -3,11 +3,12 @@ import json
 import os
 import shutil
 import sys
+from typing import Any
 
 from .. import audit, bridge, paths
 
 
-def audit_log(a):
+def audit_log(a: dict[str, Any]) -> dict[str, Any]:
     try:
         with open(audit.AUDIT, encoding="utf-8") as f:
             rows = f.readlines()
@@ -16,7 +17,7 @@ def audit_log(a):
     return {"entries": [json.loads(x) for x in rows[-(a.get("limit") or 20):]]}
 
 
-def doctor(a=None):
+def doctor(a: dict[str, Any] | None = None) -> dict[str, Any]:
     try:
         import importlib.util
         whisper = importlib.util.find_spec("faster_whisper") is not None

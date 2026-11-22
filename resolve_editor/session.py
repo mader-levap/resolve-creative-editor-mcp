@@ -2,7 +2,9 @@
 
 Use it as session.pin, never `from .session import pin`: a copy would not follow the running write."""
 import time
-from typing import Any
+from collections.abc import Callable
+from fractions import Fraction
+from typing import Any, TypedDict
 
 from . import bridge, timecode
 
@@ -11,11 +13,27 @@ pin: dict[str, Any] | None = None  # {project, name} of the timeline the running
 switched: set[str] = set()  # timelines the bridge had to switch back from during that write
 
 
-def invalidate():
+class _ItemKeys(TypedDict):
+    """A timeline item, as item_info in resolve_bridge.lua returns it."""
+    id: str
+    name: str
+    start: int
+    end: int
+    duration: int
+    track_type: str  # video or audio
+    track: int
+
+
+class Item(_ItemKeys, total=False):
+    source_start: int  # left offset into the source; missing when Resolve can't report it
+    type: str  # e.g. video, audio, transition; missing when Resolve can't report it
+
+
+def invalidate() -> None:
     _cache.clear()
 
 
-def call(op, **args):
+def call(op: str, **args: Any) -> Any:
     pinned: dict[str, Any] = {"timeline": pin} if pin and op != "set_current_timeline" else {}
     res = bridge.call_bridge(op, args, **pinned)
     if res.get("switched_from"):
@@ -25,7 +43,7 @@ def call(op, **args):
     return res.get("result")
 
 
-def _cached(key, fetch, ttl=3.0):
+def _cached(key: str, fetch: Callable[[], Any], ttl: float = 3.0) -> Any:
     """Short-lived cache so one tool call (or a quick sequence) doesn't re-read the timeline. Writes invalidate it."""
     hit = _cache.get(key)
     if hit and time.monotonic() - hit[0] < ttl:
@@ -35,15 +53,15 @@ def _cached(key, fetch, ttl=3.0):
     return value
 
 
-def as_list(value):
+def as_list(value: object) -> list[Any]:
     return value if isinstance(value, list) else []
 
 
-def get_state():
+def get_state() -> dict[str, Any]:
     return _cached("state", lambda: call("get_state"))
 
 
-def clock():
+def clock() -> tuple[Fraction, bool, dict[str, Any]]:
     state = get_state()
     if not state.get("timeline"):
         raise RuntimeError("no current timeline")
@@ -51,16 +69,16 @@ def clock():
             str(state.get("timeline_drop_frame")) in ("1", "true", "True"), state)
 
 
-def items():
+def items() -> list[Item]:
     return _cached("items", lambda: as_list(call("list_timeline_items", track_type="video")) +
                    as_list(call("list_timeline_items", track_type="audio")))
 
 
-def media_pool():
+def media_pool() -> list[dict[str, Any]]:
     return _cached("media", lambda: as_list(call("list_media")), ttl=10.0)
 
 
-def to_frame(value):
+def to_frame(value: object) -> int:
     """Absolute timeline frame from an int or a timecode string."""
     if isinstance(value, bool) or value is None:
         raise ValueError("expected a frame number or timecode")
@@ -70,6 +88,6 @@ def to_frame(value):
     return timecode.tc_to_frame(str(value), fps, drop)
 
 
-def to_tc(frame):
+def to_tc(frame: int) -> str:
     fps, drop, _ = clock()
     return timecode.frame_to_tc(frame, fps, drop)

@@ -1,8 +1,10 @@
 """Clip settings: enabled, fades, transitions, speed, grade."""
+from typing import Any
+
 from .. import outcome, session
 
 
-def set_enabled(a):
+def set_enabled(a: dict[str, Any]) -> dict[str, Any]:
     r = session.call("set_enabled", item_ids=a["item_ids"], enabled=bool(a["enabled"]))
     got = [d.get("enabled") for d in session.as_list(session.call("item_details", item_ids=a["item_ids"]))]
     ok = all(e == bool(a["enabled"]) for e in got)
@@ -15,7 +17,7 @@ FADES_NOT_SAVED = ("Resolve bug (seen on free 21.2, Text+ titles): fades set by 
                    "two apart, so ask the user to drag a fade on each clip first unless they already have.")
 
 
-def set_fades(a):
+def set_fades(a: dict[str, Any]) -> dict[str, Any]:
     fade_in, fade_out = a.get("fade_in"), a.get("fade_out")
     if fade_in is None and fade_out is None:
         return outcome.blocked("give fade_in and/or fade_out")
@@ -36,7 +38,7 @@ def set_fades(a):
                       warnings=[FADES_NOT_SAVED])
 
 
-def add_transition(a):
+def add_transition(a: dict[str, Any]) -> dict[str, Any]:
     options = {"type": a.get("type") or "Cross Dissolve", "category": a.get("category") or "simple",
                "position": a.get("position") or "end", "alignment": a.get("alignment") or "center"}
     if a.get("duration"):
@@ -48,7 +50,7 @@ def add_transition(a):
                                                            "frames": r.get("duration")}, transition_id=r.get("id"))
 
 
-def set_speed(a):
+def set_speed(a: dict[str, Any]) -> dict[str, Any]:
     if not a.get("confirm"):
         return outcome.preview({"item": a["item_id"], "percentage": a["percentage"]},
                                ["the clip keeps its timeline length, so it shows more or less of the source"])
@@ -59,7 +61,7 @@ def set_speed(a):
     return outcome.op("success" if ok else "failed", ok, {"speed": got})
 
 
-def copy_grade(a):
+def copy_grade(a: dict[str, Any]) -> dict[str, Any]:
     if not a.get("confirm"):
         return outcome.preview({"from": a["from_id"], "to": a["to_ids"]}, ["replaces the grade on the target clips"])
     ok = session.call("copy_grade", from_id=a["from_id"], to_ids=a["to_ids"]).get("ok")

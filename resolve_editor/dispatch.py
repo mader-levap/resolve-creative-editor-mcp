@@ -1,9 +1,11 @@
 """Entry point of the edit__ tools: run, batch and the handler table."""
+from typing import Any
+
 from . import audit, outcome, session, timeline
 from .tools import audio, captions, clips, delivery, diagnostics, inspection, markers, placement, replace, ripple
 
 
-def _preview_step(op):
+def _preview_step(op: dict[str, Any]) -> dict[str, Any]:
     """One row of a batch preview. Must never change anything, so only PREVIEWABLE tools are called."""
     tool = op["tool"]
     args = dict(op.get("args") or {}, confirm=False)  # a step can't confirm itself
@@ -17,7 +19,7 @@ def _preview_step(op):
 DONE = ("success", "planned")  # a batch goes on only after these
 
 
-def batch(a):
+def batch(a: dict[str, Any]) -> dict[str, Any]:
     ops = a["operations"]
     unknown = [o.get("tool") for o in ops if o.get("tool") not in HANDLERS or o.get("tool") == "batch"]
     if unknown:
@@ -61,7 +63,7 @@ PREVIEWABLE = {"place_clips", "move_item", "trim_item", "ripple_trim", "normaliz
                "add_captions"}
 
 
-def run(name, args):
+def run(name: str, args: dict[str, Any]) -> dict[str, Any]:
     """Entry point of every edit__ tool. Resolve acts on the current timeline, so a call that writes is pinned to
     the one that was current when it started, batch steps included (ISSUES.md I-16)."""
     if "confirm" in args:
@@ -73,13 +75,13 @@ def run(name, args):
     return _dispatch(name, args)
 
 
-def _writes(name, args):
+def _writes(name: str, args: dict[str, Any]) -> bool:
     if name == "export_srt" or (args.get("dry_run") and name in ("add_audio_markers", "add_captions")):
         return False  # no Resolve timeline involved, or nothing written to it
     return bool(args.get("confirm")) or (name not in PREVIEWABLE and name != "batch")
 
 
-def _run_pinned(name, args):
+def _run_pinned(name: str, args: dict[str, Any]) -> dict[str, Any]:
     state = session.get_state()
     if not state.get("timeline"):
         return outcome.blocked("no current timeline")
@@ -103,7 +105,7 @@ def _run_pinned(name, args):
     return result
 
 
-def _dispatch(name, args):
+def _dispatch(name: str, args: dict[str, Any]) -> dict[str, Any]:
     result = HANDLERS[name](args)
     status = result.get("_operation", {}).get("status") if isinstance(result, dict) else None
     if name not in READ_ONLY and status not in (None, "preview", "planned", "blocked"):

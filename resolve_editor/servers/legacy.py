@@ -2,12 +2,13 @@
 import base64
 import json
 import sys
+from typing import Any
 
 from .. import bridge, media
 from ..schemas import legacy as schema
 
 
-def run_tool(name, args):
+def run_tool(name: str, args: dict[str, Any]) -> dict[str, Any]:
     if name in media.HANDLERS:
         try:
             result = media.run_media_tool(name, args)
@@ -37,7 +38,7 @@ def run_tool(name, args):
     return {"content": content}
 
 
-def handle(msg):
+def handle(msg: dict[str, Any]) -> dict[str, Any]:
     m, p = msg.get("method"), msg.get("params") or {}
     if m == "initialize":
         return {"protocolVersion": p.get("protocolVersion", "2025-03-26"), "capabilities": {"tools": {}},
@@ -45,13 +46,13 @@ def handle(msg):
     if m == "tools/list":
         return {"tools": schema.TOOLS}
     if m == "tools/call":
-        return run_tool(p.get("name"), p.get("arguments") or {})
+        return run_tool(p.get("name"), p.get("arguments") or {})  # type: ignore[arg-type]  # None: "unknown tool"
     if m == "ping":
         return {}
     raise LookupError(m)
 
 
-def main():
+def main() -> None:
     for line in sys.stdin:
         if not line.strip():
             continue

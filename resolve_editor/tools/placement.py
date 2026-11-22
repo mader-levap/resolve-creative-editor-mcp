@@ -1,8 +1,10 @@
 """Placing Media Pool clips."""
+from typing import Any
+
 from .. import outcome, session, timeline
 
 
-def place_clips(a):
+def place_clips(a: dict[str, Any]) -> dict[str, Any]:
     warnings: list[str]
     plan, warnings = [], []
     for spec in a["clips"]:

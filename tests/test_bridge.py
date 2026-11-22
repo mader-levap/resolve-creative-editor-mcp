@@ -121,7 +121,7 @@ class BridgeReply(unittest.TestCase):
                 except ValueError:
                     continue  # call_bridge polls again
                 self.assertEqual(decoded, answer, cut)
-        self.assertEqual(json.loads(bytes.fromhex(payload).decode("utf-8")), answer)
+        self.assertEqual(json.loads(bytes.fromhex(payload).decode("utf-8")), answer)  # type: ignore[arg-type]  # the loop ends on a full reply
 
     def test_other_columns_and_stale_replies(self):
         self.assertEqual(bridge.read_reply(RID), (None, None), "no file")

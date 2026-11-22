@@ -1,10 +1,12 @@
 """Timeline steps that several tools share: backup, clip lookup, collisions, appending."""
 import time
+from collections.abc import Collection
+from typing import Any
 
 from . import outcome, session
 
 
-def snapshot_timeline(a):
+def snapshot_timeline(a: dict[str, Any]) -> dict[str, Any]:
     current = session.get_state()["timeline"]
     if not current:
         return outcome.blocked("no current timeline")
@@ -18,7 +20,7 @@ def snapshot_timeline(a):
     return outcome.op("success" if ok else "partial", ok, {"created_timeline": name}, snapshot=name)
 
 
-def find_clip(ref):
+def find_clip(ref: str) -> dict[str, Any]:
     hits = ([m for m in session.media_pool() if m.get("id") == ref]
             or [m for m in session.media_pool() if m.get("name") == ref])
     if len(hits) != 1:
@@ -26,7 +28,8 @@ def find_clip(ref):
     return hits[0]
 
 
-def collides(kind, track, start, end, ignore=()):
+def collides(kind: str, track: int, start: int, end: int,
+             ignore: Collection[str] = ()) -> session.Item | None:
     for x in session.items():
         if (x["track_type"] == kind and x["track"] == track and x["id"] not in ignore
                 and x.get("type") != "transition" and x["start"] < end and start < x["end"]):
@@ -34,7 +37,8 @@ def collides(kind, track, start, end, ignore=()):
     return None
 
 
-def append_one(media_id, kind, first, last, record, track):
+def append_one(media_id: str, kind: str, first: int, last: int, record: int,
+               track: int) -> session.Item:
     session.call("append_clips", clips=[{"clip": media_id, "start_frame": first, "end_frame": last,
                                          "record_frame": record, "track_index": track,
                                          "media_type": 1 if kind == "video" else 2}])

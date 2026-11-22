@@ -47,6 +47,11 @@ warn_unused_ignores = true
 warn_redundant_casts = true
 
 [[tool.mypy.overrides]]
+# package code must be annotated; tests are checked without annotations
+module = ["resolve_editor.*"]
+disallow_untyped_defs = true
+
+[[tool.mypy.overrides]]
 module = ["faster_whisper", "faster_whisper.*", "lupa", "lupa.*"]
 ignore_missing_imports = true
 

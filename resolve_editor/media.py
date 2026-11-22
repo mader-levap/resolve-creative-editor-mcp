@@ -5,11 +5,12 @@ import os
 import re
 import shutil
 import subprocess
+from typing import Any
 
 from . import paths
 
 
-def media_path(value):
+def media_path(value: object) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError("path must be a non-empty string")
     path = os.path.abspath(os.path.expanduser(value))
@@ -18,14 +19,14 @@ def media_path(value):
     return path
 
 
-def binary(name, env_name):
+def binary(name: str, env_name: str) -> str:
     candidate = os.environ.get(env_name) or shutil.which(name)
     if not candidate:
         raise RuntimeError(f"{name} was not found. Install FFmpeg and ensure {name} is on PATH, or set {env_name}.")
     return candidate
 
 
-def _run_media_command(cmd, timeout=300):
+def _run_media_command(cmd: list[str], timeout: float = 300) -> subprocess.CompletedProcess[str]:
     proc = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout)
     if proc.returncode != 0:
         detail = (proc.stderr or proc.stdout or "unknown FFmpeg error")[-4000:]
@@ -33,7 +34,7 @@ def _run_media_command(cmd, timeout=300):
     return proc
 
 
-def _probe_media(source, args):
+def _probe_media(source: str, args: dict[str, Any]) -> dict[str, Any]:
     ffprobe = binary("ffprobe", "FFPROBE")
     proc = _run_media_command([ffprobe, "-v", "error", "-show_format", "-show_streams", "-of", "json", source], 60)
     info = json.loads(proc.stdout)
@@ -52,7 +53,7 @@ def _probe_media(source, args):
             "bit_rate": fmt.get("bit_rate"), "streams": streams}
 
 
-def _extract_audio(source, args):
+def _extract_audio(source: str, args: dict[str, Any]) -> dict[str, Any]:
     ffmpeg = binary("ffmpeg", "FFMPEG")
     rate = int(args.get("sample_rate") or 48000)
     if rate not in (16000, 24000, 44100, 48000):
@@ -64,7 +65,7 @@ def _extract_audio(source, args):
             "note": "This is an extracted, playable WAV file; it has not been subjectively auditioned."}
 
 
-def _detect_silence(source, args):
+def _detect_silence(source: str, args: dict[str, Any]) -> dict[str, Any]:
     ffmpeg = binary("ffmpeg", "FFMPEG")
     noise = float(args.get("noise_db", -35))
     duration = float(args.get("min_duration", 0.35))
@@ -86,7 +87,7 @@ def _detect_silence(source, args):
             "warning": "Silence detection is signal analysis, not a judgement that a pause should be cut."}
 
 
-def _transcribe_audio(source, args):
+def _transcribe_audio(source: str, args: dict[str, Any]) -> dict[str, Any]:
     import hashlib
     model_size = args.get("model") or "base"
     language = args.get("language") or ""
@@ -128,7 +129,7 @@ def _transcribe_audio(source, args):
     return payload
 
 
-def _make_contact_sheet(source, args):
+def _make_contact_sheet(source: str, args: dict[str, Any]) -> dict[str, Any]:
     ffmpeg = binary("ffmpeg", "FFMPEG")
     interval = float(args.get("interval_seconds") or 3)
     columns = int(args.get("columns") or 4)
@@ -148,7 +149,7 @@ HANDLERS = {"probe_media": _probe_media, "extract_audio": _extract_audio, "detec
             "transcribe_audio": _transcribe_audio, "make_contact_sheet": _make_contact_sheet}
 
 
-def run_media_tool(name, args):
+def run_media_tool(name: str, args: dict[str, Any]) -> dict[str, Any]:
     source = media_path(args.get("path"))
     if name not in HANDLERS:
         raise ValueError(f"unsupported media tool: {name}")

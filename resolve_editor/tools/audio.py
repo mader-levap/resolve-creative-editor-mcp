@@ -1,8 +1,10 @@
 """Clip volume, pan and normalization."""
+from typing import Any
+
 from .. import outcome, session
 
 
-def set_audio(a):
+def set_audio(a: dict[str, Any]) -> dict[str, Any]:
     props = {}
     if a.get("volume_db") is not None:
         props["AudioVolume"] = float(a["volume_db"])
@@ -21,7 +23,7 @@ def set_audio(a):
                       [] if ok else ["some items are not audio, or Resolve clamped the value"])
 
 
-def normalize_audio(a):
+def normalize_audio(a: dict[str, Any]) -> dict[str, Any]:
     modes = [v for k, v in (session.call("audio_modes") or {}).items() if k != "__flags"]
     mode = a.get("mode") or "EBU R128"
     if mode not in modes:

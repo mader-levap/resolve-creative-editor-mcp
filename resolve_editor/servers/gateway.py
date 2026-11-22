@@ -85,7 +85,7 @@ def _run_media_tool(name: str, args: dict[str, Any]) -> dict[str, Any]:
 
 
 class Gateway:
-    def __init__(self):
+    def __init__(self) -> None:
         self.resolve: child_process.Child | None = None
         self.legacy: child_process.Child | None = None
         self.tool_routes: dict[str, tuple[str, str]] = {}
@@ -235,7 +235,7 @@ class Gateway:
             return {"_rpc_error": response["error"]}
         return response.get("result", {})
 
-    def close(self):
+    def close(self) -> None:
         if self.resolve:
             self.resolve.close()
         if self.legacy:

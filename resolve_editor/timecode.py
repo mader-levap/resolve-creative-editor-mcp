@@ -6,7 +6,7 @@ NTSC = {23.976: Fraction(24000, 1001), 29.97: Fraction(30000, 1001), 47.952: Fra
         59.94: Fraction(60000, 1001), 119.88: Fraction(120000, 1001)}
 
 
-def parse_fps(value):
+def parse_fps(value: object) -> Fraction:
     """Resolve reports rates like 30, '29.97' or '23.976'. Returns an exact Fraction."""
     match = re.search(r"\d+(?:\.\d+)?", str(value if value is not None else ""))
     if not match:
@@ -18,7 +18,7 @@ def parse_fps(value):
     return Fraction(rate).limit_denominator(1001)
 
 
-def frame_to_tc(frame, fps, drop=False):
+def frame_to_tc(frame: int, fps: Fraction | float, drop: bool = False) -> str:
     base = round(float(fps))
     frame = int(frame)
     if drop:  # SMPTE drop frame: skip 2 (or 4) frame numbers each minute except every tenth
@@ -31,7 +31,7 @@ def frame_to_tc(frame, fps, drop=False):
             f"{sep}{frame % base:02d}")
 
 
-def tc_to_frame(tc, fps, drop=False):
+def tc_to_frame(tc: str, fps: Fraction | float, drop: bool = False) -> int:
     parts = [int(x) for x in re.split(r"[:;.]", tc.strip())]
     if len(parts) != 4:
         raise ValueError(f"timecode must look like 01:00:12:05, got {tc!r}")
@@ -44,5 +44,5 @@ def tc_to_frame(tc, fps, drop=False):
     return frame
 
 
-def seconds_to_frames(seconds, fps):
+def seconds_to_frames(seconds: float, fps: Fraction | float) -> int:
     return round(Fraction(str(seconds)) * fps)
