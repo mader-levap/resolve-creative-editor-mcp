@@ -32,9 +32,14 @@ local placed = {GetUniqueId=function() return "item1" end, GetName=function() re
 local function timeline(name)
   if not made[name] then
     local tool = {SetInput=function() end}
-    local title = {GetFusionCompByIndex=function() return {FindToolByID=function() return tool end} end}
+    local title = {GetFusionCompByIndex=function() return {FindToolByID=function() return tool end} end,
+      GetDuration=function() return title_len() end}
     made[name] = {GetName=function() return name end,
-      GetSetting=function() return "30" end, GetStartFrame=function() return 0 end,
+      GetSetting=function(self, k) return setting(name, k) end,
+      SetSetting=function(self, k, v) return set_setting(name, k, v) end,
+      GetTrackCount=function() return 1 end,
+      GetItemListInTrack=function() if name == "_RCE_FULL" then return {placed} end return {} end,
+      GetStartFrame=function() return 0 end,
       GetEndFrame=function() return 100 end, GetCurrentTimecode=function() return "01:00:00:00" end,
       GetMediaPoolItem=function() return {} end,
       AddMarker=function() wrote("marker", current()); return true end,
@@ -47,7 +52,8 @@ local pool = {GetRootFolder=function() return folder end,
   SetCurrentFolder=function() return true end,
   CreateEmptyTimeline=function(self, name) created(name); return timeline(name) end,
   AppendToTimeline=function(self, list)
-    record(list[1].startFrame, list[1].endFrame); wrote("append", current()); return {placed}
+    record(list[1].startFrame, list[1].endFrame); wrote("append", current())
+    part(list[1].recordFrame, list[1].startFrame, list[1].endFrame); return {placed}
   end}
 local proj = {GetName=function() return project_name() end,
   GetCurrentTimeline=function() local n = current(); if n then return timeline(n) end end,
@@ -62,6 +68,18 @@ resolve = {GetVersionString=function() return "21.1-fake" end, GetCurrentPage=fu
 L: dict[str, Any] = {}
 appended: list[tuple[int, int]] = []
 world: dict[str, Any] = {"project": "demo", "names": [], "cur": None, "wrote": [], "ignore": {}}
+titles: dict[str, Any] = {"length": 300, "settings": {}, "stuck": False, "parts": []}
+
+
+def setting(name, key):
+    return titles["settings"].get((name, key), "30")
+
+
+def set_setting(name, key, value):
+    if titles["stuck"]:  # Resolve refusing to change it
+        return False
+    titles["settings"][(name, key)] = value
+    return True
 
 
 def created(name):  # Resolve makes a new timeline current
@@ -98,6 +116,9 @@ def run_bridge():
     g.count = lambda: len(world["names"])
     g.name_at = lambda i: world["names"][int(i) - 1]
     g.created, g.switch = created, switch
+    g.title_len = lambda: titles["length"]
+    g.setting, g.set_setting = setting, set_setting
+    g.part = lambda rec, s, e: titles["parts"].append((rec, s, e))
     # mimic Resolve's sandbox: no io/require; loadfile reads, fusion prefs is the only writer
     lua.execute("io = nil; require = nil; bmd = {}; fusion = {}")
     g.bmd.wait = time.sleep
@@ -194,6 +215,37 @@ reset(cur="WORK", ignore={"WORK": 99})
 r = bridge.call_bridge("add_title_cards", CARDS, timeline=PIN)
 assert r["ok"] and r["result"]["error"], r
 assert not [w for w in world["wrote"] if w[0] == "append"], world
+
+# I-21: a caption longer than the inserted title is placed in parts, all from its one timeline, at the target's rate
+LONG = {"folder": "bin", "track_index": 2, "cards": [
+    {"name": "long1", "text": "Hi", "frames": 400, "record_frame": 20},
+    {"name": "next1", "text": "Yo", "frames": 50, "record_frame": 430}]}
+reset(cur="WORK")
+titles.update(length=150, settings={("WORK", "timelineFrameRate"): "24"}, parts=[])
+r = bridge.call_bridge("add_title_cards", LONG, timeline=PIN)
+assert r["ok"] and not r["result"].get("error"), r
+assert titles["parts"] == [(20, 0, 150), (170, 0, 150), (320, 0, 100), (430, 0, 50)], titles["parts"]
+assert [p["card"] for p in r["result"]["placed"]] == [1, 1, 1, 2], r
+assert [w for w in world["wrote"] if w[0] == "title"] == [("title", "long1"), ("title", "next1")], world
+assert titles["settings"][("long1", "timelineFrameRate")] == "24", titles
+assert titles["settings"][("long1", "useCustomSettings")] == "1", titles
+reset(cur="WORK")
+titles.update(settings={("WORK", "timelineFrameRate"): "24"}, parts=[], stuck=True)
+r = bridge.call_bridge("add_title_cards", LONG, timeline=PIN)
+assert r["ok"] and "24" in r["result"]["error"] and titles["parts"] == [], r
+titles.update(stuck=False, settings={}, length=300)
+r = bridge.call_bridge("get_state", {})
+assert r["ok"] and r["result"]["caption_parts"] is True, r
+
+# The scratch-only frame rate helper used by the live tests
+reset(cur="WORK", names=("WORK", "_RCE_A", "_RCE_FULL"))
+r = bridge.call_bridge("set_scratch_fps", {"timeline": "_RCE_A", "fps": 24})
+assert r["ok"] and r["result"]["fps"] == "24", r
+for bad in ({"timeline": "WORK", "fps": 24}, {"timeline": "_RCE_FULL", "fps": 24},
+            {"timeline": "_RCE_NONE", "fps": 24}):
+    r = bridge.call_bridge("set_scratch_fps", bad)
+    assert not r["ok"], (bad, r)
+titles.update(settings={})
 
 data["claude_bridge_inst"] = "other"  # a newer run took over: stops the Lua loop
 time.sleep(0.5)

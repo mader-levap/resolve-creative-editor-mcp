@@ -30,6 +30,10 @@ class FakeResolve:
     def __init__(self, items, fail_on=None, details=None, fps=30):
         self.items, self.fail_on, self.calls, self.n, self.fps = items, dict(fail_on or {}), [], 0, fps
         self.tracks, self.timelines = {"video": 1, "audio": 1}, ["T"]
+        # captions: the inserted Text+ length, whether the bridge places long captions in parts, a part it refuses
+        self.title_frames, self.caption_parts, self.refuse_part = 300, True, None
+        self.timeline_fps = 30  # fps above is the clips' rate
+        self.parts: list[dict[str, Any]] = []
         self.settings: dict[str, dict[str, Any]] = {
             x["id"]: {"properties": {"ZoomX": 1.5}, "fades": {"FadeIn": 4, "FadeOut": 0},
                       "color": "Orange", "enabled": True, "speed": {"Percentage": 100}, "linked": [],
@@ -50,8 +54,11 @@ class FakeResolve:
                 {"id": f"tl-{t}", "name": t, "fps": self.fps, "frames": "900", "type": "Timeline"}
                 for t in self.timelines]
         elif op == "get_state":
-            r = {"timeline": "T", "project": "P", "pins": True, "timeline_fps": 30, "timeline_start_frame": 1000,
+            r = {"timeline": "T", "project": "P", "pins": True, "timeline_fps": self.timeline_fps,
+                 "timeline_start_frame": 1000,
                  "timeline_end_frame": 2000, "timeline_drop_frame": "0"}
+            if self.caption_parts:
+                r["caption_parts"] = True
         elif op == "item_details":
             r = [dict(self.settings[i], id=i) for i in args["item_ids"]]
         elif op == "set_fades":
@@ -113,9 +120,26 @@ class FakeResolve:
                     "export_timeline"):
             r = {"ok": True}
         elif op == "add_title_cards":
-            r = {"placed": [item(f"t{i}", c["record_frame"], c["frames"], name="Text+")
-                            for i, c in enumerate(args["cards"])]}
+            r = self.title_cards(args)
         return {"ok": True, "result": r}
+
+
+    def title_cards(self, args):
+        """Like resolve_bridge.lua: one timeline per card, placed in parts no longer than the inserted title."""
+        for i, c in enumerate(args["cards"], 1):
+            if c["name"] in self.timelines:  # Resolve refuses a duplicate name, and the op stops there
+                return {"placed": list(self.parts), "error": f"could not create timeline {c['name']}"}
+            self.timelines.append(c["name"])
+            done = 0
+            while done < c["frames"]:
+                if self.refuse_part == len(self.parts):
+                    return {"placed": list(self.parts), "error": f"Resolve refused to place card {i}"}
+                part = min(c["frames"] - done, self.title_frames)
+                x = item(f"t{len(self.parts)}", c["record_frame"] + done, part, name=c["name"],
+                         track=args["track_index"])
+                self.parts.append(dict(x, card=i))
+                done += part
+        return {"placed": list(self.parts)}
 
 
 class Base(unittest.TestCase):

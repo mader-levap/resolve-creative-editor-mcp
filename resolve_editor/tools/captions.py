@@ -6,7 +6,6 @@ from typing import Any
 from .. import media, outcome, paths, session, timecode, timeline
 
 CAPTION_BIN = "Captions (Resolve Creative Editor)"
-MAX_CARD_FRAMES = 150  # Text+ is inserted at Resolve's standard 5 s length and can't be lengthened by script
 
 
 def split_segments(segments: list[dict[str, Any]], max_chars: int = 42) -> list[dict[str, Any]]:
@@ -48,17 +47,30 @@ def _segments(a: dict[str, Any]) -> list[dict[str, Any]]:
 
 def caption_cards(segments: list[dict[str, Any]], fps: Fraction | float, base: int, timeline: str,
                   stamp: str = "") -> list[dict[str, Any]]:
-    """Timeline names must be unique in a project, so each run's cards carry a time stamp."""
-    cards, timeline = [], f"{timeline} {stamp}".strip()
+    """One card per caption. Timeline names must be unique in a project, so each run's cards carry a time stamp; a long
+    name is cut before the caption number. The bridge places a card longer than the inserted title in parts."""
+    cards, prefix = [], f"{timeline} {stamp}".strip()
     for n, s in enumerate(segments, 1):
         start, end = (base + timecode.seconds_to_frames(s["start"], fps),
                       base + timecode.seconds_to_frames(s["end"], fps))
-        while end - start > 0:  # a card can be at most 5 s, so longer lines continue on a second card
-            frames = min(end - start, MAX_CARD_FRAMES)
-            cards.append({"name": f"{timeline} caption {n:04d}{'' if frames == end - start else '+'}"[:120],
-                          "text": s["text"], "record_frame": start, "frames": frames})
-            start += frames
+        if end > start:
+            suffix = f" caption {n:04d}"
+            cards.append({"name": prefix[:120 - len(suffix)] + suffix, "text": s["text"], "record_frame": start,
+                          "frames": end - start})
     return cards
+
+
+def _complete(cards: list[dict[str, Any]], placed: list[dict[str, Any]]) -> int:
+    """Captions whose parts start at the caption, follow each other without gaps and add up to its length."""
+    done = 0
+    for i, c in enumerate(cards, 1):
+        at = c["record_frame"]
+        for p in sorted((p for p in placed if p.get("card") == i), key=lambda p: p["start"]):
+            if p["start"] != at:
+                break
+            at += p["duration"]
+        done += at == c["record_frame"] + c["frames"]
+    return done
 
 
 def add_captions(a: dict[str, Any]) -> dict[str, Any]:
@@ -69,7 +81,11 @@ def add_captions(a: dict[str, Any]) -> dict[str, Any]:
     preview = [{"at": session.to_tc(c["record_frame"]), "frames": c["frames"], "text": c["text"]} for c in cards]
     if a.get("dry_run") or not a.get("confirm") or not cards:
         return outcome.preview({"captions": preview[: a.get("limit") or 20], "count": len(cards), "bin": CAPTION_BIN},
-                               ["each caption is a small timeline in the bin; edit its text there"])
+                               ["each caption is a small timeline in the bin; edit its text there",
+                                "a caption longer than Resolve's inserted title is placed in parts sharing its text"])
+    if not state.get("caption_parts"):
+        return outcome.blocked("the Resolve bridge is older than this server and can't place long captions; "
+                               "restart the bridge (Workspace > Scripts > resolve_bridge)")
     track = a.get("track_index")
     if not track:
         track = session.call("add_track", track_type="video")["count"]
@@ -82,9 +98,11 @@ def add_captions(a: dict[str, Any]) -> dict[str, Any]:
     r = session.call("add_title_cards", cards=cards, folder=a.get("folder") or CAPTION_BIN, track_index=track, **style)
     session.invalidate()
     placed = session.as_list(r.get("placed"))
-    ok = len(placed) == len(cards) and all(p["duration"] == c["frames"] for p, c in zip(placed, cards, strict=False))
+    complete = _complete(cards, placed)
+    ok = complete == len(cards)
     return outcome.op("success" if ok else ("partial" if placed else "failed"), ok,
-                      {"captions_added": len(placed), "track": f"V{track}"}, [r["error"]] if r.get("error") else [])
+                      {"captions_added": complete, "parts": len(placed), "track": f"V{track}"},
+                      [r["error"]] if r.get("error") else [])
 
 
 def _stamp(seconds: float) -> str:

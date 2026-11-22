@@ -1,6 +1,6 @@
 # Issues
 
-Found while testing `edit__add_transition`, 2026-11-22. This is the base for fixes. Fixed so far: I-01, I-03, I-13, I-14, I-16, I-17.
+Found while testing `edit__add_transition`, 2026-11-22. This is the base for fixes. Fixed so far: I-01, I-03, I-13, I-14, I-16, I-17, I-21.
 
 - Environment: free DaVinci Resolve 21.2.0.6, Windows 10, 60 fps timeline.
 - Code is named by file and function, with paths from the repo root.
@@ -36,10 +36,10 @@ How each item is known:
 | [I-18](#i-18) | Medium | `batch` reports `passed` for unverified steps | Fake |
 | [I-19](#i-19) | Medium | Markers without a name are never added | Live |
 | [I-20](#i-20) | Medium | `batch` drops the warnings of successful steps | Fake |
-| [I-21](#i-21) | High | A long caption fails and takes the following ones with it | Live |
+| [I-21](#i-21) | ~~High~~ **Fixed** | A long caption fails and takes the following ones with it | Live, fake |
 | [I-22](#i-22) | Medium | The bridge can stop answering, cause unknown | Live, once |
 
-Order, one fix at a time, worst first: I-21, I-02, I-15, I-04, then medium (I-19 first, as it now stops
+Order, one fix at a time, worst first: I-02, I-15, I-04, then medium (I-19 first, as it now stops
 batches), then low. Re-rank after each fix.
 
 ## Issues
@@ -459,9 +459,10 @@ restart and `copy_grade` that grades can't be read back. Inside a batch neither 
 **Done when:** a batched `set_fades` shows its warning.
 
 <a id="i-21"></a>
-### I-21 A long caption fails and takes the following ones with it (high)
+### I-21 A long caption fails and takes the following ones with it (high, fixed)
 
-**Where:** `resolve_editor/tools/captions.py` (`MAX_CARD_FRAMES`, `caption_cards`)
+**Where:** `resolve_editor/tools/captions.py` (`MAX_CARD_FRAMES`, `caption_cards`), `resolve_bridge.lua`
+(`add_title_cards`)
 
 **Problem:** two faults together.
 
@@ -473,12 +474,24 @@ restart and `copy_grade` that grades can't be read back. Inside a batch neither 
 **Repro, live 2026-11-22, 60 fps:** a 1 s and a 6 s caption placed 2 of 4 cards, with `partial` and "could not create
 timeline ... caption 0002+". A 4 s caption (two cards) works.
 
-**Workaround:** at 60 fps keep each caption to 5 s or less.
+**Fix:** one card, and one small timeline, per caption, so no names repeat; a long timeline name is cut before the
+caption number. The bridge sets the caption timeline to the target's frame rate (with custom timeline settings on),
+reads how long the inserted title is, and places the caption in parts no longer than that, all from its one timeline.
+`get_state` reports `caption_parts`; an older bridge is refused. A caption counts as placed only when its parts cover
+it without gaps. `set_scratch_fps` (test-only, `_RCE_` timelines) sets the rate of an empty scratch timeline.
 
-**Fix:** number the continuation cards, and derive the limit from 5 s and the timeline's fps. Below 30 fps 150
-frames is longer than the inserted title; what happens then is untested.
+**Verified 2026-11-23:**
 
-**Done when:** at 24, 30 and 60 fps a 12 s caption places all its cards, and so does the caption after it.
+- Tests: at 24, 30 and 60 fps a 12 s caption and the next one are placed in full; names stay unique; an old bridge
+  is refused; a refused part gives `partial`; gaps don't count. The Lua smoke test places a 400-frame card from a
+  150-frame title in 150 + 150 + 100 at the right frames, at the target's rate. They failed before the fix.
+- Live, old code, 60 fps, 12 s caption: `partial`, 150 of 720 frames placed, the next caption missing, "could not
+  create timeline ... caption 0001+".
+- Live, new code, at 24, 30 and 60 fps on scratch timelines: a 40 s caption in three parts (15 s, the inserted title
+  length here) and the caption after it, exactly in place; exported frames show the text in the last part and in the
+  next caption. Resolve changes a timeline's rate by script only with `useCustomSettings` on.
+- Through MCP after a server restart, 60 fps: a 20 s caption in 15 s + 5 s parts and the next caption in place,
+  `success` with `captions_added` 2 and `parts` 3.
 
 <a id="i-22"></a>
 ### I-22 The bridge can stop answering (medium, cause unknown)

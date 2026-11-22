@@ -60,7 +60,7 @@ All tools come from the `resolve-creative-editor` MCP server (61 on free Resolve
 - **edit__copy_grade**: copy one clip's grade onto other clips.
 - **edit__add_markers**: add several timeline markers at once.
 - **edit__add_audio_markers**: mark silences or beats found in a file.
-- **edit__add_captions**: editable Text+ captions at exact times, from segments or by transcribing a file.
+- **edit__add_captions**: editable Text+ captions at exact times, from segments or by transcribing a file. One small timeline per caption; a caption longer than the inserted title (Standard Generator Duration) is placed in parts that share its text.
 - **edit__export_srt**: write an .srt from segments or a transcription (user imports it by hand).
 - **edit__export_timeline**: export the current timeline as OTIO, FCPXML, EDL, AAF or DRT.
 - **edit__qc_file**: QC a rendered file: loudness, true peak, black/frozen frames, silence.
@@ -141,6 +141,8 @@ Observed on free DaVinci Resolve 21.2.0.6 through this server's Lua bridge. Othe
 - **Placing a title on a chosen track without the user (nested-timeline route):** create a small separate timeline, insert the Text+ there (it lands on V1, which doesn't matter), then place that timeline's Media Pool item with `AppendToTimeline` clipInfo `trackIndex`/`recordFrame`. It lands exactly on the requested track and frame, and the text stays editable by script through `GetMediaPoolItem().GetTimeline()`. `edit__add_captions` already works this way. Trade-offs:
   - In Resolve the user edits the wording by opening the inner timeline, not by selecting the clip.
   - Every placed copy shares one source, so editing one changes them all; use one inner timeline per distinct card.
+  - A placement can't be longer than the inserted title; place a longer card in parts from the same inner timeline (`edit__add_captions` does this).
+  - A new timeline takes the project frame rate. To give it another rate by script, set `useCustomSettings` to `"1"` first, then `timelineFrameRate`; only an empty timeline accepts it (verified).
   - Placements must not overlap on a track, or the append is silently rejected.
   - Never use a compound clip instead: it places correctly but cuts the script's access to the Text+.
 - Use the nested-timeline route when the user wants full automation; prefer plain Text+ (user sets the destination) when they will edit the titles by hand. Source: `vendor/davinci-resolve-mcp/docs/reference/api-limitations.md` (Source Track Selector).

@@ -2,6 +2,9 @@
 
 ## 2026-11-23
 
+- Fixed: a long caption failed and took the following captions with it (ISSUES.md I-21). Each caption is now one
+  small timeline, placed in parts no longer than the inserted Text+ title, at any frame rate. Needs the new bridge
+  script.
 - Fixed: a confirm could apply a preview to another timeline when the current one changed in between (ISSUES.md
   I-17). Previews now name their timeline, and `confirm=true` must pass it as `timeline`, or nothing is changed.
   Reads no longer describe the previous timeline for a few seconds after a switch.

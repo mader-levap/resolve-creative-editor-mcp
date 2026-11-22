@@ -357,6 +357,7 @@ function OPS.get_state()
   local t = p and p:GetCurrentTimeline()
   return { resolve = resolve:GetVersionString(), page = resolve:GetCurrentPage(), project = p and p:GetName(),
            pins = true,  -- requests may name their timeline (see pin)
+           caption_parts = true,  -- add_title_cards places a long card in parts (ISSUES.md I-21)
            timeline = t and t:GetName(), timeline_fps = t and t:GetSetting("timelineFrameRate"),
            timeline_drop_frame = t and t:GetSetting("timelineDropFrameTimecode"),
            timeline_start_frame = t and t:GetStartFrame(), timeline_end_frame = t and t:GetEndFrame(),
@@ -960,10 +961,34 @@ function OPS.delete_scratch(a)
   return out
 end
 
+-- Test helper: change the frame rate of an empty scratch timeline (names starting with _RCE_ only).
+function OPS.set_scratch_fps(a)
+  if type(a.timeline) ~= "string" or a.timeline:sub(1, 5) ~= "_RCE_" then error("scratch timelines must start with _RCE_", 0) end
+  local p, t = proj(), nil
+  for i = 1, p:GetTimelineCount() do
+    local x = p:GetTimelineByIndex(i)
+    if x:GetName() == a.timeline then t = x end
+  end
+  if not t then error("timeline not found: " .. a.timeline, 0) end
+  for _, kind in ipairs({ "video", "audio", "subtitle" }) do
+    for i = 1, (t:GetTrackCount(kind) or 0) do
+      if #each(t:GetItemListInTrack(kind, i)) > 0 then error("only an empty timeline can change its frame rate", 0) end
+    end
+  end
+  local custom = t:SetSetting("useCustomSettings", "1")  -- a timeline follows the project rate unless this is on
+  local ok = t:SetSetting("timelineFrameRate", tostring(a.fps))
+  return { ok = ok and true or false, custom = custom and true or false, fps = t:GetSetting("timelineFrameRate") }
+end
+
+local function same_rate(x, y) return tonumber(tostring(x):match("[%d%.]+")) == tonumber(tostring(y):match("[%d%.]+")) end
+
 -- Text+ titles can't be resized or moved by script, so each card lives on its own small timeline in a bin and
 -- that timeline is placed like a clip: exact frame, exact length, chosen track (upstream issue #74 route).
+-- A placement can't be longer than the inserted title (Preferences > Standard Generator Duration), so a longer
+-- card is placed in parts, all from its one timeline (ISSUES.md I-21).
 function OPS.add_title_cards(a)
   local p, mp, target = proj(), pool(), tl()
+  local fps = target:GetSetting("timelineFrameRate")
   local root, folder = mp:GetRootFolder(), nil
   for _, f in ipairs(each(root:GetSubFolderList())) do if f:GetName() == a.folder then folder = f end end
   folder = folder or mp:AddSubFolder(root, a.folder)
@@ -979,19 +1004,39 @@ function OPS.add_title_cards(a)
     for i, c in ipairs(a.cards) do
       local inner = mp:CreateEmptyTimeline(c.name)
       if not inner then error("could not create timeline " .. c.name, 0) end
+      if not same_rate(inner:GetSetting("timelineFrameRate"), fps) then  -- source frames must be target frames
+        inner:SetSetting("useCustomSettings", "1")  -- without it the timeline keeps the project rate
+        inner:SetSetting("timelineFrameRate", tostring(fps))
+        local got = inner:GetSetting("timelineFrameRate")
+        if not same_rate(got, fps) then
+          error("could not set " .. c.name .. " to " .. tostring(fps) .. " fps (Resolve kept " .. tostring(got) .. ")", 0)
+        end
+      end
       focus(inner)
       local title = inner:InsertFusionTitleIntoTimeline("Text+")
       if not title then error("Text+ insert failed", 0) end
+      local length = tonumber(title:GetDuration()) or 0
+      if length <= 0 then error("could not read the length of the title in " .. c.name, 0) end
       local tool = text_tool(title)
       tool:SetInput("StyledText", c.text)
       apply_text_style(tool, a)
       local item = try(inner, "GetMediaPoolItem")
       focus(target)
       if not item then error("this Resolve build gives timelines no media pool item", 0) end
-      local placed = each(mp:AppendToTimeline({ { mediaPoolItem = item, startFrame = 0, endFrame = c.frames,
-                                                   trackIndex = a.track_index, recordFrame = c.record_frame, mediaType = 1 } }))
-      if not placed[1] then error("Resolve refused to place card " .. i .. " (track busy at that frame?)", 0) end
-      out[#out + 1] = item_info(placed[1], "video", a.track_index)
+      local done = 0
+      while done < c.frames do
+        local part = math.min(c.frames - done, length)
+        local placed = each(mp:AppendToTimeline({ { mediaPoolItem = item, startFrame = 0, endFrame = part,
+                                                     trackIndex = a.track_index, recordFrame = c.record_frame + done,
+                                                     mediaType = 1 } }))
+        if not placed[1] then
+          error("Resolve refused to place card " .. i .. " at frame " .. (c.record_frame + done) .. " (track busy?)", 0)
+        end
+        local info = item_info(placed[1], "video", a.track_index)
+        info.card = i
+        out[#out + 1] = info
+        done = done + part
+      end
     end
   end)
   p:SetCurrentTimeline(target)
