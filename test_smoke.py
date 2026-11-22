@@ -154,7 +154,7 @@ assert r["isError"] and "No current timeline" in text(r), r
 
 # A request pinned to a timeline runs there or not at all (ISSUES.md I-16). Real Lua, real call_bridge.
 os.environ.update(RESOLVE_BRIDGE_DIR=bridge_dir, RESOLVE_FUSION_PREFS=prefs)
-import mcp_server as M
+from resolve_editor import bridge
 
 MARKER = {"frame": 5}
 PIN = {"project": "demo", "name": "WORK"}
@@ -165,31 +165,31 @@ def reset(cur="OTHER", project="demo", names=("WORK", "OTHER"), ignore=None):
 
 
 reset()
-r = M.call_bridge("get_state", {})
+r = bridge.call_bridge("get_state", {})
 assert r["ok"] and r["result"]["pins"] is True, r
-r = M.call_bridge("add_marker", MARKER)
+r = bridge.call_bridge("add_marker", MARKER)
 assert r["ok"] and world["wrote"] == [("marker", "OTHER")] and not r.get("switched_from"), (r, world)  # no pin
 reset()
-r = M.call_bridge("add_marker", MARKER, timeline=PIN)
+r = bridge.call_bridge("add_marker", MARKER, timeline=PIN)
 assert r["ok"] and world["wrote"] == [("marker", "WORK")] and r["switched_from"] == "OTHER", (r, world)
 reset(cur="WORK")
-r = M.call_bridge("add_marker", MARKER, timeline=PIN)
+r = bridge.call_bridge("add_marker", MARKER, timeline=PIN)
 assert r["ok"] and world["wrote"] == [("marker", "WORK")] and not r.get("switched_from"), (r, world)
 for case in (dict(project="another", cur="WORK"), dict(names=["OTHER"]), dict(ignore={"WORK": 99})):
     reset(**case)
-    r = M.call_bridge("add_marker", MARKER, timeline=PIN)
+    r = bridge.call_bridge("add_marker", MARKER, timeline=PIN)
     assert not r["ok"] and "not run" in r["error"] and world["wrote"] == [], (case, r, world)
 
 CARDS = {"folder": "bin", "track_index": 2, "cards": [
     {"name": "card1", "text": "Hi", "frames": 10, "record_frame": 20},
     {"name": "card2", "text": "Yo", "frames": 10, "record_frame": 40}]}
 reset(cur="WORK", ignore={"WORK": 1, "card2": 1})
-r = M.call_bridge("add_title_cards", CARDS, timeline=PIN)
+r = bridge.call_bridge("add_title_cards", CARDS, timeline=PIN)
 assert r["ok"] and len(r["result"]["placed"]) == 2, (r, world)
 assert [w for w in world["wrote"] if w[0] == "append"] == [("append", "WORK")] * 2, world
 assert [w for w in world["wrote"] if w[0] == "title"] == [("title", "card1"), ("title", "card2")], world
 reset(cur="WORK", ignore={"WORK": 99})
-r = M.call_bridge("add_title_cards", CARDS, timeline=PIN)
+r = bridge.call_bridge("add_title_cards", CARDS, timeline=PIN)
 assert r["ok"] and r["result"]["error"], r
 assert not [w for w in world["wrote"] if w[0] == "append"], world
 

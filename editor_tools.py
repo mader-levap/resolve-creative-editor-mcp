@@ -18,7 +18,7 @@ import subprocess
 import time
 from fractions import Fraction
 
-import mcp_server as M
+from resolve_editor import bridge, media, paths
 
 S, I, B, N = {"type": "string"}, {"type": "integer"}, {"type": "boolean"}, {"type": "number"}
 IDS = {"type": "array", "items": S}
@@ -27,7 +27,7 @@ CONFIRM = {"type": "boolean", "description": "Omit for a preview. Set true only 
 SEGMENTS = {"type": "array", "items": {"type": "object", "properties": {"start": N, "end": N, "text": S},
                                        "required": ["start", "end", "text"]},
             "description": "Caption lines in seconds. Omit to transcribe `path` instead."}
-AUDIT = os.path.join(M.DIR, "audit.jsonl")
+AUDIT = os.path.join(paths.DIR, "audit.jsonl")
 CAPTION_BIN = "Captions (Resolve Creative Editor)"
 MAX_CARD_FRAMES = 150  # Text+ is inserted at Resolve's standard 5 s length and can't be lengthened by script
 
@@ -174,7 +174,7 @@ def invalidate():
 
 def _b(op, **args):
     pin = {"timeline": _pin} if _pin and op != "set_current_timeline" else {}
-    res = M.call_bridge(op, args, **pin)
+    res = bridge.call_bridge(op, args, **pin)
     if res.get("switched_from"):
         _switched.add(res["switched_from"])
     if not res.get("ok"):
@@ -793,8 +793,8 @@ def onsets(samples, rate, hop=512, min_gap=0.25):
 
 def _beats(path):
     rate = 11025
-    ffmpeg = M._binary("ffmpeg", "FFMPEG")
-    proc = subprocess.run([ffmpeg, "-nostdin", "-v", "error", "-i", M._media_path(path), "-map", "0:a:0", "-ac", "1",
+    ffmpeg = media.binary("ffmpeg", "FFMPEG")
+    proc = subprocess.run([ffmpeg, "-nostdin", "-v", "error", "-i", media.media_path(path), "-map", "0:a:0", "-ac", "1",
                            "-ar", str(rate), "-f", "s16le", "-"], capture_output=True, timeout=600)
     if proc.returncode:
         raise RuntimeError(proc.stderr.decode("utf-8", "replace")[-2000:])
@@ -810,8 +810,8 @@ def add_audio_markers(a):
     else:
         args = {"path": a["path"]}
         args.update({k: a[k] for k in ("noise_db", "min_duration") if k in a})
-        result = M.run_media_tool("detect_silence", args)
-        length = float(M.run_media_tool("probe_media", {"path": a["path"]}).get("duration") or 0)
+        result = media.run_media_tool("detect_silence", args)
+        length = float(media.run_media_tool("probe_media", {"path": a["path"]}).get("duration") or 0)
         found = [{"start": x["start"], "end": x["end"] if x["end"] is not None else length}
                  for x in result["silence_intervals"]]
         name, color = "silence", a.get("color") or "Yellow"
@@ -864,7 +864,7 @@ def _segments(a):
     args = {"path": a["path"], "model": a.get("model") or "base"}
     if a.get("language"):
         args["language"] = a["language"]
-    return split_segments(M.run_media_tool("transcribe_audio", args)["segments"], a.get("max_chars") or 42)
+    return split_segments(media.run_media_tool("transcribe_audio", args)["segments"], a.get("max_chars") or 42)
 
 
 def caption_cards(segments, fps, base, timeline, stamp=""):
@@ -917,7 +917,7 @@ def to_srt(segments):
 
 
 def _output(a, suffix):
-    output = a.get("output") or os.path.join(M.DIR, f"export_{time.strftime('%Y%m%d-%H%M%S')}{suffix}")
+    output = a.get("output") or os.path.join(paths.DIR, f"export_{time.strftime('%Y%m%d-%H%M%S')}{suffix}")
     if os.path.exists(output):
         raise FileExistsError(f"refusing to overwrite {output}")
     return output
@@ -951,8 +951,8 @@ def parse_qc(log):
 
 
 def qc_file(a):
-    ffmpeg = M._binary("ffmpeg", "FFMPEG")
-    proc = subprocess.run([ffmpeg, "-nostdin", "-hide_banner", "-i", M._media_path(a["path"]),
+    ffmpeg = media.binary("ffmpeg", "FFMPEG")
+    proc = subprocess.run([ffmpeg, "-nostdin", "-hide_banner", "-i", media.media_path(a["path"]),
                            "-vf", "blackdetect=d=0.5:pix_th=0.10,freezedetect=n=-60dB:d=2",
                            "-af", "ebur128=peak=true,silencedetect=n=-50dB:d=1", "-f", "null", "-"],
                           capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=3600)
@@ -984,9 +984,9 @@ def doctor(a=None):
         whisper = False
     report = {"python": os.sys.version.split()[0], "ffmpeg": bool(shutil.which("ffmpeg") or os.environ.get("FFMPEG")),
               "ffprobe": bool(shutil.which("ffprobe") or os.environ.get("FFPROBE")), "faster_whisper": whisper,
-              "bridge_folder": M.DIR}
+              "bridge_folder": paths.DIR}
     try:
-        res = M.call_bridge("get_state", {}, timeout=6, ack_timeout=4)
+        res = bridge.call_bridge("get_state", {}, timeout=6, ack_timeout=4)
         report["bridge"] = "connected" if res.get("ok") else res.get("error")
         report["resolve"] = res.get("result")
     except Exception as exc:

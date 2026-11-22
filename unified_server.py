@@ -159,7 +159,7 @@ def _prefix_tool(tool: dict[str, Any], prefix: str, warning: str = "") -> dict[s
 
 
 def _media_tools() -> list[dict[str, Any]]:
-    from mcp_server import TOOLS
+    from resolve_editor.schemas.legacy import TOOLS
     names = {"probe_media", "extract_audio", "detect_silence", "transcribe_audio", "make_contact_sheet"}
     return [_prefix_tool(t, "media__", "Local media analysis; source files are read-only.") for t in TOOLS if t["name"] in names]
 
@@ -188,9 +188,9 @@ def _with_confirm(tool: dict[str, Any]) -> dict[str, Any]:
 
 
 def _run_media_tool(name: str, args: dict[str, Any]) -> dict[str, Any]:
-    from mcp_server import run_media_tool
+    from resolve_editor import media
     try:
-        result = run_media_tool(name, args)
+        result = media.run_media_tool(name, args)
         if name == "make_contact_sheet":
             return {"content": [
                 {"type": "image", "data": result["image"], "mimeType": result["mimeType"]},

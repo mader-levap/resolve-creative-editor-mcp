@@ -11,7 +11,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 os.environ["RESOLVE_BRIDGE_DIR"] = tempfile.mkdtemp()
 import editor_tools as E
-import mcp_server as M
+from resolve_editor import bridge, media, paths
 
 
 def item(id, start, dur, name="a.mp4", src=0, track=1, kind="video", type=None):
@@ -110,10 +110,10 @@ class FakeResolve:
 
 class Base(unittest.TestCase):
     def use(self, fake):
-        old = M.call_bridge
-        M.call_bridge = fake
+        old = bridge.call_bridge
+        bridge.call_bridge = fake
         E.invalidate()
-        self.addCleanup(setattr, M, "call_bridge", old)
+        self.addCleanup(setattr, bridge, "call_bridge", old)
         self.addCleanup(E.invalidate)
         return fake
 
@@ -389,7 +389,7 @@ class PreviewSafety(Base):
 
         for target, name, fake in ((builtins, "open", guarded_open),
                                    (E, "log_audit", lambda *args: self.effects.append(("audit", args[0]))),
-                                   (M, "run_media_tool", forbid("media tool")),
+                                   (media, "run_media_tool", forbid("media tool")),
                                    (subprocess, "run", forbid("subprocess"))):
             patch = mock.patch.object(target, name, fake)
             patch.start()
@@ -512,9 +512,9 @@ class TimelinePin(Base):
     MARK = {"tool": "add_markers", "args": SAMPLE_ARGS["add_markers"]}
 
     def setUp(self):
-        media = lambda name, args: ({"silence_intervals": [{"start": 1, "end": 2}]} if name == "detect_silence"
-                                    else {"duration": 5})
-        patch = mock.patch.object(M, "run_media_tool", media)
+        fake_media = lambda name, args: ({"silence_intervals": [{"start": 1, "end": 2}]} if name == "detect_silence"
+                                         else {"duration": 5})
+        patch = mock.patch.object(media, "run_media_tool", fake_media)
         patch.start()
         self.addCleanup(patch.stop)
 
@@ -682,9 +682,9 @@ class BatchStop(Base):
     NEXT = {"tool": "copy_grade", "args": SAMPLE_ARGS["copy_grade"]}
 
     def setUp(self):
-        media = lambda name, args: ({"silence_intervals": [{"start": 1, "end": 2}]} if name == "detect_silence"
-                                    else {"duration": 5})
-        patch = mock.patch.object(M, "run_media_tool", media)
+        fake_media = lambda name, args: ({"silence_intervals": [{"start": 1, "end": 2}]} if name == "detect_silence"
+                                         else {"duration": 5})
+        patch = mock.patch.object(media, "run_media_tool", fake_media)
         patch.start()
         self.addCleanup(patch.stop)
 
@@ -776,9 +776,10 @@ class BridgeReply(unittest.TestCase):
         folder = tempfile.TemporaryDirectory()
         self.addCleanup(folder.cleanup)
         self.csv = os.path.join(folder.name, "reply.csv")
-        for name, value in (("DIR", folder.name), ("REPLY_CSV", self.csv),
-                            ("PREFS", os.path.join(folder.name, "no.prefs")), ("ensure_token_png", lambda: None)):
-            patch = mock.patch.object(M, name, value)
+        for target, name, value in ((paths, "DIR", folder.name), (bridge, "REPLY_CSV", self.csv),
+                                    (bridge, "PREFS", os.path.join(folder.name, "no.prefs")),
+                                    (bridge, "ensure_token_png", lambda: None)):
+            patch = mock.patch.object(target, name, value)
             patch.start()
             self.addCleanup(patch.stop)
 
@@ -807,18 +808,18 @@ class BridgeReply(unittest.TestCase):
             polls[0] += 1
             on_poll(polls[0])
         clock = types.SimpleNamespace(time=lambda: now[0], sleep=sleep)
-        with mock.patch.object(M, "time", clock), mock.patch.object(M.uuid, "uuid4", lambda: types.SimpleNamespace(hex=RID)):
-            return M.call_bridge("get_state", {}, timeout=10, ack_timeout=5)
+        with mock.patch.object(bridge, "time", clock), mock.patch.object(bridge.uuid, "uuid4", lambda: types.SimpleNamespace(hex=RID)):
+            return bridge.call_bridge("get_state", {}, timeout=10, ack_timeout=5)
 
     def test_half_written_file_is_not_a_reply(self):
         with self.half_written_on_first_open():
-            self.assertEqual(M._read_csv_reply(), (None, None))
+            self.assertEqual(bridge._read_csv_reply(), (None, None))
 
     def test_large_replies_are_read(self):
         for size in (65_537, 200_000, 5_000_000):
             with self.subTest(payload_bytes=size):
                 self.write(reply_export(f"{RID}:" + "7b" * size))
-                got, payload = M.read_reply(RID)
+                got, payload = bridge.read_reply(RID)
                 self.assertEqual((got, len(payload or "")), (RID, size * 2))
 
     def test_call_gets_large_reply_after_ack(self):
@@ -838,7 +839,7 @@ class BridgeReply(unittest.TestCase):
         data = reply_export(f"{RID}:" + json.dumps(answer, ensure_ascii=False).encode().hex())
         for cut in range(len(data) + 1):
             self.write(data[:cut])
-            got, payload = M._read_csv_reply()
+            got, payload = bridge._read_csv_reply()
             self.assertIn(got, (None, RID), cut)
             if payload:
                 try:
@@ -849,12 +850,12 @@ class BridgeReply(unittest.TestCase):
         self.assertEqual(json.loads(bytes.fromhex(payload).decode("utf-8")), answer)
 
     def test_other_columns_and_stale_replies(self):
-        self.assertEqual(M.read_reply(RID), (None, None), "no file")
+        self.assertEqual(bridge.read_reply(RID), (None, None), "no file")
         self.write(reply_export("01:00:00:00 just a comment"))
-        self.assertEqual(M.read_reply(), (None, None), "no reply in the file")
+        self.assertEqual(bridge.read_reply(), (None, None), "no reply in the file")
         self.write(reply_export(f"{RID}:7b7d", file_name="token deadbeef:cafe, 01:02.png"))
-        self.assertEqual(M.read_reply(RID), (RID, "7b7d"))
-        self.assertEqual(M.read_reply("f" * 32), (None, None), "someone else's reply")
+        self.assertEqual(bridge.read_reply(RID), (RID, "7b7d"))
+        self.assertEqual(bridge.read_reply("f" * 32), (None, None), "someone else's reply")
 
 
 class GatewayResilience(unittest.TestCase):

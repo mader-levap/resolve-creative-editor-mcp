@@ -9,7 +9,7 @@ import json, os, pathlib, subprocess, sys, time
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 import editor_tools as E
-import mcp_server as M
+from resolve_editor import paths
 
 RESULTS = []
 
@@ -29,7 +29,7 @@ def status(r):
 
 def main():
     keep = "--keep" in sys.argv
-    folder = os.path.join(M.DIR, "validation")
+    folder = os.path.join(paths.DIR, "validation")
     os.makedirs(folder, exist_ok=True)
     clip_path = os.path.join(folder, "rce_live_clip.mp4")
     if not os.path.exists(clip_path):
