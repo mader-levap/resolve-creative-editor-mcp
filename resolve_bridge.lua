@@ -915,7 +915,13 @@ end
 local me = tostring({}):gsub("table: ", "")  -- unique per run
 fu:SetData("claude_bridge_inst", me)  -- in-memory; a newer run overwrites it and this loop exits
 local function req_id(raw) return raw and raw:match('"id"%s*:%s*"([^"]*)"') end
-local last = req_id(readreq())  -- ignore a stale request left from before this run
+-- Ignore a stale request left from before this run. On 21.2+ the request also sits in fusion's in-memory
+-- "claude_bridge_req" after it has been answered; readreq can return it when request.lua is gone or before RunScript
+-- has replaced it, so a restarted bridge replayed the previous request. Mark it seen and clear the slot.
+local last = req_id(readreq()) or req_id(fu:GetData("claude_bridge_req"))
+if not loadfile then fu:SetData("claude_bridge_req", "") end
+-- Requests carry the sender's clock (mcp_server.py); anything older than this is a leftover, never run it.
+local MAX_REQUEST_AGE = 60
 log("running (" .. (USE_PREFS and "Fusion.prefs" or "RunScript + token clip") .. " transport). Folder: " .. DIR)
 
 while fu:GetData("claude_bridge_inst") == me do
@@ -925,10 +931,15 @@ while fu:GetData("claude_bridge_inst") == me do
   if id and id ~= last then ok, req = pcall(json.decode, raw) end
   if ok and type(req) == "table" then
     last = id
+    if not loadfile then fu:SetData("claude_bridge_req", "") end  -- consumed: never hand it out again
     reply(id)  -- ack
     local good, out = pcall(function()
       local op = OPS[req.op]
       if not op then error("unknown op: " .. tostring(req.op), 0) end
+      local age = tonumber(req.ts) and os and os.time and (os.time() - tonumber(req.ts))
+      if age and age > MAX_REQUEST_AGE then
+        error("stale request ignored (" .. math.floor(age) .. " s old): " .. tostring(req.op), 0)
+      end
       return { id = id, ok = true, result = op(req.args or {}) }
     end)
     if not good then out = { id = id, ok = false, error = tostring(out) } end
