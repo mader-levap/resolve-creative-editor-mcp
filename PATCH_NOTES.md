@@ -10,6 +10,8 @@
   A writing `edit__` call now stays on the timeline it started on. Needs the new bridge script.
 - Fixed: `edit__batch` kept editing after a `partial` step (ISSUES.md I-03). It now stops, says why and lists
   the steps it didn't run.
+- Changed: the Python code is now the `resolve_editor` package and the tests are split by area (no tool changes;
+  ISSUES.md I-14 fixed). Run tests with `python -m unittest` and `python tests/smoke_bridge.py`.
 
 ## Stage-two audit (2026-11-11)
 

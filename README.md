@@ -2,17 +2,14 @@
 
 This is fork of https://github.com/Anujpal-15th/resolve-creative-editor-mcp by Anujpal-15th.
 
-## What is this?
+## What it does?
 
-Edit video in **DaVinci Resolve** by talking to Claude. It works on your real project: it places and trims clips,
-moves them without losing their grade, adds transitions, fades, captions and markers, sets audio levels, checks your
-render, and shows you a preview before anything destructive.
+Edit video in **DaVinci Resolve** by talking to Claude. It works on your real project: it places and trims clips, moves them without losing their grade, adds transitions, fades, captions and markers, sets audio levels, checks your render, and shows you a preview before anything destructive.
 
-It works with the **free version** of Resolve and with **Studio**, through
-[MCP](https://modelcontextprotocol.io), so it plugs into Claude Code, Claude Desktop and other MCP clients.
+It works with the **free version** of Resolve and with **Studio**, through [MCP](https://modelcontextprotocol.io), so it plugs into Claude Code, Claude Desktop and other MCP clients.
 
-> **Tested on:** Windows 11 with DaVinci Resolve **21.1.0.17 free**. Studio, macOS and Linux have not been tested
-> by this project. See the [compatibility matrix](#what-works) for exactly what was checked in real Resolve.
+> **Tested on:** Windows 11 with DaVinci Resolve **21.1.0.17 free**, Windows 10 with DaVinci Resolve **21.2 free**.
+> Studio, macOS and Linux have not been tested by this project. See the [compatibility matrix](#what-works) for exactly what was checked in real Resolve.
 
 ## Which version of Resolve do you have?
 
@@ -22,8 +19,7 @@ It works with the **free version** of Resolve and with **Studio**, through
 | One-time Resolve setting | None | Preferences > General > External scripting using > **Local** |
 | Each time you open Resolve | Run one line in the Console ([step 3](#3-start-the-bridge)) | Nothing for `resolve__`; the line for `edit__` |
 
-Blackmagic limits outside control of Resolve to Studio. On free, the server detects this and shows only the three
-`resolve__` tools that work without it (`knowledge`, `media_analysis`, `setup`).
+Blackmagic limits outside control of Resolve to Studio. On free, the server detects this and shows only the three `resolve__` tools that work without it (`knowledge`, `media_analysis`, `setup`).
 
 ## What you need
 
@@ -41,7 +37,7 @@ Blackmagic limits outside control of Resolve to Studio. On free, the server dete
 Open a normal PowerShell window (not one inside another app) where you want to keep the project:
 
 ```powershell
-git clone https://github.com/Anujpal-15th/davinci-resolve-mcp.git Resolve-Creative-Editor
+git clone https://github.com/mader-levap/resolve-creative-editor-mcp.git Resolve-Creative-Editor
 cd Resolve-Creative-Editor
 ```
 
@@ -52,9 +48,7 @@ Set-ExecutionPolicy -Scope Process Bypass
 .\setup.ps1
 ```
 
-Setup downloads the upstream engine at a pinned commit into `vendor\`, copies `resolve_bridge.lua` into Resolve's
-scripts folder and into `%USERPROFILE%\resolve-claude-bridge`, registers the server with Claude Code if it's
-installed, and finishes with a health check. Until you start the bridge, that check says `bridge: not running`.
+Setup downloads the upstream engine at a pinned commit into `vendor\`, copies `resolve_bridge.lua` into Resolve's scripts folder and into `%USERPROFILE%\resolve-claude-bridge`, registers the server with Claude Code if it's installed, and finishes with a health check. Until you start the bridge, that check says `bridge: not running`.
 
 | Option | Use it when |
 |---|---|
@@ -76,8 +70,7 @@ installed, and finishes with a health check. Until you start the bridge, that ch
 }
 ```
 
-Register only this one server, and remove any other Resolve MCP server so two tools don't edit the same timeline.
-Restart your client after setup.
+Register only this one server, and remove any other Resolve MCP server so two tools don't edit the same timeline. Restart your client after setup.
 
 ### 3. Start the bridge
 
@@ -101,9 +94,7 @@ dofile(os.getenv("USERPROFILE").."\\resolve-claude-bridge\\resolve_bridge.lua")
 
 You should see `resolve_bridge: running`. Leave Resolve open. Running the line again restarts the bridge.
 
-On 21.2 and newer the bridge also adds a **Claude Bridge** bin with a 16×16 `bridge_token.png` clip to the open
-project. Replies travel through that clip's Comments metadata, because 21.2 has no other way to write a file.
-Leave the bin in place while you work; it is skipped by the media tools and you can delete it afterwards.
+On 21.2 and newer the bridge also adds a **Claude Bridge** bin with a 16×16 `bridge_token.png` clip to the open project. Replies travel through that clip's Comments metadata, because 21.2 has no other way to write a file. Leave the bin in place while you work; it is skipped by the media tools and you can delete it afterwards.
 
 ### 4. Try it
 
@@ -126,9 +117,7 @@ Claude makes a backup copy of the timeline before every move or trim, and asks b
 
 ## What works
 
-**Live-tested** means it ran against real DaVinci Resolve 21.1.0.17 free on Windows (`tests/live_resolve.py`, 23
-checks, all passing). **Automated** means it is covered by tests with a fake Resolve, which prove the logic but not
-Resolve's behaviour.
+**Live-tested** means it ran against real DaVinci Resolve 21.1.0.17 free on Windows (`tests/live_resolve.py`, 23 checks, all passing). **Automated** means it is covered by tests with a fake Resolve, which prove the logic but not Resolve's behaviour.
 
 | Area | Tool | Free 21.1 | Studio |
 |---|---|---|---|
@@ -164,20 +153,14 @@ Resolve's behaviour.
 
 ### Known Resolve bug: script fades aren't saved on fresh clips
 
-Seen on free Resolve 21.2 with Text+ titles; other clip types are untested. Fades set by script (`SetFades`) show in
-the viewer, play and read back correctly, but if nobody has ever dragged a fade handle on that clip by hand, they are
-gone after Resolve restarts. Saving doesn't help, not even Ctrl+S or a save that also stores other changes.
+Seen on free Resolve 21.2 with Text+ titles; other clip types are untested. Fades set by script (`SetFades`) show in the viewer, play and read back correctly, but if nobody has ever dragged a fade handle on that clip by hand, they are gone after Resolve restarts. Saving doesn't help, not even Ctrl+S or a save that also stores other changes.
 
-Workaround: drag any fade handle on the clip once, any length. From then on, fades set by script on that clip are
-saved, both ends, including setting them to 0 and back. A hand-dragged fade on one clip doesn't help other clips.
-`edit__set_fades` can't detect which case a clip is in, so every result includes a warning.
+Workaround: drag any fade handle on the clip once, any length. From then on, fades set by script on that clip are saved, both ends, including setting them to 0 and back. A hand-dragged fade on one clip doesn't help other clips. `edit__set_fades` can't detect which case a clip is in, so every result includes a warning.
 
 ## Safety
 
-- Destructive `edit__` tools return a **preview** first and need `confirm=true` to run. Only the boolean `true`
-  counts, not `"true"` or `1`. An unconfirmed `edit__batch` changes nothing: it lists the steps that have no preview.
-- Moves and trims make a **backup timeline**, build the replacement before removing the original, and put the clip
-  back with its settings if anything fails.
+- Destructive `edit__` tools return a **preview** first and need `confirm=true` to run. Only the boolean `true` counts, not `"true"` or `1`. An unconfirmed `edit__batch` changes nothing: it lists the steps that have no preview.
+- Moves and trims make a **backup timeline**, build the replacement before removing the original, and put the clip back with its settings if anything fails.
 - Every result says whether Resolve's read-back matched (`verification: passed`) or not.
 - `legacy__delete_items` and `legacy__start_render` need `confirm=true`.
 - Every change is logged in `%USERPROFILE%\resolve-claude-bridge\audit.jsonl` (`edit__audit_log`).
@@ -212,31 +195,39 @@ saved, both ends, including setting them to 0 and back. A hand-dragged fade on o
 
 ```
 Claude ──> unified_server.py ─┬─> resolve__  upstream engine ──────────────> Resolve Studio
-                              ├─> legacy__   mcp_server.py ──┐
-                              ├─> edit__     editor_tools.py ─┴─ files ──> resolve_bridge.lua (inside Resolve)
+                              ├─> legacy__   mcp_server.py ─────────┐
+                              ├─> edit__     resolve_editor/tools ──┴─ files ──> resolve_bridge.lua (inside Resolve)
                               └─> media__    FFmpeg / faster-whisper on your files
 ```
 
-Free Resolve only runs scripts from inside the app, so `resolve_bridge.lua` runs in Resolve's Console and carries
-out a fixed list of operations (there is no "run any code" tool). Requests travel as `request.lua` in
-`%USERPROFILE%\resolve-claude-bridge`; Resolve's Lua can't write files, so replies come back through Resolve's own
-`Fusion.prefs`. No network port is opened. `edit__` tools combine bridge calls with checks, previews and read-back.
+`unified_server.py` and `mcp_server.py` only start the servers. The Python code is the `resolve_editor` package:
 
-Optional environment variables: `RESOLVE_MCP_REPO`, `RESOLVE_MCP_PYTHON`, `RESOLVE_MCP_SERVER`, `RESOLVE_BRIDGE_DIR`,
-`RCE_UPSTREAM_TOOLS` (`auto`, `all` or `offline`), `FFMPEG`, `FFPROBE`.
+| Path in `resolve_editor/` | Contents |
+|---|---|
+| `servers/` | Gateway, child processes, legacy server |
+| `dispatch.py` | Runs `edit__` tools and batches |
+| `tools/` | `edit__` tools, one file per area |
+| `session.py`, `timeline.py` | Bridge calls with cache and timeline pin; helpers shared by tools |
+| `bridge.py` | Request and reply files |
+| `media.py` | FFmpeg and transcription |
+| `schemas/` | Tool definitions |
+| `paths.py`, `timecode.py`, `outcome.py`, `audit.py` | Small shared modules |
+
+Free Resolve only runs scripts from inside the app, so `resolve_bridge.lua` runs in Resolve's Console and carries out a fixed list of operations (there is no "run any code" tool). Requests travel as `request.lua` in `%USERPROFILE%\resolve-claude-bridge`; Resolve's Lua can't write files, so replies come back through `reply.csv` in the same folder on 21.2 and newer (Resolve exports the token clip's metadata there), or through Resolve's own `Fusion.prefs` on 21.1 and older. No network port is opened. `edit__` tools combine bridge calls with checks, previews and read-back.
+
+Optional environment variables: `RESOLVE_MCP_REPO`, `RESOLVE_MCP_PYTHON`, `RESOLVE_MCP_SERVER`, `RESOLVE_BRIDGE_DIR`, `RCE_UPSTREAM_TOOLS` (`auto`, `all` or `offline`), `FFMPEG`, `FFPROBE`.
 
 ## Tests
 
-**Automated** (no Resolve needed):
+**Automated** (no Resolve needed, run from the repo root):
 
 ```powershell
-python -m unittest discover -s tests -v
+python -m unittest -v
 python -m pip install lupa
-python test_smoke.py
+python tests/smoke_bridge.py
 ```
 
-**Live** (needs Resolve open with a project and the bridge running; works only on a new `_RCE_LIVE_` scratch
-timeline, checks your current timeline is unchanged, then deletes the scratch timeline):
+**Live** (needs Resolve open with a project and the bridge running; works only on a new `_RCE_LIVE_` scratch timeline, checks your current timeline is unchanged, then deletes the scratch timeline):
 
 ```powershell
 python tests/live_resolve.py
@@ -244,9 +235,4 @@ python tests/live_resolve.py
 
 ## Credits and license
 
-MIT licensed, see [LICENSE](LICENSE). The upstream engine is
-[samuelgursky/davinci-resolve-mcp](https://github.com/samuelgursky/davinci-resolve-mcp) (MIT), downloaded by setup
-at a pinned commit and left unmodified. The result-envelope design, the nested-timeline title route and the Resolve
-21.1 API notes come from that project. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Optional
-`faster-whisper` is MIT; FFmpeg is LGPL/GPL and is used as a separate program, not bundled. DaVinci Resolve is a
-trademark of Blackmagic Design; this project is not affiliated with them.
+MIT licensed, see [LICENSE](LICENSE). The upstream engine is [samuelgursky/davinci-resolve-mcp](https://github.com/samuelgursky/davinci-resolve-mcp) (MIT), downloaded by setup at a pinned commit and left unmodified. The result-envelope design, the nested-timeline title route and the Resolve 21.1 API notes come from that project. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Optional `faster-whisper` is MIT; FFmpeg is LGPL/GPL and is used as a separate program, not bundled. DaVinci Resolve is a trademark of Blackmagic Design; this project is not affiliated with them.

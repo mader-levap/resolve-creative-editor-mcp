@@ -1,14 +1,14 @@
 # Issues
 
-Found while testing `edit__add_transition`, 2026-11-22. This is the base for fixes. Fixed so far: I-01, I-03, I-13, I-16.
+Found while testing `edit__add_transition`, 2026-11-22. This is the base for fixes. Fixed so far: I-01, I-03, I-13, I-14, I-16.
 
 - Environment: free DaVinci Resolve 21.2.0.6, Windows 10, 60 fps timeline.
-- Code: branch `fix/issues`. Line numbers are as of the I-03 fix.
+- Code is named by file and function, with paths from the repo root.
 
 How each item is known:
 
 - **Live**: seen in Resolve.
-- **Fake**: reproduced with the real Python code against `FakeResolve` from `tests/test_editor_tools.py`, extended
+- **Fake**: reproduced with the real Python code against `FakeResolve` from `tests/support.py`, extended
   with the missing bridge ops. This proves our logic is wrong, not how Resolve reacts.
 - **Code**: found by reading the code, not run.
 
@@ -29,7 +29,7 @@ How each item is known:
 | [I-11](#i-11) | Low | `timeline_summary` hides empty tracks | Live, fake |
 | [I-12](#i-12) | Low | The live transition test accepts a refusal as a pass | Code |
 | [I-13](#i-13) | ~~Critical~~ **Fixed** | Bridge replies fail when half-written or over 65 KB | Live, fake |
-| [I-14](#i-14) | Low | The gateway test writes to the real audit log | Live |
+| [I-14](#i-14) | ~~Low~~ **Fixed** | The gateway test writes to the real audit log | Live |
 | [I-15](#i-15) | High | Two clients sharing the bridge lose or drop requests and replies | Live, fake, code |
 | [I-16](#i-16) | ~~Critical~~ **Fixed** | Edits and backups can hit the wrong timeline | Live, fake |
 | [I-17](#i-17) | High | A confirm isn't tied to the previewed timeline | Code |
@@ -47,7 +47,7 @@ batches), then low. Re-rank after each fix.
 <a id="i-01"></a>
 ### I-01 `batch` preview makes real changes (critical, fixed)
 
-**Where:** `editor_tools.py` (`batch`, `_preview_step`, `run`)
+**Where:** `resolve_editor/dispatch.py` (`batch`, `_preview_step`, `run`)
 
 **Problem:** a call without approval could change the timeline, with no backup. There were three causes:
 
@@ -66,7 +66,7 @@ The old `test_batch_previews_without_writing` only covered `move_item` without a
 
 - `PreviewSafety` tests: every handler, inner `confirm`, non-boolean values, unknown new tools. They failed before
   the fix and pass after it.
-- Live on a scratch timeline, calling `editor_tools` from Python: previews left items, settings, markers, timelines,
+- Live on a scratch timeline, calling the `edit__` tools from Python: previews left items, settings, markers, timelines,
   files and the audit log unchanged; a confirmed batch made one backup without the change and one transition.
 - Through MCP after a server restart: a 10-step preview (8 listed, 2 previewed despite an inner `confirm`)
   changed nothing. `confirm` values `"false"`, `"true"`, `"no"` and `1`, sent as raw requests, gave previews only.
@@ -77,9 +77,9 @@ a preview still write when called directly (I-06).
 <a id="i-02"></a>
 ### I-02 An error inside `batch` loses the results and backup name (high)
 
-**Where:** `editor_tools.py:1011` (`batch`), `editor_tools.py:1052` (`run`)
+**Where:** `resolve_editor/dispatch.py` (`batch`, `run`), `resolve_editor/session.py` (`call`)
 
-**Problem:** `_b()` raises on a bridge error and `batch` doesn't catch it. The caller gets only the error: not the
+**Problem:** `session.call()` raises on a bridge error and `batch` doesn't catch it. The caller gets only the error: not the
 completed steps and not the name of the backup that was made. The failed batch isn't written to the audit log.
 
 **Repro:** confirmed batch whose `add_transition` is refused. The backup is created, then a bare `RuntimeError`
@@ -93,7 +93,7 @@ batch is audited.
 <a id="i-03"></a>
 ### I-03 `batch` continues after a `partial` step (high, fixed)
 
-**Where:** `editor_tools.py` (`batch`)
+**Where:** `resolve_editor/dispatch.py` (`batch`)
 
 **Problem:** it stopped only on `failed` and `blocked`. `partial` is what tools return when verification fails, so
 later steps ran on a timeline that wasn't in the expected state. All 9 tools that can return `partial` reproduced it,
@@ -114,7 +114,7 @@ step's changes and warnings, `not_run` and the backup. Nothing is rolled back.
 <a id="i-04"></a>
 ### I-04 `add_transition` verifies only the length (high)
 
-**Where:** `editor_tools.py:693`
+**Where:** `resolve_editor/tools/clips.py` (`add_transition`)
 
 **Problem:** type, category, position, alignment and track are never compared with the request. With no
 `duration`, nothing is compared and the result is still `passed`.
@@ -132,7 +132,7 @@ position, alignment and length, and that neighbouring clips didn't change. Resol
 <a id="i-05"></a>
 ### I-05 `ripple_trim` ignores transitions on other tracks (medium)
 
-**Where:** `editor_tools.py:589`
+**Where:** `resolve_editor/tools/ripple.py` (`ripple_trim`)
 
 **Problem:** transitions block a trim only on the same video track. On audio or other video tracks they skip the
 overlap check completely, although ripple delete shifts all tracks.
@@ -147,7 +147,7 @@ What Resolve then does to that transition is untested.
 <a id="i-06"></a>
 ### I-06 `add_transition` has no preview or backup (medium)
 
-**Where:** `editor_tools.py:693`
+**Where:** `resolve_editor/tools/clips.py` (`add_transition`)
 
 **Problem:** it writes on the first call and takes no backup. (The timeline-switch guard it lacked came with
 the I-16 fix.) There is also no tool made
@@ -161,7 +161,7 @@ true), like move and trim.
 <a id="i-07"></a>
 ### I-07 Linked audio keeps a hard cut, without a warning (medium)
 
-**Where:** `editor_tools.py:693`
+**Where:** `resolve_editor/tools/clips.py` (`add_transition`)
 
 **Problem:** a transition on a video item lands only on the video track. In test T1, A1 kept a hard cut under a
 1 s dissolve and `warnings` was empty.
@@ -177,7 +177,7 @@ of the two succeeds.
 <a id="i-08"></a>
 ### I-08 Zero and negative durations aren't rejected (medium)
 
-**Where:** `editor_tools.py:693`
+**Where:** `resolve_editor/tools/clips.py` (`add_transition`)
 
 **Problem:** `if a.get("duration")` treats 0 as "not given", so Resolve picks a length and the result is
 `passed`. Negative values are sent to Resolve unchanged.
@@ -191,7 +191,7 @@ of the two succeeds.
 <a id="i-09"></a>
 ### I-09 Every refusal blames spare source frames (low)
 
-**Where:** `resolve_bridge.lua:880`
+**Where:** `resolve_bridge.lua` (`add_transition`)
 
 **Problem:** `AddTransition` returns nil without a reason and the bridge always suggests missing spare frames. A
 misspelled name, wrong category or unsupported item would get the same hint.
@@ -204,7 +204,7 @@ checking them.
 <a id="i-10"></a>
 ### I-10 `at` in the transition result is ambiguous (low)
 
-**Where:** `editor_tools.py:701`
+**Where:** `resolve_editor/tools/clips.py` (`add_transition`)
 
 **Problem:** `at` is where the transition starts (01:00:04:30 in T1) and is easily read as the cut (01:00:05:00).
 
@@ -215,7 +215,7 @@ checking them.
 <a id="i-11"></a>
 ### I-11 `timeline_summary` hides empty tracks (low)
 
-**Where:** `editor_tools.py:259` (`analyze`), `editor_tools.py:287`
+**Where:** `resolve_editor/tools/inspection.py` (`analyze`, `timeline_summary`)
 
 **Problem:** tracks are derived from items. After `legacy__add_track` returned a count of 3, the summary still
 listed only V1 and V2, so a new track can't be verified or seen.
@@ -227,7 +227,7 @@ listed only V1 and V2, so a new track can't be verified or seen.
 <a id="i-12"></a>
 ### I-12 The live transition test accepts a refusal as a pass (low)
 
-**Where:** `tests/live_resolve.py:99`
+**Where:** `tests/live_resolve.py` (the `add_transition` check)
 
 **Problem:** the check passes on `success`, `partial` or any result containing "refused". The unit tests have no
 `add_transition` test at all.
@@ -240,7 +240,7 @@ the real behaviour) separately. Add `add_transition` to `FakeResolve` with tests
 <a id="i-13"></a>
 ### I-13 Bridge replies fail when half-written or over 65 KB (critical, fixed)
 
-**Where:** `mcp_server.py` (`_read_csv_reply`), Resolve 21.2 transport only
+**Where:** `resolve_editor/bridge.py` (`_read_csv_reply`), Resolve 21.2 transport only
 
 **Problem:** `reply.csv` was parsed with `csv.DictReader`, which had two faults. For a write, either one could show
 an error for an edit Resolve had made, and a retry would make it twice.
@@ -262,34 +262,39 @@ B was deterministic. Estimated limits: about 70 clips for `item_details`, 320 fo
 - Live, before: a 70 KB reply timed out although `reply.csv` held all of it. After: 10, 70, 200 and 500 KB replies
   arrive exact in 0.4 s each, so Resolve doesn't truncate at these sizes.
 - Live: 500 `get_state` calls in a row, no failures.
-- `test_smoke.py` passes (older Fusion.prefs transport).
+- `tests/smoke_bridge.py` passes (older Fusion.prefs transport).
 - Through MCP after a server restart: normal reads work on the restarted server. 70 and 200 KB replies, sent as raw
   requests to a fresh server, arrive exact through both the edit__ and legacy__ routes.
 
 **Limit:** a timeout after a write is still ambiguous in general, so read back before retrying.
 
 <a id="i-14"></a>
-### I-14 The gateway test writes to the real audit log (low)
+### I-14 The gateway test writes to the real audit log (low, fixed)
 
-**Where:** `tests/test_gateway.py:7`, and `GatewayResilience` in `tests/test_editor_tools.py` uses the same pattern
+**Where:** `tests/test_gateway.py` (`GatewayTests`, `GatewayResilience`), `tests/support.py`
 
-**Problem:** `test_gateway` starts the gateway with the user's environment, so the gateway logs the fake
-`legacy__hello` call as a successful change in the real `audit.jsonl`, and `edit__audit_log` shows it.
+**Problem:** `test_gateway` started the gateway with the user's environment, so the gateway logged the fake
+`legacy__hello` call as a successful change in the real `audit.jsonl`, and `edit__audit_log` showed it.
 
-**Workaround:** set `RESOLVE_BRIDGE_DIR` to a temporary folder when running the test.
+**Fix:** `tests/support.py` points `RESOLVE_BRIDGE_DIR` at a temporary folder, and every test file imports it before
+`resolve_editor`.
 
-**Fix:** set it to a temporary folder in the test's environment.
+**Verified 2026-11-22:**
 
-**Done when:** running all tests leaves the real audit log unchanged.
+- `tests/test_isolation.py` loads each test file alone. It failed on `test_gateway` before the fix and catches a
+  missing or misplaced import.
+- Running all tests, each file alone and in changed orders, left the real bridge folder untouched.
+
+**Limit:** entries that earlier test runs wrote to the real log stay there.
 
 <a id="i-15"></a>
 ### I-15 Two clients sharing the bridge collide (high)
 
-**Where:** `mcp_server.py:175` (`call_bridge`), `resolve_bridge.lua:21` and `resolve_bridge.lua:24`
+**Where:** `resolve_editor/bridge.py` (`call_bridge`), `resolve_bridge.lua` (`REQ`, `REPLY_CSV`)
 
 **Problem:** every client uses the same `request.lua`, `request.lua.tmp` and reply slot (`reply.csv` on 21.2), with
 no lock between processes. A client is any process that calls the bridge: another session's MCP server, or a script
-that imports `editor_tools` while the server is in use. A server that gets no Resolve calls doesn't interfere.
+that imports `resolve_editor` while the server is in use. A server that gets no Resolve calls doesn't interfere.
 
 **Repro, fake:** the real `call_bridge` in a temporary folder, a simulated bridge and forced timing. A and B are two
 clients making writes.
@@ -316,7 +321,7 @@ This is a stress rate, not a forecast for normal use.
 | 2, with a file lock around `call_bridge` (candidate) | 200 | 0 |
 
 The line that raised the `PermissionError` wasn't recorded and it didn't recur. By the code it is the write or
-rename of the request (`mcp_server.py:186-190`), because reading and cleanup catch `OSError`.
+rename of the request (in `call_bridge`), because reading and cleanup catch `OSError`.
 
 **Not affected, by the code:** parallel tool calls in one session. The gateway handles one request at a time and
 waits for its legacy child. A bridge call gives up after 120 s, well inside the gateway's 1800 s limit for a
@@ -343,7 +348,7 @@ the live two-client run has no failures.
 <a id="i-16"></a>
 ### I-16 Edits and backups can hit the wrong timeline (critical, fixed)
 
-**Where:** `editor_tools.py` (`run`, `_b`), `resolve_bridge.lua` (dispatcher, `add_title_cards`)
+**Where:** `resolve_editor/dispatch.py` (`run`), `resolve_editor/session.py` (`pin`, `call`), `resolve_bridge.lua` (dispatcher, `add_title_cards`)
 
 **Problem:** every bridge op acts on the timeline that is current when it runs, and a tool makes many bridge calls.
 The old guard looked only before and after, per batch step, and only for calls with `confirm`.
@@ -364,7 +369,7 @@ An older bridge is refused. Previews and reads are never pinned.
 **Verified 2026-11-22:**
 
 - `TimelinePin` tests switch timelines before each bridge call of all 17 writing tools. They failed before the fix.
-- `test_smoke.py` runs the pin, its refusals and the title cards on the real Lua.
+- `tests/smoke_bridge.py` runs the pin, its refusals and the title cards on the real Lua.
 - Live with scripted switches: A to D were wrong before the fix, correct after it.
 - Live: 20 normal batches on target, median 7.0 s before and 5.3 s after. Move, trim, captions, transition, fades and
   snapshot pass on a scratch timeline.
@@ -387,7 +392,7 @@ rename during an edit stops it. `legacy__` tools still act on the current timeli
 <a id="i-17"></a>
 ### I-17 A confirm isn't tied to the previewed timeline (high)
 
-**Where:** `editor_tools.py` (`run`, `_cached`)
+**Where:** `resolve_editor/dispatch.py` (`run`), `resolve_editor/session.py` (`_cached`)
 
 **Problem:** `confirm=true` edits the timeline that is current at that moment. If the user switched after the
 preview, tools that work by position (`place_clips`, markers, captions) apply the approved plan to another timeline.
@@ -401,7 +406,7 @@ across a timeline switch.
 <a id="i-18"></a>
 ### I-18 `batch` reports `passed` for unverified steps (medium)
 
-**Where:** `editor_tools.py` (`batch`)
+**Where:** `resolve_editor/dispatch.py` (`batch`)
 
 **Problem:** verification is derived from the step statuses. A batch with only `copy_grade`, which can't be read
 back and returns `unverified`, reports `passed`.
@@ -413,7 +418,7 @@ back and returns `unverified`, reports `passed`.
 <a id="i-19"></a>
 ### I-19 Markers without a name are never added (medium)
 
-**Where:** `resolve_bridge.lua` (`add_marker`, `add_markers`), `editor_tools.py` (`add_markers`)
+**Where:** `resolve_bridge.lua` (`add_marker`, `add_markers`), `resolve_editor/tools/markers.py` (`add_markers`)
 
 **Problem:** Resolve 21.2 refuses `AddMarker` with an empty name, which is the default. `edit__add_markers` then
 returns `partial` with "a marker already exists at some of those frames", and `legacy__add_marker` returns
@@ -430,7 +435,7 @@ unnamed clip markers (not run).
 <a id="i-20"></a>
 ### I-20 `batch` drops the warnings of successful steps (medium)
 
-**Where:** `editor_tools.py` (`batch`)
+**Where:** `resolve_editor/dispatch.py` (`batch`)
 
 **Problem:** only the step a batch stops at keeps its warnings. `set_fades` warns that script fades can be lost on
 restart and `copy_grade` that grades can't be read back. Inside a batch neither warning is shown.
@@ -444,7 +449,7 @@ restart and `copy_grade` that grades can't be read back. Inside a batch neither 
 <a id="i-21"></a>
 ### I-21 A long caption fails and takes the following ones with it (high)
 
-**Where:** `editor_tools.py` (`MAX_CARD_FRAMES`, `caption_cards`)
+**Where:** `resolve_editor/tools/captions.py` (`MAX_CARD_FRAMES`, `caption_cards`)
 
 **Problem:** two faults together.
 
@@ -544,6 +549,7 @@ bug until that is known.
 
 ## After fixing
 
-- `python -m unittest tests.test_editor_tools` (baseline after the I-03 fix: 61 tests, all pass).
+- From the repo root: `python -m unittest` (baseline: 63 tests, all pass) and `python tests/smoke_bridge.py`
+  (needs `lupa`).
 - Restart the MCP server, and the bridge if the Lua changed, then repeat the affected live tests.
 - Update the transitions row in `README.md`, plus `AGENTS.md` and `PATCH_NOTES.md`.

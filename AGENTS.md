@@ -176,6 +176,8 @@ or from the menu: `Workspace > Scripts > resolve_bridge`.
 
 ### MCP server and tools
 
+The code is the `resolve_editor` package: `tools/` (one file per area), `dispatch.py`, `schemas/`, `servers/`. Import its modules, not names from them (`session.pin`, `bridge.call_bridge()`): a copied name doesn't see the timeline pin or the test fakes.
+
 New or changed `edit__` tools need the MCP server restarted. Until then they can be run by importing `resolve_editor.dispatch` in a Python script and calling `run(name, args)`.
 
 Ask user to reconnect with tool via:
@@ -186,6 +188,7 @@ Ask user to reconnect with tool via:
 ### Testing changes
 
 - Create tests first, fix code after, ensuring tests actually catch bugs.
+- Run from the repo root: `python -m unittest`, one area with `python -m unittest tests.test_batch`, and the Lua smoke test with `python tests/smoke_bridge.py`. A new test file imports `tests.support` before `resolve_editor`.
 - In DaVinci, test new Resolve behaviour or code modification on a scratch timeline named `_RCE_...` (the bridge's `delete_scratch` removes it), never on the user's timeline.
 - If a call fails, read the timeline back (`edit__inspect_range`) before retrying: a failed insert may or may not have left something behind.
 
