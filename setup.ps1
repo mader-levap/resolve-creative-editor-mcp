@@ -45,17 +45,47 @@ if ($Lite) {
   }
   if ($ok) { git -C $Vendor fetch --depth 1 origin $Commit; $ok = $LASTEXITCODE -eq 0 }
   if ($ok) { git -C $Vendor checkout --detach FETCH_HEAD; $ok = $LASTEXITCODE -eq 0 }
+  # Local fixes to the pinned upstream, e.g. tasklist prints in the console code page (cp852 etc.), not UTF-8.
+  # A patch that already reverse-applies is in place from an earlier run and is skipped.
   if ($ok) {
-    Write-Host "Installing the upstream engine (a few minutes)..."
+    foreach ($Patch in Get-ChildItem (Join-Path $Root "patches\*.patch") | Sort-Object Name) {
+      git -C $Vendor apply --reverse --check $Patch.FullName 2>$null
+      if ($LASTEXITCODE -eq 0) { continue }
+      git -C $Vendor apply $Patch.FullName
+      if ($LASTEXITCODE -ne 0) { Write-Host "WARNING: could not apply $($Patch.Name)." -ForegroundColor Yellow; $ok = $false; break }
+      Write-Host "Applied $($Patch.Name)"
+    }
+  }
+  $InstallLog = $null
+  if ($ok) {
+    # The installer runs pip quietly, so keep its output in a log: a failure would otherwise leave no trace.
+    $LogDir = Join-Path $Root "logs"
+    New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
+    $InstallLog = Join-Path $LogDir "upstream-install.log"
+    Write-Host "Installing the upstream engine (a few minutes, details in $InstallLog)..."
     Push-Location $Vendor
-    & $Python install.py --clients manual | Out-Null
+    # PYTHONUTF8 makes the installer write UTF-8; read it as such instead of the console code page.
+    $ConsoleEncoding = [Console]::OutputEncoding
+    [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+    # Unbuffered keeps stdout and stderr in order and lets the log fill while the install runs.
+    $env:PYTHONUNBUFFERED = "1"
+    # "$_" turns stderr records into plain lines; PowerShell 5.1 would otherwise wrap them in error formatting.
+    & $Python install.py --clients manual 2>&1 | ForEach-Object { "$_" } | Out-File -FilePath $InstallLog -Encoding utf8
+    [Console]::OutputEncoding = $ConsoleEncoding
+    Remove-Item Env:PYTHONUNBUFFERED
     Pop-Location
     # The installer also exits 1 when it can't reach Resolve (closed, or free edition), so test the result instead.
     $VenvPython = Join-Path $Vendor "venv\Scripts\python.exe"
     $ok = Test-Path $VenvPython
     if ($ok) { & $VenvPython -c "import mcp" 2>$null; $ok = $LASTEXITCODE -eq 0 }
   }
-  if (-not $ok) { Write-Host "WARNING: upstream engine failed to install. legacy__, media__ and edit__ still work." -ForegroundColor Yellow }
+  if (-not $ok) {
+    Write-Host "WARNING: upstream engine failed to install. legacy__, media__ and edit__ still work." -ForegroundColor Yellow
+    if ($InstallLog -and (Test-Path $InstallLog)) {
+      Write-Host "Last lines of ${InstallLog}:" -ForegroundColor Yellow
+      Get-Content $InstallLog -Tail 20 | ForEach-Object { Write-Host "  $_" }
+    }
+  }
 }
 
 if ($WithTranscription) {
@@ -83,9 +113,12 @@ $ServerArgs = @("-X", "utf8", $Gateway)
 if ($Studio) { $ServerArgs += "--upstream-tools=all" }
 
 $Registered = $false
-if (-not $NoRegister -and (Get-Command claude -ErrorAction SilentlyContinue)) {
-  claude mcp remove resolve-creative-editor -s user 2>$null | Out-Null
-  claude mcp add --scope user resolve-creative-editor -- $Python @ServerArgs
+# Use claude.exe/claude.cmd, not the npm claude.ps1 shim: PowerShell drops the "--" when calling a script, and claude
+# then reads Python's "-X" as its own option.
+$Claude = Get-Command claude -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+if (-not $NoRegister -and $Claude) {
+  & $Claude.Source mcp remove resolve-creative-editor -s user 2>$null | Out-Null
+  & $Claude.Source mcp add --scope user resolve-creative-editor -- $Python @ServerArgs
   $Registered = $LASTEXITCODE -eq 0
 }
 if (-not $Registered) {

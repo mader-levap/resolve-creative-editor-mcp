@@ -1,0 +1,13 @@
+diff --git a/install.py b/install.py
+index b7478f3..722b0c9 100644
+--- a/install.py
++++ b/install.py
+@@ -328,7 +328,7 @@ def check_resolve_running():
+         elif is_windows():
+             result = subprocess.run(
+                 ["tasklist", "/FI", "IMAGENAME eq Resolve.exe"],
+-                capture_output=True, text=True
++                capture_output=True, text=True, errors="replace"
+             )
+             return "Resolve.exe" in result.stdout
+         else:  # Linux
