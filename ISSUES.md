@@ -1,9 +1,9 @@
 # Issues
 
-Found while testing `edit__add_transition`, 2026-11-22. This is the base for fixes. Fixed so far: I-01, I-13, I-16.
+Found while testing `edit__add_transition`, 2026-11-22. This is the base for fixes. Fixed so far: I-01, I-03, I-13, I-16.
 
 - Environment: free DaVinci Resolve 21.2.0.6, Windows 10, 60 fps timeline.
-- Code: branch `fix/issues`. Line numbers are as of the I-16 fix.
+- Code: branch `fix/issues`. Line numbers are as of the I-03 fix.
 
 How each item is known:
 
@@ -18,7 +18,7 @@ How each item is known:
 |---|---|---|---|
 | [I-01](#i-01) | ~~Critical~~ **Fixed** | `batch` preview makes real changes | Fake, live |
 | [I-02](#i-02) | High | An error inside `batch` loses the results and backup name | Fake |
-| [I-03](#i-03) | High | `batch` continues after a `partial` step | Fake |
+| [I-03](#i-03) | ~~High~~ **Fixed** | `batch` continues after a `partial` step | Live, fake |
 | [I-04](#i-04) | High | `add_transition` verifies only the length | Fake |
 | [I-05](#i-05) | Medium | `ripple_trim` ignores transitions on other tracks | Fake |
 | [I-06](#i-06) | Medium | `add_transition` has no preview or backup | Fake, code |
@@ -35,8 +35,12 @@ How each item is known:
 | [I-17](#i-17) | High | A confirm isn't tied to the previewed timeline | Code |
 | [I-18](#i-18) | Medium | `batch` reports `passed` for unverified steps | Fake |
 | [I-19](#i-19) | Medium | Markers without a name are never added | Live |
+| [I-20](#i-20) | Medium | `batch` drops the warnings of successful steps | Fake |
+| [I-21](#i-21) | High | A long caption fails and takes the following ones with it | Live |
+| [I-22](#i-22) | Medium | The bridge can stop answering, cause unknown | Live, once |
 
-Order, one fix at a time, worst first: I-03, I-17, I-02, I-15, I-04, then medium, then low. Re-rank after each fix.
+Order, one fix at a time, worst first: I-17, I-21, I-02, I-15, I-04, then medium (I-19 first, as it now stops
+batches), then low. Re-rank after each fix.
 
 ## Issues
 
@@ -73,7 +77,7 @@ a preview still write when called directly (I-06).
 <a id="i-02"></a>
 ### I-02 An error inside `batch` loses the results and backup name (high)
 
-**Where:** `editor_tools.py:1007` (`batch`), `editor_tools.py:1042` (`run`)
+**Where:** `editor_tools.py:1011` (`batch`), `editor_tools.py:1052` (`run`)
 
 **Problem:** `_b()` raises on a bridge error and `batch` doesn't catch it. The caller gets only the error: not the
 completed steps and not the name of the backup that was made. The failed batch isn't written to the audit log.
@@ -87,25 +91,30 @@ is raised and the audit log stays empty.
 batch is audited.
 
 <a id="i-03"></a>
-### I-03 `batch` continues after a `partial` step (high)
+### I-03 `batch` continues after a `partial` step (high, fixed)
 
-**Where:** `editor_tools.py:1023`
+**Where:** `editor_tools.py` (`batch`)
 
-**Problem:** it stops only on `failed` and `blocked`. `partial` is what tools return when verification fails, so
-later steps run on a timeline that isn't in the expected state.
+**Problem:** it stopped only on `failed` and `blocked`. `partial` is what tools return when verification fails, so
+later steps ran on a timeline that wasn't in the expected state. All 9 tools that can return `partial` reproduced it,
+and the result dropped that step's warnings and changes, so it didn't say why it was partial.
 
-**Repro:** a transition returns the wrong length (`partial`); the following `set_enabled` still runs. The same
-happens for all 9 tools that can return `partial`. The batch also drops that step's warnings and changes, so the
-result doesn't say why it is partial.
+**Fix:** a batch goes on only after `success`, `planned` or a read. Otherwise it returns the reason, the stopping
+step's changes and warnings, `not_run` and the backup. Nothing is rolled back.
 
-**Fix:** also stop on `partial`.
+**Verified 2026-11-22:**
 
-**Done when:** no step runs after a `partial` one.
+- `BatchStop` tests cover the 9 tools and every status. They failed before the fix.
+- Live: after a real `partial` (two markers on one frame) the next step ran before the fix and doesn't after it.
+- Live, false-stop check: a valid batch of 11 steps covering the 9 tools, with an odd-length transition, reached its
+  end. A first attempt stopped correctly on a real failure, I-21.
+- Through MCP after a server restart: a batch stopped at step 2 of 4 and neither later step ran. A valid batch
+  with a read in the middle ran to its end. Both backups were correct.
 
 <a id="i-04"></a>
 ### I-04 `add_transition` verifies only the length (high)
 
-**Where:** `editor_tools.py:692`
+**Where:** `editor_tools.py:693`
 
 **Problem:** type, category, position, alignment and track are never compared with the request. With no
 `duration`, nothing is compared and the result is still `passed`.
@@ -123,7 +132,7 @@ position, alignment and length, and that neighbouring clips didn't change. Resol
 <a id="i-05"></a>
 ### I-05 `ripple_trim` ignores transitions on other tracks (medium)
 
-**Where:** `editor_tools.py:588`
+**Where:** `editor_tools.py:589`
 
 **Problem:** transitions block a trim only on the same video track. On audio or other video tracks they skip the
 overlap check completely, although ripple delete shifts all tracks.
@@ -138,7 +147,7 @@ What Resolve then does to that transition is untested.
 <a id="i-06"></a>
 ### I-06 `add_transition` has no preview or backup (medium)
 
-**Where:** `editor_tools.py:692`
+**Where:** `editor_tools.py:693`
 
 **Problem:** it writes on the first call and takes no backup. (The timeline-switch guard it lacked came with
 the I-16 fix.) There is also no tool made
@@ -152,7 +161,7 @@ true), like move and trim.
 <a id="i-07"></a>
 ### I-07 Linked audio keeps a hard cut, without a warning (medium)
 
-**Where:** `editor_tools.py:692`
+**Where:** `editor_tools.py:693`
 
 **Problem:** a transition on a video item lands only on the video track. In test T1, A1 kept a hard cut under a
 1 s dissolve and `warnings` was empty.
@@ -168,7 +177,7 @@ of the two succeeds.
 <a id="i-08"></a>
 ### I-08 Zero and negative durations aren't rejected (medium)
 
-**Where:** `editor_tools.py:692`
+**Where:** `editor_tools.py:693`
 
 **Problem:** `if a.get("duration")` treats 0 as "not given", so Resolve picks a length and the result is
 `passed`. Negative values are sent to Resolve unchanged.
@@ -195,7 +204,7 @@ checking them.
 <a id="i-10"></a>
 ### I-10 `at` in the transition result is ambiguous (low)
 
-**Where:** `editor_tools.py:700`
+**Where:** `editor_tools.py:701`
 
 **Problem:** `at` is where the transition starts (01:00:04:30 in T1) and is easily read as the cut (01:00:05:00).
 
@@ -206,7 +215,7 @@ checking them.
 <a id="i-11"></a>
 ### I-11 `timeline_summary` hides empty tracks (low)
 
-**Where:** `editor_tools.py:258` (`analyze`), `editor_tools.py:286`
+**Where:** `editor_tools.py:259` (`analyze`), `editor_tools.py:287`
 
 **Problem:** tracks are derived from items. After `legacy__add_track` returned a count of 3, the summary still
 listed only V1 and V2, so a new track can't be verified or seen.
@@ -418,6 +427,64 @@ unnamed clip markers (not run).
 
 **Done when:** a marker without a name is added by both tools.
 
+<a id="i-20"></a>
+### I-20 `batch` drops the warnings of successful steps (medium)
+
+**Where:** `editor_tools.py` (`batch`)
+
+**Problem:** only the step a batch stops at keeps its warnings. `set_fades` warns that script fades can be lost on
+restart and `copy_grade` that grades can't be read back. Inside a batch neither warning is shown.
+
+**Repro, fake:** each tool returns one warning alone and none in a batch.
+
+**Fix:** keep each step's warnings, without repeating identical ones.
+
+**Done when:** a batched `set_fades` shows its warning.
+
+<a id="i-21"></a>
+### I-21 A long caption fails and takes the following ones with it (high)
+
+**Where:** `editor_tools.py` (`MAX_CARD_FRAMES`, `caption_cards`)
+
+**Problem:** two faults together.
+
+| | Cause | Effect |
+|---|---|---|
+| A | Every continuation card of a caption gets the same timeline name (`caption 0002+`) | From three cards on, Resolve refuses the name. `add_title_cards` stops there, so every later caption is missing too |
+| B | The 5 s card limit is written as 150 frames, which is 5 s only at 30 fps | At 60 fps cards are 2.5 s, so any caption over 5 s hits A. At 30 fps it takes over 10 s |
+
+**Repro, live 2026-11-22, 60 fps:** a 1 s and a 6 s caption placed 2 of 4 cards, with `partial` and "could not create
+timeline ... caption 0002+". A 4 s caption (two cards) works.
+
+**Workaround:** at 60 fps keep each caption to 5 s or less.
+
+**Fix:** number the continuation cards, and derive the limit from 5 s and the timeline's fps. Below 30 fps 150
+frames is longer than the inserted title; what happens then is untested.
+
+**Done when:** at 24, 30 and 60 fps a 12 s caption places all its cards, and so does the caption after it.
+
+<a id="i-22"></a>
+### I-22 The bridge can stop answering (medium, cause unknown)
+
+**Where:** `resolve_bridge.lua` (main loop or a Resolve API call in it)
+
+**Seen once, live 2026-11-22 20:11:58:** right after `create_timeline` and `set_current_timeline`, an unpinned
+`get_state` was acknowledged and never answered. Later requests got no ack until the user restarted the bridge.
+
+- Resolve kept responding, showed no dialog and logged no error. The bridge printed no error in the console, so it
+  looks like a hang rather than a crash.
+- Resolve's log has a timeline backup and a project save in that second, then "Application state changed to
+  Active". The user wasn't using Resolve.
+- That bridge copy had been started by `reload_bridge` 37 minutes earlier, with the I-16 change. Whether either
+  matters is unknown.
+
+**Not reproduced:** 40 repeats of the same sequence (202 calls, at most 1.3 s each) on a bridge started by the user.
+
+**Workaround:** restart the bridge, then read the timeline back. A write that hangs like this may have been made.
+
+**Next:** log the op before and after it runs and before the reply, so the next hang shows where it stopped. Then
+repeat the sequence on a bridge started by `reload_bridge`.
+
 ## Live tests
 
 ### Setup
@@ -477,6 +544,6 @@ bug until that is known.
 
 ## After fixing
 
-- `python -m unittest tests.test_editor_tools` (baseline after the I-16 fix: 56 tests, all pass).
+- `python -m unittest tests.test_editor_tools` (baseline after the I-03 fix: 61 tests, all pass).
 - Restart the MCP server, and the bridge if the Lua changed, then repeat the affected live tests.
 - Update the transitions row in `README.md`, plus `AGENTS.md` and `PATCH_NOTES.md`.

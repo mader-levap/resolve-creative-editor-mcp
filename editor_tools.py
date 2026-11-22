@@ -104,7 +104,8 @@ TOOLS = [
       {"format": {"type": "string", "enum": ["OTIO", "FCPXML", "EDL", "AAF", "DRT"]}, "output": S}, ["format"]),
     T("qc_file", "Quality check a rendered file: loudness (LUFS, true peak), black frames, frozen frames, silence.",
       {"path": S}, ["path"]),
-    T("batch", "Run several edit__ tools in order with one backup, stopping at the first failure. Each operation is "
+    T("batch", "Run several edit__ tools in order with one backup, stopping at the first step that isn't a success "
+      "(partial included): the result says why and lists not_run. Each operation is "
       "{tool, args}. Without confirm=true nothing is changed: steps that have a preview show it, the others are only "
       "listed. confirm applies to all of them; confirm inside a step's args is ignored.",
       {"operations": {"type": "array", "items": {"type": "object", "properties": {"tool": S, "args": {"type": "object"}},
@@ -1004,6 +1005,9 @@ def _preview_step(op):
     return {"tool": tool, "args": args, "not_run": "no preview; runs when the batch is confirmed"}
 
 
+DONE = ("success", "planned")  # a batch goes on only after these
+
+
 def batch(a):
     ops = a["operations"]
     unknown = [o.get("tool") for o in ops if o.get("tool") not in HANDLERS or o.get("tool") == "batch"]
@@ -1019,11 +1023,17 @@ def batch(a):
         args = dict(o.get("args") or {}, confirm=True, backup=False)
         r = run(o["tool"], args)
         status = r.get("_operation", {}).get("status", "success")
-        results.append({"tool": o["tool"], "status": status, "reason": r.get("reason")})
-        if status in ("failed", "blocked"):
+        row = {"tool": o["tool"], "status": status, "reason": r.get("reason")}
+        results.append(row)
+        if status not in DONE:
+            row.update({k: r["_operation"].get(k) for k in ("changes", "warnings")})
             break
-    ok = all(r["status"] in ("success", "planned") for r in results) and len(results) == len(ops)
-    return _op("success" if ok else "partial", ok, {"steps_done": len(results)}, results=results, snapshot=snapshot)
+    not_run = [o["tool"] for o in ops[len(results):]]
+    ok = all(r["status"] in DONE for r in results)  # the loop only breaks after a step that isn't
+    why = {} if ok else {"reason": f"stopped at step {len(results)} of {len(ops)} ({row['tool']}: {row['status']}); "
+                                   f"{len(not_run)} not run. Read the timeline back, don't repeat the whole batch"}
+    return _op("success" if ok else "partial", ok, {"steps_done": len(results)}, results=results, not_run=not_run,
+               snapshot=snapshot, **why)
 
 
 HANDLERS = {"doctor": doctor, "timeline_summary": timeline_summary, "inspect_range": inspect_range,
