@@ -188,7 +188,7 @@ Ask user to reconnect with tool via:
 ### Testing changes
 
 - Create tests first, fix code after, ensuring tests actually catch bugs.
-- Run from the repo root: `python -m unittest`, one area with `python -m unittest tests.test_batch`, and the Lua smoke test with `python tests/smoke_bridge.py`. A new test file imports `tests.support` before `resolve_editor`.
+- Run from the repo root: `python -m unittest`, one area with `python -m unittest tests.test_batch`, the Lua smoke test with `python tests/smoke_bridge.py`, and the linter with `python -m ruff check .` (settings in `pyproject.toml`). A new test file imports `tests.support` before `resolve_editor`.
 - In DaVinci, test new Resolve behaviour or code modification on a scratch timeline named `_RCE_...` (the bridge's `delete_scratch` removes it), never on the user's timeline.
 - If a call fails, read the timeline back (`edit__inspect_range`) before retrying: a failed insert may or may not have left something behind.
 

@@ -1,8 +1,8 @@
 # Resolve Creative Editor
 
-This is fork of https://github.com/Anujpal-15th/resolve-creative-editor-mcp by Anujpal-15th.
+This is a fork of https://github.com/Anujpal-15th/resolve-creative-editor-mcp by Anujpal-15th.
 
-## What it does?
+## What does it do?
 
 Edit video in **DaVinci Resolve** by talking to Claude. It works on your real project: it places and trims clips, moves them without losing their grade, adds transitions, fades, captions and markers, sets audio levels, checks your render, and shows you a preview before anything destructive.
 
@@ -225,6 +225,8 @@ Optional environment variables: `RESOLVE_MCP_REPO`, `RESOLVE_MCP_PYTHON`, `RESOL
 python -m unittest -v
 python -m pip install lupa
 python tests/smoke_bridge.py
+python -m pip install ruff
+python -m ruff check .
 ```
 
 **Live** (needs Resolve open with a project and the bridge running; works only on a new `_RCE_LIVE_` scratch timeline, checks your current timeline is unchanged, then deletes the scratch timeline):
