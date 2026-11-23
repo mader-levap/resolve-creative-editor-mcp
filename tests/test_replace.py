@@ -98,3 +98,50 @@ class Replace(Base):
     def test_trim_past_source(self):
         self.use(FakeResolve([item("a", 1000, 60, src=0)]))
         self.assertIn("outside", dispatch.run("trim_item", {"item_id": "a", "head_frames": -5})["reason"])
+
+
+class ClipMarkers(Base):
+    """Clip markers count from the source start and must survive a rebuild at the same frame (ISSUES.md I-23)."""
+
+    # A clip from source 180-480: one in the middle, one near each end, one hidden past the out-point.
+    MARKERS = {"348": {"name": "Marker 1", "color": "Blue"}, "190": {"name": "near in", "color": "Red"},
+               "470": {"name": "near out", "color": "Green"}, "600": {"name": "hidden", "color": "Blue"}}
+
+    def fake(self, **kw):
+        f = self.use(FakeResolve([item("a", 1000, 300, src=180)], details={"a": {"markers": dict(self.MARKERS)}}))
+        f.media_frames = 2275  # the live test recording
+        for k, v in kw.items():
+            setattr(f, k, v)
+        return f
+
+    def markers_now(self, f):
+        clip = next(x for x in f.items if x["track"] == 1)
+        return f.settings[clip["id"]]["markers"]
+
+    def test_move_keeps_markers_at_their_source_frames(self):
+        f = self.fake()
+        r = dispatch.run("move_item", {"item_id": "a", "record": 1400, "confirm": True, "timeline": "T"})
+        self.assertEqual(r["_operation"]["verification"], "passed", r)
+        self.assertEqual(self.markers_now(f), self.MARKERS)
+        self.assertTrue(all(not c.get("marker_shift") for c in f.copies), f.copies)
+
+    def test_trim_keeps_markers_including_trimmed_away_ones(self):
+        f = self.fake()
+        r = dispatch.run("trim_item", {"item_id": "a", "head_frames": 50, "tail_frames": 20, "confirm": True,
+                                       "timeline": "T"})
+        self.assertEqual(r["_operation"]["verification"], "passed", r)
+        self.assertEqual(self.markers_now(f), self.MARKERS)  # 190 and 470 are now hidden, as Resolve keeps them
+        self.assertTrue(all(not c.get("marker_shift") for c in f.copies), f.copies)
+
+    def test_a_lost_marker_is_a_contradiction(self):
+        self.fake(drop_marker="348")
+        r = dispatch.run("move_item", {"item_id": "a", "record": 1400, "confirm": True, "timeline": "T"})
+        self.assertEqual((r["_operation"]["status"], r["_operation"]["verification"]), ("partial", "contradiction"))
+        self.assertIn("Marker 1", " ".join(r["_operation"]["warnings"]))
+
+    def test_older_bridge_is_refused_before_writing(self):
+        f = self.fake(clip_markers_by_source=False)
+        r = dispatch.run("move_item", {"item_id": "a", "record": 1400, "confirm": True, "timeline": "T"})
+        self.assertEqual(r["_operation"]["status"], "blocked")
+        self.assertIn("bridge", r["reason"])
+        self.assertFalse({"duplicate_timeline", "append_clips", "delete_items"} & set(f.calls))

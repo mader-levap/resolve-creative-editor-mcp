@@ -1,6 +1,6 @@
 # Issues
 
-Found while testing `edit__add_transition`, 2026-11-22. This is the base for fixes. Fixed so far: I-01, I-02, I-03, I-04, I-10, I-13, I-14, I-15, I-16, I-17, I-19, I-21.
+Found while testing `edit__add_transition`, 2026-11-22. This is the base for fixes. Fixed so far: I-01, I-02, I-03, I-04, I-10, I-13, I-14, I-15, I-16, I-17, I-19, I-21, I-23.
 
 - Environment: free DaVinci Resolve 21.2.0.6, Windows 10, 60 fps timeline.
 - Code is named by file and function, with paths from the repo root.
@@ -38,9 +38,9 @@ How each item is known:
 | [I-20](#i-20) | Medium | `batch` drops the warnings of successful steps | Fake |
 | [I-21](#i-21) | ~~High~~ **Fixed** | A long caption fails and takes the following ones with it | Live, fake |
 | [I-22](#i-22) | Medium | The bridge can stop answering, cause unknown | Live, once |
-| [I-23](#i-23) | High | Moving or trimming a clip drops its clip markers, reported as `passed` | Live |
+| [I-23](#i-23) | ~~High~~ **Fixed** | Moving or trimming a clip drops its clip markers, reported as `passed` | Live, fake |
 
-Order, one fix at a time, worst first: I-23, then medium, then low. Re-rank after each fix.
+Order, one fix at a time, worst first: medium (I-20, I-18, I-05, I-06, I-07, I-08, I-22), then low. Re-rank after each fix.
 
 ## Issues
 
@@ -537,7 +537,7 @@ it without gaps. `set_scratch_fps` (test-only, `_RCE_` timelines) sets the rate 
 repeat the sequence on a bridge started by `reload_bridge`.
 
 <a id="i-23"></a>
-### I-23 Moving or trimming a clip drops its clip markers (high)
+### I-23 Moving or trimming a clip drops its clip markers (high, fixed)
 
 **Where:** `resolve_bridge.lua` (`copy_settings`), `resolve_editor/tools/replace.py` (`_replace`, `_matches`)
 
@@ -545,9 +545,15 @@ repeat the sequence on a bridge started by `reload_bridge`.
 
 **Repro, live 2026-11-23:** on a scratch timeline, a 300-frame clip from source frame 180 (video and linked audio). The user pressed M on it; Resolve stored `Marker 1` at frame 348 on both items. `edit__move_item` through MCP reported `success` / `passed`; both new items had no markers. A scripted clip marker at frame 15 survived an earlier move only because 15 < 300.
 
-**Fix:** first probe the frame basis live (markers at known source and clip frames, checked where they show). Then copy markers by that basis, with the trim shift in the same units, report any marker not copied as a failure, and compare markers in the check after the swap.
+**Frame basis, live probe 2026-11-23:** clip marker frames count from the start of the source media, for `GetMarkers` and `AddMarker` alike. On clip A (source 180-480 at 01:00:00:00) and B (source 1500-1800 at 01:00:05:00), hand markers pressed 60 frames into each clip read back at 240 and 1560 (on the video and the linked audio item). Scripted markers at 30, 60, 200, 250, 600 and 2000 on A and 50, 1550 on B were all accepted; by the playhead, the user saw only 200 at 01:00:00:20, 250 at 01:00:01:10 and 1550 at 01:00:05:50, so the others sit hidden outside the used range. Resolve's marker tooltip shows the marker's source time (200 → 03:20, 1550 → 25:50), which looks like clip-relative counting but isn't.
 
-**Done when:** a hand-made marker anywhere in the used part of the clip survives a move and a trim at the same source frame, and a lost marker gives `partial`.
+**Fix:** `copy_settings` copies every clip marker at its own frame: no shift, no filter, so a trim keeps markers it trims away hidden, as Resolve does. A refused `AddMarker` stays in `failed` (the I-19 rename fallback kept). `marker_shift` is gone. The check after a move or trim (`_matches`) also compares markers by frame and name, so a lost one gives `partial` naming it. `get_state` reports `clip_markers_by_source`; `move_item` and `trim_item` refuse an older bridge before writing.
+
+**Verified 2026-11-23:**
+
+- `ClipMarkers` tests (`tests/test_replace.py`), with clip markers in `FakeResolve`: a move and a head/tail trim keep markers at their source frames, including ones near the ends and hidden ones, with no shift sent; a marker lost in the copy gives `contradiction`; an older bridge is refused. The Lua smoke test copies markers at 5, 348 and 2000 onto a 10-frame clip, the unnamed one as `Marker`; on the old Lua only frame 5 was copied and nothing was reported. Each part's test fails again when it is removed.
+- Live, new bridge and code, on the probe timeline: moving A to 01:00:12:00 and trimming 30 frames off B's head gave `success` / `passed`, and all four items kept every marker at the same source frame. The user confirmed by the playhead that the hand and scripted markers sit on the same pictures.
+- Through MCP after a server restart: `edit__move_item` (A back to 01:00:00:00) and `edit__trim_item` (40 frames off B's tail) gave `success` / `passed` with all markers kept.
 
 ## Live tests
 
@@ -615,7 +621,7 @@ bug until that is known.
 
 ## After fixing
 
-- From the repo root: `python -m unittest` (baseline: 104 tests, all pass) and `python tests/smoke_bridge.py`
+- From the repo root: `python -m unittest` (baseline: 108 tests, all pass) and `python tests/smoke_bridge.py`
   (needs `lupa`).
 - Restart the MCP server, and the bridge if the Lua changed, then repeat the affected live tests.
 - Update the transitions row in `README.md`, plus `AGENTS.md` and `PATCH_NOTES.md`.

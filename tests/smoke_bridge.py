@@ -28,7 +28,11 @@ local clip = {GetMediaId=function() return "id1" end, GetName=function() return 
 local folder = {GetClipList=function() return {clip} end, GetSubFolderList=function() return {} end}
 local made = {}
 local placed = {GetUniqueId=function() return "item1" end, GetName=function() return "placed" end,
-  GetStart=function() return 0 end, GetEnd=function() return 10 end, GetDuration=function() return 10 end}
+  GetStart=function() return 0 end, GetEnd=function() return 10 end, GetDuration=function() return 10 end,
+  -- clip markers count from the source start (live, ISSUES.md I-23); 21.2 refuses an empty name (I-19)
+  GetMarkers=function() return {[348]={name="Marker 1", color="Blue"}, [5]={name="early", color="Red"},
+    [2000]={name="", color="Green"}} end,
+  AddMarker=function(self, f, color, name) if name == "" then return false end; clip_marker(f, name); return true end}
 local function timeline(name)
   if not made[name] then
     local tool = {SetInput=function() end}
@@ -67,6 +71,7 @@ resolve = {GetVersionString=function() return "21.1-fake" end, GetCurrentPage=fu
 
 L: dict[str, Any] = {}
 appended: list[tuple[int, int]] = []
+clip_marks: list[tuple[int, str]] = []
 world: dict[str, Any] = {"project": "demo", "names": [], "cur": None, "wrote": [], "ignore": {}}
 titles: dict[str, Any] = {"length": 300, "settings": {}, "stuck": False, "parts": []}
 
@@ -110,6 +115,7 @@ def run_bridge():
     g = lua.globals()
     g.BRIDGE_DIR = bridge_dir + "\\"
     g.record = lambda s, e: appended.append((s, e))
+    g.clip_marker = lambda f, name: clip_marks.append((int(f), name))
     g.wrote = lambda what, at: world["wrote"].append((what, at))
     g.current = lambda: world["cur"]
     g.project_name = lambda: world["project"]
@@ -246,6 +252,14 @@ assert r["ok"] and "24" in r["result"]["error"] and titles["parts"] == [], r
 titles.update(stuck=False, settings={}, length=300)
 r = bridge.call_bridge("get_state", {})
 assert r["ok"] and r["result"]["caption_parts"] is True, r
+
+# Clip markers are copied at their own (source) frames, none skipped, an unnamed one named Marker (I-23, I-19)
+reset(cur="_RCE_FULL", names=("WORK", "_RCE_FULL"))
+r = bridge.call_bridge("copy_settings", {"from_id": "item1", "to_id": "item1", "kind": "audio"})
+assert r["ok"] and r["result"]["failed"] == [] and r["result"]["renamed_markers"] == 1, r
+assert sorted(clip_marks) == [(5, "early"), (348, "Marker 1"), (2000, "Marker")], clip_marks
+r = bridge.call_bridge("get_state", {})
+assert r["ok"] and r["result"]["clip_markers_by_source"] is True, r
 
 # The scratch-only frame rate helper used by the live tests
 reset(cur="WORK", names=("WORK", "_RCE_A", "_RCE_FULL"))

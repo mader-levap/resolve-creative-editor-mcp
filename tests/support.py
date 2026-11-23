@@ -31,15 +31,19 @@ class FakeResolve:
         self.items, self.fail_on, self.calls, self.n, self.fps = items, dict(fail_on or {}), [], 0, fps
         self.tracks, self.timelines = {"video": 1, "audio": 1}, ["T"]
         self.renamed_markers = 0  # unnamed clip markers copy_settings had to name (Resolve 21.2)
+        self.drop_marker: str | None = None  # a clip marker copy_settings loses without saying so (the I-23 bug)
+        self.copies: list[dict[str, Any]] = []  # copy_settings arguments, in order
+        self.clip_markers_by_source = True  # the bridge copies clip markers at their source frames (I-23)
         self.markers: dict[int, dict[str, Any]] = {}  # timeline markers by frame from the start, as Resolve keys them
         # captions: the inserted Text+ length, whether the bridge places long captions in parts, a part it refuses
         self.title_frames, self.caption_parts, self.refuse_part = 300, True, None
         self.timeline_fps = 30  # fps above is the clips' rate
+        self.media_frames = 300  # length of the one media pool clip
         self.parts: list[dict[str, Any]] = []
         self.settings: dict[str, dict[str, Any]] = {
             x["id"]: {"properties": {"ZoomX": 1.5}, "fades": {"FadeIn": 4, "FadeOut": 0},
                       "color": "Orange", "enabled": True, "speed": {"Percentage": 100}, "linked": [],
-                      "fusion_comps": 0, "takes": 0, "media_id": "c1"} for x in items}
+                      "fusion_comps": 0, "takes": 0, "media_id": "c1", "markers": {}} for x in items}
         for k, v in (details or {}).items():
             self.settings[k].update(v)
 
@@ -52,7 +56,7 @@ class FakeResolve:
         if op == "list_timeline_items":
             r = [x for x in self.items if x["track_type"] == args["track_type"]]
         elif op == "list_media":
-            r = [{"id": "c1", "name": "a.mp4", "fps": self.fps, "frames": "300"}] + [
+            r = [{"id": "c1", "name": "a.mp4", "fps": self.fps, "frames": str(self.media_frames)}] + [
                 {"id": f"tl-{t}", "name": t, "fps": self.fps, "frames": "900", "type": "Timeline"}
                 for t in self.timelines]
         elif op == "get_state":
@@ -61,6 +65,8 @@ class FakeResolve:
                  "timeline_end_frame": 2000, "timeline_drop_frame": "0"}
             if self.caption_parts:
                 r["caption_parts"] = True
+            if self.clip_markers_by_source:
+                r["clip_markers_by_source"] = True
         elif op == "item_details":
             r = [dict(self.settings[i], id=i) for i in args["item_ids"]]
         elif op == "set_fades":
@@ -97,12 +103,15 @@ class FakeResolve:
                 self.items.append(new)
                 self.settings[new["id"]] = {"properties": {"ZoomX": 1}, "fades": {"FadeIn": 0, "FadeOut": 0},
                                             "color": "", "enabled": True, "speed": {"Percentage": 100},
-                                            "linked": [], "media_id": "c1"}
+                                            "linked": [], "media_id": "c1", "markers": {}}
             r = []
         elif op == "copy_settings":
             src, dst = self.settings[args["from_id"]], self.settings[args["to_id"]]
+            self.copies.append(dict(args))
             for k in ("properties", "fades", "color", "enabled"):
                 dst[k] = json.loads(json.dumps(src[k]))
+            # clip markers count from the source start, so they keep their frame (live 2026-11-23, ISSUES.md I-23)
+            dst["markers"] = {k: dict(v) for k, v in src.get("markers", {}).items() if k != self.drop_marker}
             r = {"copied": ["grade"], "failed": [], "renamed_markers": self.renamed_markers}
             self.renamed_markers = 0  # named now, so later copies keep the name
         elif op == "duplicate_timeline":

@@ -359,6 +359,7 @@ function OPS.get_state()
            pins = true,  -- requests may name their timeline (see pin)
            caption_parts = true,  -- add_title_cards places a long card in parts (ISSUES.md I-21)
            named_markers = true,  -- add_marker(s) refuse a marker without a name (ISSUES.md I-19)
+           clip_markers_by_source = true,  -- copy_settings keeps clip markers at their source frames (ISSUES.md I-23)
            timeline = t and t:GetName(), timeline_fps = t and t:GetSetting("timelineFrameRate"),
            timeline_drop_frame = t and t:GetSetting("timelineDropFrameTimecode"),
            timeline_start_frame = t and t:GetStartFrame(), timeline_end_frame = t and t:GetEndFrame(),
@@ -820,10 +821,13 @@ function OPS.copy_settings(a)
   local color = try(src, "GetClipColor")
   if type(color) == "string" and color ~= "" then mark("clip_color", try(dst, "SetClipColor", color)) end
   for _, f in ipairs(each(try(src, "GetFlagList"))) do mark("flag", try(dst, "AddFlag", f)) end
-  local shift, duration, renamed = a.marker_shift or 0, dst:GetDuration(), 0
+  -- Clip marker frames count from the start of the source media, for GetMarkers and AddMarker alike (live, ISSUES.md
+  -- I-23), so a rebuilt clip from the same source takes each one at the same frame. Markers outside the clip's used
+  -- range are kept hidden, as Resolve does when trimming; none is skipped.
+  local renamed = 0
   for frame, m in pairs(try(src, "GetMarkers") or {}) do
-    local f = (tonumber(frame) or -1) + shift
-    if type(m) == "table" and f >= 0 and f < duration then
+    local f = tonumber(frame)
+    if type(m) == "table" and f then
       local name = m.name or ""
       local ok = try(dst, "AddMarker", f, m.color, name, m.note or "", m.duration or 1, m.customData or "")
       if not ok and not named(name) then  -- made by hand without a name: keep it, named (ISSUES.md I-19)

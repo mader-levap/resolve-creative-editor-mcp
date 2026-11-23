@@ -150,7 +150,7 @@ Observed on free DaVinci Resolve 21.2.0.6 through this server's Lua bridge. Othe
 ### Editing
 
 - Resolve 21.2 refuses a marker without a name, on the timeline and on clips. `edit__add_markers` and `legacy__add_marker` refuse one before sending it. Markers made by hand get a name (`Marker 1`).
-- Moving or trimming a clip currently loses its clip markers (ISSUES.md I-23). Check markers after `edit__move_item` / `edit__trim_item` until that is fixed.
+- Clip marker frames count from the start of the source media, not the clip, for reading and adding (verified). Markers outside the clip's used range are kept, hidden. Resolve's marker tooltip shows source time; use the playhead to see where a marker sits on the timeline. `edit__move_item` and `edit__trim_item` keep clip markers at their source frames.
 - Fades are in frames (`edit__set_fades`); at 60 fps a 1 s fade is 60 frames. An end you leave out keeps its length.
 - Resolve bug (free 21.2, Text+ titles): script fades are lost on restart unless the user has dragged a fade handle on that clip by hand at least once. Ask the user to do that first; after it, script fades on the clip are saved (both ends, including 0 and back). Read-back passing does not prove the fade is saved. Tried and failed: saving, Ctrl+S, script text/size changes plus save. See README "Known Resolve bug".
 - `edit__move_item` and `edit__trim_item` rebuild the clip and copy grade, transform, audio levels, fades, colour, flags and markers, but not keyframes. They refuse titles and generators (no Media Pool item, Fusion comp).

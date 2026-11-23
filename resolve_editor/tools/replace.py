@@ -43,7 +43,7 @@ def _plan_replace(item_id: str, include_linked: bool,
                     and x["start"] <= item["end"] and item["start"] <= x["end"]):
                 return f"{item['name']} has a transition touching it; remove it in Resolve first"
         plan.append({"item": item, "detail": d, "media_id": d["media_id"], "first": first, "last": last,
-                     "record": record, "track": track, "shift": item["source_start"] - first})
+                     "record": record, "track": track})
     return plan
 
 
@@ -53,7 +53,21 @@ def _matches(old: dict[str, Any], new: dict[str, Any]) -> list[str]:
     for k in ("fades", "color", "enabled"):
         if old.get(k) != new.get(k):
             diff.append(k)
-    return diff
+    return diff + _lost_markers(old.get("markers"), new.get("markers"))
+
+
+def _lost_markers(old: object, new: object) -> list[str]:
+    """Clip markers count from the source start, so each must be on the new item at the same frame (ISSUES.md I-23).
+    An unnamed one may come back named Marker (I-19)."""
+    def by_frame(markers: object) -> dict[int, Any]:
+        return {int(float(k)): v for k, v in (markers.items() if isinstance(markers, dict) else ())}
+    after, lost = by_frame(new), []
+    for frame, m in sorted(by_frame(old).items()):
+        name = (m or {}).get("name") or ""
+        got = (after.get(frame) or {}).get("name") if isinstance(after.get(frame), dict) else None
+        if got is None or (got != name and not (name == "" and got == "Marker")):
+            lost.append(f"marker {name or '(unnamed)'} at source frame {frame}")
+    return lost
 
 
 def _replace(plan: list[dict[str, Any]], backup: bool = True) -> dict[str, Any]:
@@ -83,8 +97,7 @@ def _replace(plan: list[dict[str, Any]], backup: bool = True) -> dict[str, Any]:
             kind = p["item"]["track_type"]
             s = timeline.append_one(p["media_id"], kind, p["first"], p["last"], p["record"], stage_track(kind))
             staged.append(s)
-            report = session.call("copy_settings", from_id=p["item"]["id"], to_id=s["id"], kind=kind,
-                                  marker_shift=p["shift"])
+            report = session.call("copy_settings", from_id=p["item"]["id"], to_id=s["id"], kind=kind)
             if report["failed"]:
                 raise RuntimeError(f"could not copy {', '.join(report['failed'])} to the replacement")
             renamed += report.get("renamed_markers") or 0
@@ -99,7 +112,7 @@ def _replace(plan: list[dict[str, Any]], backup: bool = True) -> dict[str, Any]:
         for p in plan:
             kind = p["item"]["track_type"]
             n = timeline.append_one(p["media_id"], kind, p["first"], p["last"], p["record"], p["track"])
-            session.call("copy_settings", from_id=p["staged"]["id"], to_id=n["id"], kind=kind, marker_shift=0)
+            session.call("copy_settings", from_id=p["staged"]["id"], to_id=n["id"], kind=kind)
             done.append((p, n))
     except Exception as exc:
         for _, n in done:
@@ -109,8 +122,7 @@ def _replace(plan: list[dict[str, Any]], backup: bool = True) -> dict[str, Any]:
             item = p["item"]
             r = timeline.append_one(p["media_id"], item["track_type"], item["source_start"],
                                     item["source_start"] + item["duration"], item["start"], item["track"])
-            session.call("copy_settings", from_id=p["staged"]["id"], to_id=r["id"], kind=item["track_type"],
-                         marker_shift=p["first"] - item["source_start"])
+            session.call("copy_settings", from_id=p["staged"]["id"], to_id=r["id"], kind=item["track_type"])
             restored.append(r["id"])
         if len(restored) > 1:
             session.call("link_items", item_ids=restored)
@@ -138,6 +150,9 @@ def _replace(plan: list[dict[str, Any]], backup: bool = True) -> dict[str, Any]:
 
 def _replace_tool(a: dict[str, Any], new_range: Callable[[session.Item], tuple[int, int, int, int]],
                   verb: str) -> dict[str, Any]:
+    if not session.get_state().get("clip_markers_by_source"):
+        return outcome.blocked("the Resolve bridge is older than this server and would drop clip markers; restart "
+                               "the bridge (Workspace > Scripts > resolve_bridge)")
     plan = _plan_replace(a["item_id"], a.get("include_linked", True), new_range)
     if isinstance(plan, str):
         return outcome.blocked(plan)
