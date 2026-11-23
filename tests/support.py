@@ -34,6 +34,7 @@ class FakeResolve:
         self.drop_marker: str | None = None  # a clip marker copy_settings loses without saying so (the I-23 bug)
         self.copies: list[dict[str, Any]] = []  # copy_settings arguments, in order
         self.clip_markers_by_source = True  # the bridge copies clip markers at their source frames (I-23)
+        self.track_counts = True  # get_state reports how many tracks there are (I-11)
         self.markers: dict[int, dict[str, Any]] = {}  # timeline markers by frame from the start, as Resolve keys them
         # captions: the inserted Text+ length, whether the bridge places long captions in parts, a part it refuses
         self.title_frames, self.caption_parts, self.refuse_part = 300, True, None
@@ -67,6 +68,8 @@ class FakeResolve:
                 r["caption_parts"] = True
             if self.clip_markers_by_source:
                 r["clip_markers_by_source"] = True
+            if self.track_counts:
+                r["track_counts"] = dict(self.tracks)
         elif op == "item_details":
             r = [dict(self.settings[i], id=i) for i in args["item_ids"]]
         elif op == "set_fades":

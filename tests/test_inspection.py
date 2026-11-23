@@ -26,3 +26,27 @@ class Inspection(Base):
         dispatch.run("timeline_summary", {})
         dispatch.run("timeline_summary", {})
         self.assertEqual(f.calls.count("list_timeline_items"), 2)  # video + audio once, not twice per call
+
+
+class EmptyTracks(Base):
+    """Tracks come from Resolve's counts, so an empty one shows with 0 (ISSUES.md I-11)."""
+
+    def test_added_empty_tracks_show_with_zero(self):
+        f = self.use(FakeResolve([item("a", 1000, 10), item("a2", 1000, 10, kind="audio")]))
+        f.tracks["video"] = 3
+        f.tracks["audio"] = 2
+        r = dispatch.run("timeline_summary", {})
+        self.assertEqual(r["tracks"], {"A1": 1, "A2": 0, "V1": 1, "V2": 0, "V3": 0})
+        self.assertNotIn("note", r)
+
+    def test_an_older_bridge_lists_tracks_with_items_and_says_so(self):
+        f = self.use(FakeResolve([item("a", 1000, 10)]))
+        f.track_counts = False
+        f.tracks["video"] = 3
+        r = dispatch.run("timeline_summary", {})
+        self.assertEqual(r["tracks"], {"V1": 1})
+        self.assertIn("restart the bridge", r["note"])
+
+    def test_analyze_without_counts_is_unchanged(self):
+        r = inspection.analyze([item("a", 0, 10, track=2)])
+        self.assertEqual(r["tracks"], {"V2": 1})

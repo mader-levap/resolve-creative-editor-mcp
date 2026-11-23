@@ -1,6 +1,6 @@
 # Issues
 
-Found while testing `edit__add_transition`, 2026-11-22. This is the base for fixes. Fixed so far: I-01, I-02, I-03, I-04, I-05, I-06, I-07, I-08, I-09, I-10, I-13, I-14, I-15, I-16, I-17, I-18, I-19, I-20, I-21, I-23.
+Found while testing `edit__add_transition`, 2026-11-22. This is the base for fixes. Fixed so far: I-01, I-02, I-03, I-04, I-05, I-06, I-07, I-08, I-09, I-10, I-11, I-13, I-14, I-15, I-16, I-17, I-18, I-19, I-20, I-21, I-23.
 
 - Environment: free DaVinci Resolve 21.2.0.6, Windows 10, 60 fps timeline.
 - Code is named by file and function, with paths from the repo root.
@@ -26,7 +26,7 @@ How each item is known:
 | [I-08](#i-08) | ~~Medium~~ **Fixed** | Zero and negative durations aren't rejected | Fake |
 | [I-09](#i-09) | ~~Low~~ **Fixed** | Every refusal blames spare source frames | Live, fake |
 | [I-10](#i-10) | ~~Low~~ **Fixed** | `at` in the transition result is ambiguous | Live |
-| [I-11](#i-11) | Low | `timeline_summary` hides empty tracks | Live, fake |
+| [I-11](#i-11) | ~~Low~~ **Fixed** | `timeline_summary` hides empty tracks | Live, fake |
 | [I-12](#i-12) | Low | The live transition test accepts a refusal as a pass | Code |
 | [I-13](#i-13) | ~~Critical~~ **Fixed** | Bridge replies fail when half-written or over 65 KB | Live, fake |
 | [I-14](#i-14) | ~~Low~~ **Fixed** | The gateway test writes to the real audit log | Live |
@@ -40,7 +40,7 @@ How each item is known:
 | [I-22](#i-22) | Medium, **handled** | The bridge can stop answering, cause unknown | Live, once |
 | [I-23](#i-23) | ~~High~~ **Fixed** | Moving or trimming a clip drops its clip markers, reported as `passed` | Live, fake |
 
-Order, one fix at a time, worst first: low (I-11, I-12); I-22 waits for the next sighting, which will now name where it stopped. Re-rank after each fix.
+Order, one fix at a time, worst first: low (I-12); I-22 waits for the next sighting, which will now name where it stopped. Re-rank after each fix.
 
 ## Issues
 
@@ -243,16 +243,16 @@ misspelled name, wrong category or unsupported item would get the same hint.
 **Done when:** all three are in the result.
 
 <a id="i-11"></a>
-### I-11 `timeline_summary` hides empty tracks (low)
+### I-11 `timeline_summary` hides empty tracks (low, fixed)
 
 **Where:** `resolve_editor/tools/inspection.py` (`analyze`, `timeline_summary`)
 
 **Problem:** tracks are derived from items. After `legacy__add_track` returned a count of 3, the summary still
 listed only V1 and V2, so a new track can't be verified or seen.
 
-**Fix:** read track counts from Resolve (`GetTrackCount`) and list empty tracks with 0.
+**Fix:** the bridge's `get_state` reports `track_counts` (video and audio, from `GetTrackCount`), which the summary already reads, so no extra call. `analyze` takes the counts and lists every track, empty ones with 0. With an older bridge the summary works as before and adds a note to restart the bridge.
 
-**Done when:** a new empty V3 shows as `"V3": 0`.
+**Verified 2026-11-23:** `EmptyTracks` tests (`tests/test_inspection.py`): added tracks show with 0 next to the counted ones; an older bridge gives item-only tracks and the note; `analyze` without counts is unchanged. The Lua smoke test checks `track_counts`. Each part's test fails again when it is removed. Live on a scratch timeline with one clip: `{A1: 1, V1: 1}`, then after adding a video and an audio track `{A1: 1, A2: 0, V1: 1, V2: 0}`.
 
 <a id="i-12"></a>
 ### I-12 The live transition test accepts a refusal as a pass (low)
@@ -666,7 +666,7 @@ bug until that is known.
 
 ## After fixing
 
-- From the repo root: `python -m unittest` (baseline: 138 tests, all pass) and `python tests/smoke_bridge.py`
+- From the repo root: `python -m unittest` (baseline: 141 tests, all pass) and `python tests/smoke_bridge.py`
   (needs `lupa`).
 - Restart the MCP server, and the bridge if the Lua changed, then repeat the affected live tests.
 - Update the transitions row in `README.md`, plus `AGENTS.md` and `PATCH_NOTES.md`.

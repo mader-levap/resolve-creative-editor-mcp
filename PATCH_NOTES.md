@@ -2,6 +2,7 @@
 
 ## 2026-11-23
 
+- Fixed: `edit__timeline_summary` left out empty tracks, so a newly added track couldn't be seen (ISSUES.md I-11). Every track is now listed, empty ones with 0. Needs the new bridge script.
 - Fixed: a refused transition always blamed spare source frames and ended in a bare error (ISSUES.md I-09). It is now a `failed` result with the request, the checked spare frames and the likely cause (a side with none that the alignment needs, or the type). Live T3/T4 recorded what Resolve refuses and when it shortens instead. Needs the new bridge script.
 - Changed: when the bridge stops answering after acknowledging a request (ISSUES.md I-22, cause still unknown), the error names the op, says a write may have been made and asks for a restart; later calls say it is still stuck instead of "not running"; `edit__doctor` shows where the stuck copy stopped (`previous_run_stuck`). A replaced copy no longer sends a late answer. Needs the new bridge script.
 - Fixed: `edit__add_transition` treated `duration: 0` as "use Resolve's default" and sent negative lengths to Resolve (ISSUES.md I-08). A duration must now be a whole number of frames above 0, or left out.

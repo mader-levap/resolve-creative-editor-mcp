@@ -200,6 +200,7 @@ r = bridge.call_bridge("get_state", {})
 assert r["ok"] and r["result"]["pins"] is True and r["result"]["named_markers"] is True, r
 # The new copy names where the one before it stopped, and records its own stages (ISSUES.md I-22)
 assert r["result"]["stage_marker"] is True, r
+assert r["result"]["track_counts"] == {"video": 1, "audio": 1}, r  # empty tracks show in the summary (I-11)
 assert r["result"]["previous_run_stuck"] == {"op": "get_state", "phase": "op", "at": 1795900318}, r
 assert data["claude_bridge_stage"].split()[1:3] == ["idle", "-"], data["claude_bridge_stage"]
 # Resolve 21.2 refuses markers without a name: the bridge says so and writes none of them (ISSUES.md I-19)

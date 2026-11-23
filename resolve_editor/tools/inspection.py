@@ -5,12 +5,16 @@ from typing import Any
 from .. import session
 
 
-def analyze(items: list[session.Item], limit: int = 10,
-            tc: Callable[[int], str] = str) -> dict[str, Any]:
-    """Pure timeline analysis: gaps, overlaps, transitions, reused source clips."""
+def analyze(items: list[session.Item], limit: int = 10, tc: Callable[[int], str] = str,
+            counts: dict[str, int] | None = None) -> dict[str, Any]:
+    """Pure timeline analysis: gaps, overlaps, transitions, reused source clips. With Resolve's track counts, every
+    track is listed, empty ones with 0 (ISSUES.md I-11)."""
     tracks: dict[tuple[str, int], list[Any]]
     used: dict[str, list[int]]
     tracks, gaps, overlaps, used, transitions = {}, [], [], {}, 0
+    for kind, n in (counts or {}).items():
+        for track in range(1, int(n or 0) + 1):
+            tracks[(kind, track)] = []
     for it in items:
         if it.get("type") == "transition":
             transitions += 1
@@ -38,7 +42,10 @@ def analyze(items: list[session.Item], limit: int = 10,
 
 def timeline_summary(a: dict[str, Any]) -> dict[str, Any]:
     _, _, state = session.clock()
-    report = analyze(session.items(), a.get("limit") or 10, session.to_tc)
+    counts = state.get("track_counts")
+    report = analyze(session.items(), a.get("limit") or 10, session.to_tc, counts)
+    if not counts:
+        report["note"] = "empty tracks aren't listed: restart the bridge"
     report.update({"timeline": state["timeline"], "fps": state["timeline_fps"],
                    "range": [session.to_tc(state["timeline_start_frame"]), session.to_tc(state["timeline_end_frame"])]})
     return report

@@ -43,7 +43,7 @@ All tools come from the `resolve-creative-editor` MCP server (61 on free Resolve
 ### `edit__`: checked editing (preferred)
 
 - **edit__doctor**: check Python, FFmpeg, transcription, the upstream engine and the live Resolve bridge; after a hang, where the bridge stopped.
-- **edit__timeline_summary**: per-track counts, gaps, overlaps, transitions and reused clips. Run before editing.
+- **edit__timeline_summary**: per-track counts (empty tracks listed with 0), gaps, overlaps, transitions and reused clips. Run before editing.
 - **edit__inspect_range**: items between two frames/timecodes; `details` adds grade, transform, fades, speed, markers.
 - **edit__find_media**: search the Media Pool by name (id, name, frames, fps, type).
 - **edit__snapshot_timeline**: duplicate the current timeline as a timestamped backup and stay on the original.

@@ -363,6 +363,8 @@ function OPS.get_state()
            named_markers = true,  -- add_marker(s) refuse a marker without a name (ISSUES.md I-19)
            clip_markers_by_source = true,  -- copy_settings keeps clip markers at their source frames (ISSUES.md I-23)
            stage_marker = true, previous_run_stuck = previous_stuck,  -- see the main loop (ISSUES.md I-22)
+           -- empty tracks have no items, so the summary needs the counts (ISSUES.md I-11)
+           track_counts = t and { video = t:GetTrackCount("video"), audio = t:GetTrackCount("audio") },
            timeline = t and t:GetName(), timeline_fps = t and t:GetSetting("timelineFrameRate"),
            timeline_drop_frame = t and t:GetSetting("timelineDropFrameTimecode"),
            timeline_start_frame = t and t:GetStartFrame(), timeline_end_frame = t and t:GetEndFrame(),
