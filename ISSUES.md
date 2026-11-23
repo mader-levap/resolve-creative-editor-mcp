@@ -1,6 +1,6 @@
 # Issues
 
-Found while testing `edit__add_transition`, 2026-11-22. This is the base for fixes. Fixed so far: I-01, I-02, I-03, I-04, I-05, I-10, I-13, I-14, I-15, I-16, I-17, I-18, I-19, I-20, I-21, I-23.
+Found while testing `edit__add_transition`, 2026-11-22. This is the base for fixes. Fixed so far: I-01, I-02, I-03, I-04, I-05, I-06, I-10, I-13, I-14, I-15, I-16, I-17, I-18, I-19, I-20, I-21, I-23.
 
 - Environment: free DaVinci Resolve 21.2.0.6, Windows 10, 60 fps timeline.
 - Code is named by file and function, with paths from the repo root.
@@ -21,7 +21,7 @@ How each item is known:
 | [I-03](#i-03) | ~~High~~ **Fixed** | `batch` continues after a `partial` step | Live, fake |
 | [I-04](#i-04) | ~~High~~ **Fixed** | `add_transition` verifies only the length | Fake, live |
 | [I-05](#i-05) | ~~Medium~~ **Fixed** | `ripple_trim` ignores transitions on other tracks | Fake, live |
-| [I-06](#i-06) | Medium | `add_transition` has no preview or backup | Fake, code |
+| [I-06](#i-06) | ~~Medium~~ **Fixed** | `add_transition` has no preview or backup | Fake, live |
 | [I-07](#i-07) | Medium | Linked audio keeps a hard cut, without a warning | Live |
 | [I-08](#i-08) | Medium | Zero and negative durations aren't rejected | Fake |
 | [I-09](#i-09) | Low | Every refusal blames spare source frames | Code |
@@ -40,7 +40,7 @@ How each item is known:
 | [I-22](#i-22) | Medium | The bridge can stop answering, cause unknown | Live, once |
 | [I-23](#i-23) | ~~High~~ **Fixed** | Moving or trimming a clip drops its clip markers, reported as `passed` | Live, fake |
 
-Order, one fix at a time, worst first: medium (I-06, I-07, I-08, I-22), then low. Re-rank after each fix.
+Order, one fix at a time, worst first: medium (I-07, I-08, I-22), then low. Re-rank after each fix.
 
 ## Issues
 
@@ -72,7 +72,7 @@ The old `test_batch_previews_without_writing` only covered `move_item` without a
   changed nothing. `confirm` values `"false"`, `"true"`, `"no"` and `1`, sent as raw requests, gave previews only.
 
 **Limits:** a preview checks each step against the current timeline, not the result of earlier steps. Tools without
-a preview still write when called directly (I-06).
+a preview still write when called directly (`add_transition` has had one since I-06).
 
 <a id="i-02"></a>
 ### I-02 An error inside `batch` loses the results and backup name (high, fixed)
@@ -165,7 +165,7 @@ What Resolve then does to that transition is untested.
 - Live on scratch timelines, old code vs new: the edge-of-gap transition above went from `passed` with the transition deleted to `blocked` ("a transition on V2 at 01:00:04:50 overlaps the frames being removed"); a dissolve over the removed frames stays blocked; a dissolve after the trim gives `passed` on both, moved back 30.
 
 <a id="i-06"></a>
-### I-06 `add_transition` has no preview or backup (medium)
+### I-06 `add_transition` has no preview or backup (medium, fixed)
 
 **Where:** `resolve_editor/tools/clips.py` (`add_transition`)
 
@@ -173,10 +173,14 @@ What Resolve then does to that transition is untested.
 the I-16 fix.) There is also no tool made
 for removing or changing a transition, and whether `legacy__delete_items` can remove one is untested.
 
-**Fix:** add `confirm` with a preview (item, cut, expected span, available spare frames) and `backup` (default
-true), like move and trim.
+**Fix:** `add_transition` is now a confirm tool (in `PREVIEWABLE`, schema has `confirm` and `timeline`). Without `confirm=true` it returns a preview and sends nothing: clip, track, position, cut, type, alignment, length (or "Resolve's default"), the expected span when a duration is given, and the unused source frames after the outgoing clip and before the incoming one ("no clip …" or "unknown …" for a gap, a title, or a clip whose frame rate or speed differs). The spare frames are information only; nothing blocks on them, since which side needs how many is unverified. With `confirm=true` and the previewed `timeline` it makes a backup timeline first (`backup=false` in a batch, which has its own) and returns `snapshot`. Callers must now send `confirm=true` and `timeline`.
 
-**Done when:** no write without `confirm`, and a backup is returned.
+**Removing a transition, live 2026-11-23:** `legacy__delete_items` (no ripple) on the transition's id removes it and leaves the clips on both tracks untouched.
+
+**Verified 2026-11-23:**
+
+- `TransitionPreview` tests (`tests/test_transition.py`): the preview from either side of the cut shows cut, span and spare frames and writes nothing; no duration gives no span; a gap or a title gives "no clip" / "unknown"; an unknown item is blocked; confirm without `timeline` is blocked; confirm backs up before the write and returns `snapshot`. Batch preview and confirm-safety tests now cover `add_transition` as a previewable tool. Each part's tests fail again when it is removed.
+- Live on a scratch timeline: the preview (cut 01:00:05:00, span 01:00:04:45-01:00:05:15, spare 1795 after and 1500 before) changed nothing; confirm made the backup timeline and the transition, `success` / `passed`; `delete_items` removed it with the clips unchanged.
 
 <a id="i-07"></a>
 ### I-07 Linked audio keeps a hard cut, without a warning (medium)
@@ -627,7 +631,7 @@ bug until that is known.
 
 ## After fixing
 
-- From the repo root: `python -m unittest` (baseline: 115 tests, all pass) and `python tests/smoke_bridge.py`
+- From the repo root: `python -m unittest` (baseline: 121 tests, all pass) and `python tests/smoke_bridge.py`
   (needs `lupa`).
 - Restart the MCP server, and the bridge if the Lua changed, then repeat the affected live tests.
 - Update the transitions row in `README.md`, plus `AGENTS.md` and `PATCH_NOTES.md`.

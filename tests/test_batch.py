@@ -176,7 +176,7 @@ class BatchError(Base):
     def test_single_write_that_raises_is_audited_and_still_raises(self):
         self.use(FakeResolve([item("a", 1000, 10, src=5)], fail_on={"add_transition": 1}))
         with self.assertRaises(RuntimeError):
-            dispatch.run("add_transition", SAMPLE_ARGS["add_transition"])
+            dispatch.run("add_transition", dict(SAMPLE_ARGS["add_transition"], confirm=True, timeline="T"))
         self.assertEqual(self.audited, [("edit__add_transition", "error")])
 
     def test_preview_that_raises_is_not_audited(self):

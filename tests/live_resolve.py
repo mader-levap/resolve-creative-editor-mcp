@@ -104,7 +104,8 @@ def main():
         trimmed = (r.get("_operation", {}).get("changes", {}).get("replaced") or [{}])[0]
         check("trim preserves and verifies", status(r) == "success" and trimmed.get("to", [None, 0])[1] == 45, r)
 
-        r = dispatch.run("add_transition", {"item_id": second["id"], "position": "start", "duration": 10})
+        r = dispatch.run("add_transition", {"item_id": second["id"], "position": "start", "duration": 10,
+                                            "confirm": True, "timeline": name})
         check("transition refused or added honestly", status(r) in ("success", "partial") or "refused" in str(r), r)
         r = dispatch.run("set_fades", {"item_ids": [second["id"]], "fade_in": 0, "fade_out": 8})
         check("set_fades read-back", status(r) == "success", r)

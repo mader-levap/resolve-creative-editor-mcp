@@ -1,5 +1,5 @@
-"""add_transition checks what Resolve made against the request (ISSUES.md I-04)."""
-from tests.support import Base, FakeResolve, item
+"""add_transition previews first (ISSUES.md I-06) and checks what Resolve made against the request (I-04)."""
+from tests.support import READ_OPS, Base, FakeResolve, item
 
 from resolve_editor import dispatch, session
 
@@ -22,6 +22,8 @@ class TransitionReadBack(Base):
         f = self.use(timeline())
         f.misbehave = misbehave or {}
         args.setdefault("item_id", "a")
+        args.setdefault("confirm", True)
+        args.setdefault("timeline", "T")
         r = dispatch.run("add_transition", args)
         return r, f
 
@@ -72,3 +74,61 @@ class TransitionReadBack(Base):
         r, f = self.add(item_id="nope")
         self.assertEqual(r["_operation"]["status"], "blocked")
         self.assertNotIn("add_transition", f.calls)
+
+
+class TransitionPreview(Base):
+    """Nothing is written without confirm=true, and a confirmed transition is backed up first (ISSUES.md I-06)."""
+
+    def setUp(self):
+        self.f = self.use(timeline())
+        self.f.media_frames = 2275
+
+    def writes(self):
+        return [c for c in self.f.calls if c not in READ_OPS and c != "set_current_timeline"]
+
+    def test_preview_shows_the_cut_span_and_spare_frames_and_writes_nothing(self):
+        for args in ({"item_id": "a", "position": "end"}, {"item_id": "b", "position": "start"}):
+            with self.subTest(**args):
+                r = dispatch.run("add_transition", dict(args, duration=30))
+                self.assertEqual(r["_operation"]["status"], "preview", r)
+                plan = r["plan"]
+                self.assertEqual(plan["cut"], session.to_tc(CUT))
+                self.assertEqual(plan["track"], "V1")
+                self.assertEqual(plan["span"], [session.to_tc(CUT - 15), session.to_tc(CUT + 15)])
+                self.assertEqual(plan["spare_source_frames"], {"after the outgoing clip": 2275 - 480,
+                                                               "before the incoming clip": 1500})
+                self.assertEqual(r["timeline"], "T")
+        self.assertEqual(self.writes(), [])
+
+    def test_without_a_duration_there_is_no_span(self):
+        r = dispatch.run("add_transition", {"item_id": "a"})
+        self.assertEqual(r["_operation"]["status"], "preview")
+        self.assertNotIn("span", r["plan"])
+        self.assertIn("default", str(r["plan"]["frames"]))
+
+    def test_spare_frames_say_when_there_is_no_clip_or_media(self):
+        f = self.use(FakeResolve([item("a", 1000, 300, src=180), item("t", 1300, 300, name="Text+")],
+                                 details={"t": {"media_id": None}}))
+        f.media_frames = 2275
+        spare = dispatch.run("add_transition", {"item_id": "a", "duration": 30})["plan"]["spare_source_frames"]
+        self.assertEqual(spare["after the outgoing clip"], 1795)
+        self.assertIn("unknown", spare["before the incoming clip"])
+        spare = dispatch.run("add_transition", {"item_id": "a", "position": "start", "duration": 30})["plan"][
+            "spare_source_frames"]
+        self.assertIn("no clip", spare["after the outgoing clip"])
+        self.assertEqual(spare["before the incoming clip"], 180)
+
+    def test_unknown_item_is_blocked_in_the_preview(self):
+        r = dispatch.run("add_transition", {"item_id": "nope"})
+        self.assertEqual(r["_operation"]["status"], "blocked")
+
+    def test_confirm_needs_the_previewed_timeline(self):
+        r = dispatch.run("add_transition", {"item_id": "a", "duration": 30, "confirm": True})
+        self.assertEqual(r["_operation"]["status"], "blocked")
+        self.assertEqual(self.writes(), [])
+
+    def test_confirm_backs_up_first_and_returns_the_snapshot(self):
+        r = dispatch.run("add_transition", {"item_id": "a", "duration": 30, "confirm": True, "timeline": "T"})
+        self.assertEqual(r["_operation"]["status"], "success", r)
+        self.assertTrue(r["snapshot"])
+        self.assertEqual(self.writes()[:2], ["duplicate_timeline", "add_transition"])

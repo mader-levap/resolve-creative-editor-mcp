@@ -1,7 +1,7 @@
 """Clip settings: enabled, fades, transitions, speed, grade."""
 from typing import Any
 
-from .. import outcome, session
+from .. import outcome, session, timecode, timeline
 
 
 def set_enabled(a: dict[str, Any]) -> dict[str, Any]:
@@ -62,6 +62,10 @@ def add_transition(a: dict[str, Any]) -> dict[str, Any]:
     if target is None or target.get("type") == "transition":
         return outcome.blocked(f"no clip with id {a['item_id']} on the current timeline")
     cut = target["end"] if options["position"] == "end" else target["start"]
+    if not a.get("confirm"):  # nothing is written before the user approves (ISSUES.md I-06)
+        return outcome.preview(_transition_plan(target, cut, options), ["a backup timeline is made first"])
+    snapshot = (timeline.snapshot_timeline({"label": "before transition"}).get("snapshot")
+                if a.get("backup", True) else None)
     before = _clips()
     r = session.call("add_transition", item_id=a["item_id"], options=options)
     session.invalidate()
@@ -73,7 +77,46 @@ def add_transition(a: dict[str, Any]) -> dict[str, Any]:
     def tc(frame: Any) -> str | None:
         return None if frame is None else session.to_tc(frame)
     return outcome.op("partial" if differs else "success", ok, {"transition": r.get("name"), "frames": frames},
-                      warnings, transition_id=r.get("id"), cut=tc(cut), start=tc(start), end=tc(end))
+                      warnings, transition_id=r.get("id"), cut=tc(cut), start=tc(start), end=tc(end),
+                      snapshot=snapshot)
+
+
+def _transition_plan(target: session.Item, cut: int, options: dict[str, Any]) -> dict[str, Any]:
+    plan: dict[str, Any] = {"clip": target["name"], "track": f"{target['track_type'][0].upper()}{target['track']}",
+                            "position": options["position"], "cut": session.to_tc(cut), "type": options["type"],
+                            "alignment": options["alignment"],
+                            "frames": options.get("duration") or "Resolve's default (Preferences)"}
+    if options.get("duration"):
+        plan["span"] = [session.to_tc(f) for f in expected_span(cut, options["alignment"], options["duration"])]
+    plan["spare_source_frames"] = _spare_frames(target, cut)
+    return plan
+
+
+def _spare_frames(target: session.Item, cut: int) -> dict[str, Any]:
+    """Unused source frames on each side of the cut, for the user to judge; which side needs how many isn't known."""
+    track = [x for x in session.items() if x.get("type") != "transition"
+             and (x["track_type"], x["track"]) == (target["track_type"], target["track"])]
+    outgoing = next((x for x in track if x["end"] == cut), None)
+    incoming = next((x for x in track if x["start"] == cut), None)
+    ids = [x["id"] for x in (outgoing, incoming) if x]
+    details = {d["id"]: d for d in session.as_list(session.call("item_details", item_ids=ids))} if ids else {}
+    media = {m.get("id"): m for m in session.media_pool()}
+    fps, _, _ = session.clock()
+
+    def spare(x: session.Item | None, side: str) -> int | str:
+        if x is None:
+            return f"no clip {'ends' if side == 'after' else 'starts'} at the cut"
+        d = details.get(x["id"]) or {}
+        m = media.get(d.get("media_id"))
+        speed = float(((d.get("speed") or {}).get("Percentage")) or 100)
+        if not m or x.get("source_start") is None:
+            return "unknown: not a media-pool clip"
+        if abs(float(timecode.parse_fps(m.get("fps"))) - float(fps)) > 0.001 or abs(speed - 100) > 0.001:
+            return "unknown: the clip's frame rate or speed differs from the timeline"
+        if side == "before":
+            return x["source_start"]
+        return int(float(m.get("frames") or 0)) - x["source_start"] - x["duration"]
+    return {"after the outgoing clip": spare(outgoing, "after"), "before the incoming clip": spare(incoming, "before")}
 
 
 def _check_transition(tid: Any, target: session.Item, cut: int, options: dict[str, Any],
