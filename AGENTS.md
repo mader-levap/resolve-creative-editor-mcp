@@ -38,6 +38,11 @@
 8. Review dialogue continuity, room tone, music balance, titles and captions. Ask the user to judge what must be heard.
 9. Run final deliverable checks. A successful API response alone doesn't mean the work is done.
 
+### Moving captions
+
+- "Move this caption 3 s forward/later": find it with `edit__list_captions` (by the user's words, or by time for "this one"), then preview `edit__shift_captions` with `seconds: 3`; the later captions move too unless the user says only this one (`following: false`).
+- "Back"/"earlier" is a negative shift. Ask when the direction is unclear.
+
 ## Creative priorities
 
 In order: story/emotion, clarity, rhythm, continuity, visual polish.
@@ -55,7 +60,7 @@ In order: story/emotion, clarity, rhythm, continuity, visual polish.
 
 ## Available tools
 
-All tools come from the `resolve-creative-editor` MCP server (61 on free Resolve; `resolve__` timeline tools need Studio and are hidden). `edit__` tools that take `confirm` return a preview first; repeat with `confirm=true` and `timeline` set to the timeline the preview names (refused if another timeline is current). The others run on the first call.
+All tools come from the `resolve-creative-editor` MCP server (63 on free Resolve; `resolve__` timeline tools need Studio and are hidden). `edit__` tools that take `confirm` return a preview first; repeat with `confirm=true` and `timeline` set to the timeline the preview names (refused if another timeline is current). The others run on the first call.
 
 ### `edit__`: checked editing (preferred)
 
@@ -78,6 +83,8 @@ All tools come from the `resolve-creative-editor` MCP server (61 on free Resolve
 - **edit__add_markers**: add several timeline markers at once, read back. Every marker needs a name.
 - **edit__add_audio_markers**: mark silences or beats found in a file.
 - **edit__add_captions**: editable Text+ captions at exact times, from segments or by transcribing a file. Text longer than `max_chars` (42) is wrapped onto balanced lines one under another, at most `max_lines` (2) at once, more in captions one after another; `line_split="sequence"` puts each line in its own caption instead. Captions are anchored at their bottom (`anchor`, default `bottom`): `y` is where the bottom edge sits and extra lines grow upward; `anchor="center"` centres the block on `y`. One small timeline per caption; a caption longer than the inserted title (Standard Generator Duration) is placed in parts that share its text; the preview says which, from Standard Generator Duration.
+- **edit__list_captions**: captions placed by `edit__add_captions`, in time order: number, text, in/out, track and part ids; filter by text, time range or track.
+- **edit__shift_captions**: move a caption (all its parts) by signed `seconds` or `frames`, and by default every later caption on its track (`following=false`: only this one). Other tracks stay. Refuses to land on another clip or before the timeline start; one backup per call.
 - **edit__export_srt**: write an .srt from segments or a transcription (user imports it by hand); lines are split like `edit__add_captions`.
 - **edit__export_timeline**: export the current timeline as OTIO, FCPXML, EDL, AAF or DRT.
 - **edit__qc_file**: QC a rendered file: loudness, true peak, black/frozen frames, silence.

@@ -85,6 +85,15 @@ TOOLS = [
        "anchor": {"type": "string", "enum": ["bottom", "center"], "description": "bottom (default): extra lines grow "
                   "upward from y; center: the text block is centred on y"},
        "dry_run": B, "confirm": CONFIRM, "timeline": TIMELINE, **LINES}),
+    T("list_captions", "Captions on the current timeline (from add_captions), in time order: n, text, in/out, "
+      "frames, track and the ids of its parts. Filter by text (case-insensitive), a time range or track_index. Use "
+      "it to find the caption the user means before shift_captions.",
+      {"text": S, "start": WHEN, "end": WHEN, "track_index": I, "limit": I}),
+    T("shift_captions", "Move a caption (all its parts) by a signed time, and by default every later caption on its "
+      "track by the same amount (following=false: only this one). Positive is later. Other tracks don't move. "
+      "Refuses to land on another clip or before the timeline start. Each part is rebuilt with its settings.",
+      {"caption": {"type": ["integer", "string"], "description": "n from list_captions, or the id of any part"},
+       "seconds": N, "frames": I, "following": B, "confirm": CONFIRM, "timeline": TIMELINE}, ["caption"]),
     T("export_srt", "Write an .srt subtitle file from segments or by transcribing `path`. Import it in Resolve with "
       "File > Import > Subtitle (importing subtitles by script can crash Resolve 21).",
       {"path": S, "segments": SEGMENTS, "output": S, "model": S, "language": S, "max_chars": I, **LINES}),

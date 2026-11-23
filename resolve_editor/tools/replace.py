@@ -1,5 +1,5 @@
 """Moving and trimming by settings-preserving replacement."""
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from typing import Any
 
 from .. import outcome, session, timecode, timeline
@@ -13,8 +13,10 @@ REFUSE_REASONS = [
 
 
 def _plan_replace(item_id: str, include_linked: bool,
-                  new_range: Callable[[session.Item], tuple[int, int, int, int]]) -> list[dict[str, Any]] | str:
-    """new_range(item) -> (first, last, record, track). Returns (plan, warnings) or a reason string."""
+                  new_range: Callable[[session.Item], tuple[int, int, int, int]],
+                  moving: Collection[str] = ()) -> list[dict[str, Any]] | str:
+    """new_range(item) -> (first, last, record, track). Returns the plan or a reason string. `moving`: other items
+    replaced in the same go, which don't count as being in the way."""
     items = {x["id"]: x for x in session.items()}
     if item_id not in items:
         return f"timeline item not found: {item_id}"
@@ -35,7 +37,7 @@ def _plan_replace(item_id: str, include_linked: bool,
         frames = int(float(media.get("frames") or 0))
         if first < 0 or last <= first or (frames and last > frames):
             return f"{item['name']}: source range {first}-{last} is outside the clip (0-{frames})"
-        hit = timeline.collides(item["track_type"], track, record, record + last - first, ignore=ids)
+        hit = timeline.collides(item["track_type"], track, record, record + last - first, ignore=[*ids, *moving])
         if hit:
             return f"{item['name']} would overwrite {hit['name']} at {session.to_tc(hit['start'])}"
         for x in items.values():

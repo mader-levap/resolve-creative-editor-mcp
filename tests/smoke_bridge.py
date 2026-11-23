@@ -34,6 +34,12 @@ local placed = {GetUniqueId=function() return "item1" end, GetName=function() re
     [2000]={name="", color="Green"}} end,
   AddMarker=function(self, f, color, name) if name == "" then return false end; clip_marker(f, name); return true end,
   AddTransition=function() return nil end}  -- Resolve gives no reason (live T3/T4, docs/ISSUES.md I-09)
+-- a placed caption: its media pool item is the caption's own timeline, whose V1 title holds the text
+local caption_tool = {GetInput=function(self, k) if k == "StyledText" then return "line one\nline two" end end}
+local caption_title = {GetFusionCompByIndex=function() return {FindToolByID=function() return caption_tool end} end}
+placed.GetMediaPoolItem = function() return {GetTimeline=function()
+  return {GetItemListInTrack=function(self, kind, i) if kind == "video" and i == 1 then return {caption_title} end
+    return {} end} end} end
 local function timeline(name)
   if not made[name] then
     local tool = {SetInput=function() end}
@@ -275,6 +281,12 @@ assert not r["ok"] and r["error"].startswith("Resolve refused the transition"), 
 for part in ("Cross Disolve", "center", "30", "doesn't know", "unused source frames"):
     assert part in r["error"], (part, r)
 assert "may have no spare" not in r["error"], r
+
+# Caption text is read through the caption's own timeline; an unknown item gives an error, not a failed call
+r = bridge.call_bridge("caption_texts", {"item_ids": ["item1", "nope"]})
+assert r["ok"] and r["result"]["item1"] == {"text": "line one\nline two"}, r
+assert "not found" in r["result"]["nope"]["error"], r
+
 
 # The scratch-only frame rate helper used by the live tests
 reset(cur="WORK", names=("WORK", "_RCE_A", "_RCE_FULL"))

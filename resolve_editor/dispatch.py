@@ -86,15 +86,16 @@ HANDLERS = {"doctor": diagnostics.doctor, "timeline_summary": inspection.timelin
             "copy_grade": clips.copy_grade, "add_markers": markers.add_markers,
             "add_audio_markers": markers.add_audio_markers, "add_captions": captions.add_captions,
             "export_srt": captions.export_srt, "export_timeline": delivery.export_timeline,
-            "qc_file": delivery.qc_file, "batch": batch, "audit_log": diagnostics.audit_log}
-READ_ONLY = {"doctor", "timeline_summary", "inspect_range", "find_media", "audit_log", "qc_file"}
+            "qc_file": delivery.qc_file, "batch": batch, "audit_log": diagnostics.audit_log,
+            "list_captions": captions.list_captions, "shift_captions": captions.shift_captions}
+READ_ONLY = {"doctor", "timeline_summary", "inspect_range", "find_media", "audit_log", "qc_file", "list_captions"}
 # Tools that change nothing until confirm=true. A batch preview calls only these, so add a tool here only if that holds.
 PREVIEWABLE = {"place_clips", "move_item", "trim_item", "ripple_trim", "normalize_audio", "set_speed", "copy_grade",
-               "add_captions", "add_transition"}
+               "add_captions", "add_transition", "shift_captions"}
 # Tools that take confirm=true. Their previews name the timeline, and a confirm must name it too (docs/ISSUES.md I-17).
 CONFIRMABLE = PREVIEWABLE | {"batch"}
 # Reads that may follow a switch by hand, so they check the current timeline before using cached reads.
-TIMELINE_READS = {"timeline_summary", "inspect_range", "find_media"}
+TIMELINE_READS = {"timeline_summary", "inspect_range", "find_media", "list_captions"}
 
 
 def run(name: str, args: dict[str, Any]) -> dict[str, Any]:

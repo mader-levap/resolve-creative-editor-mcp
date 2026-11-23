@@ -594,6 +594,24 @@ function OPS.style_text_plus(a)
   return out
 end
 
+-- The text of placed captions, read only. A caption is a clip of its own small timeline (add_title_cards), whose V1
+-- title holds the Text+. Each item gets {text=...} or {error=...}, so one odd clip doesn't fail the rest.
+function OPS.caption_texts(a)
+  local out = {}
+  for _, id in ipairs(a.item_ids or {}) do
+    local ok, r = pcall(function()
+      local mp = find_item(id):GetMediaPoolItem()
+      local inner = mp and mp:GetTimeline()
+      if not inner then error("not a caption: its clip has no timeline", 0) end
+      local title = each(inner:GetItemListInTrack("video", 1))[1]
+      if not title then error("not a caption: its timeline has no title on V1", 0) end
+      return text_tool(title):GetInput("StyledText")
+    end)
+    out[id] = ok and { text = r } or { error = tostring(r) }
+  end
+  return out
+end
+
 -- Make a freshly inserted title `frames` long. Free 21.2 has no SetEnd/SetDuration. SetRightOffset(n) sets the
 -- absolute unused tail (a fresh insert has 0), so it can shorten and later lengthen again, but never past the inserted
 -- length (verified on 21.2.0.6). Inserted length = Preferences > User > Editing > Standard Generator Duration.

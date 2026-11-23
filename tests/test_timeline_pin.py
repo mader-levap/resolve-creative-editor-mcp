@@ -3,7 +3,7 @@ import os
 import tempfile
 from unittest import mock
 
-from tests.support import READ_OPS, SAMPLE_ARGS, Base, FakeResolve, item
+from tests.support import READ_OPS, SAMPLE_ARGS, Base, FakeResolve, sample_items
 
 from resolve_editor import dispatch, media, session
 
@@ -13,7 +13,7 @@ class TimelineFake(FakeResolve):
     Honours a request's pin the way resolve_bridge.lua does (tested on the real Lua in tests/smoke_bridge.py)."""
 
     def __init__(self, click=None, **kw):
-        super().__init__([item("a", 1000, 10, src=5)], **kw)
+        super().__init__(sample_items(), **kw)
         self.cur, self.click, self.landed, self.backup_of = "T", click, [], {}
         self.refuse_switch, self.unreachable, self.pins = 0, False, True
         self.timelines.append("OTHER")

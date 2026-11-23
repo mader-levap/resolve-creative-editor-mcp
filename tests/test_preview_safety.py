@@ -5,7 +5,7 @@ import subprocess
 from typing import Any
 from unittest import mock
 
-from tests.support import READ_OPS, SAMPLE_ARGS, Base, FakeResolve, item
+from tests.support import READ_OPS, SAMPLE_ARGS, Base, FakeResolve, item, sample_items
 
 from resolve_editor import audit, dispatch, media
 from resolve_editor.schemas import edit as schema
@@ -40,7 +40,7 @@ class PreviewSafety(Base):
 
     def attempt(self, tool, args):
         """Run on a fresh fake; return the result and everything that had a side effect."""
-        f = self.use(FakeResolve([item("a", 1000, 10, src=5)]))
+        f = self.use(FakeResolve(sample_items()))
         self.effects.clear()
         try:
             r = dispatch.run(tool, args)

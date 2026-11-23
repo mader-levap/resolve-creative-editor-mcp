@@ -43,6 +43,7 @@ class FakeResolve:
         self.timeline_fps = 30  # fps above is the clips' rate
         self.media_frames = 300  # length of the one media pool clip
         self.parts: list[dict[str, Any]] = []
+        self.caption_text: dict[str, str] = {}  # caption timeline name -> its Text+ text
         self.settings: dict[str, dict[str, Any]] = {
             x["id"]: {"properties": {"ZoomX": 1.5}, "fades": {"FadeIn": 4, "FadeOut": 0},
                       "color": "Orange", "enabled": True, "speed": {"Percentage": 100}, "linked": [],
@@ -103,12 +104,15 @@ class FakeResolve:
             for c in args["clips"]:
                 self.n += 1
                 kind = "audio" if c.get("media_type") == 2 else "video"
+                # a timeline placed as a clip (a caption) is named after it, like in Resolve
+                name = c["clip"][3:] if str(c["clip"]).startswith("tl-") else "a.mp4"
                 new = item(f"n{self.n}", c["record_frame"], c["end_frame"] - c["start_frame"], src=c["start_frame"],
-                           track=c["track_index"], kind=kind)
+                           track=c["track_index"], kind=kind, name=name)
                 self.items.append(new)
                 self.settings[new["id"]] = {"properties": {"ZoomX": 1}, "fades": {"FadeIn": 0, "FadeOut": 0},
                                             "color": "", "enabled": True, "speed": {"Percentage": 100},
-                                            "linked": [], "media_id": "c1", "markers": {}}
+                                            "linked": [], "media_id": c["clip"] if name != "a.mp4" else "c1",
+                                            "markers": {}}
             r = []
         elif op == "copy_settings":
             src, dst = self.settings[args["from_id"]], self.settings[args["to_id"]]
@@ -137,6 +141,11 @@ class FakeResolve:
         elif op in ("set_speed", "copy_grade", "normalize_audio", "set_enabled", "set_item_properties",
                     "export_timeline"):
             r = {"ok": True}
+        elif op == "caption_texts":  # like resolve_bridge.lua: the text in each clip's own timeline
+            by_id = {x["id"]: x["name"] for x in self.items}
+            r = {i: {"text": self.caption_text[by_id[i]]} if by_id.get(i) in self.caption_text
+                 else {"error": "not a caption" if i in by_id else f"timeline item not found: {i}"}
+                 for i in args["item_ids"]}
         elif op == "add_title_cards":
             self.title_args = dict(args)  # what add_captions sent, style included
             r = self.title_cards(args)
@@ -207,9 +216,14 @@ class Base(unittest.TestCase):
         return fake
 
 
+def sample_items() -> list[dict[str, Any]]:
+    """The timeline the every-tool tests run on: clip "a" on V1 and caption "cap" (a placed caption timeline) on V2."""
+    return [item("a", 1000, 10, src=5), item("cap", 1100, 10, name="T 1123-120000 caption 0001", track=2)]
+
+
 # Bridge ops that change nothing. A preview may use these and no others.
 READ_OPS = {"get_state", "list_timeline_items", "list_media", "item_details", "list_markers", "list_timelines",
-            "audio_modes"}
+            "audio_modes", "caption_texts"}
 # Valid args for every handler: a new tool has to be added here before the suite passes.
 SAMPLE_ARGS: dict[str, dict[str, Any]] = {
     "doctor": {}, "timeline_summary": {}, "inspect_range": {"start": 1000, "end": 1010}, "find_media": {},
@@ -231,4 +245,6 @@ SAMPLE_ARGS: dict[str, dict[str, Any]] = {
     "export_srt": {"segments": [{"start": 0, "end": 1, "text": "Hi"}]},
     "export_timeline": {"format": "OTIO"},
     "batch": {"operations": []},
+    "list_captions": {},
+    "shift_captions": {"caption": "cap", "seconds": 1},
 }
