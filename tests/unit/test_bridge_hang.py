@@ -7,7 +7,7 @@ import time
 import unittest
 from unittest import mock
 
-from tests.test_bridge_lock import REQUEST_RE, FakeBridge
+from tests.unit.test_bridge_lock import REQUEST_RE, FakeBridge
 
 from resolve_editor import bridge, paths
 from resolve_editor.tools import diagnostics

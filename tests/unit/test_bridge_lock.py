@@ -11,7 +11,7 @@ import unittest
 from unittest import mock
 
 from tests.support import ROOT
-from tests.test_bridge import reply_export
+from tests.unit.test_bridge import reply_export
 
 from resolve_editor import bridge, paths
 

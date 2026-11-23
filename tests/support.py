@@ -3,7 +3,7 @@
 Every test file imports this module before resolve_editor: it points the bridge folder at a temporary one, so no
 test can reach Resolve or write to the user's folder (docs/ISSUES.md I-14).
 These prove the logic (planning, refusals, rollback order, frame maths). They cannot prove that Resolve itself
-behaves the same way; see tests/live_resolve.py for the checks that need a real Resolve.
+behaves the same way; see tests/live/live_resolve.py for the checks that need a real Resolve.
 """
 import json
 import os

@@ -118,7 +118,7 @@ Claude makes a backup copy of the timeline before every move or trim, and asks b
 
 ## What works
 
-**Live-tested** means it ran against real DaVinci Resolve free on Windows (`tests/live_resolve.py`, on a 30 fps scratch timeline: 23 checks all passing on 21.1.0.17; 31 of 31 on 21.2.0.6). **Automated** means it is covered by tests with a fake Resolve, which prove the logic but not Resolve's behaviour.
+**Live-tested** means it ran against real DaVinci Resolve free on Windows (`tests/live/live_resolve.py`, on a 30 fps scratch timeline: 23 checks all passing on 21.1.0.17; 31 of 31 on 21.2.0.6). **Automated** means it is covered by tests with a fake Resolve, which prove the logic but not Resolve's behaviour.
 
 | Area | Tool | Free 21.1 | Studio |
 |---|---|---|---|
@@ -235,7 +235,7 @@ python -m mypy
 **Live** (needs Resolve open with a project and the bridge running; works only on a new `_RCE_LIVE_` scratch timeline, checks your current timeline is unchanged, then deletes the scratch timeline):
 
 ```powershell
-python tests/live_resolve.py
+python tests/live/live_resolve.py
 ```
 
 ## Credits and license

@@ -8,7 +8,7 @@ import unittest
 from tests.support import ROOT
 
 PROBE = """import importlib, os, sys
-importlib.import_module("tests." + sys.argv[1])
+importlib.import_module("tests.unit." + sys.argv[1])
 from resolve_editor import paths
 print(paths.DIR)
 print(os.environ.get("RESOLVE_BRIDGE_DIR"))"""
@@ -19,7 +19,9 @@ class Isolation(unittest.TestCase):
         with tempfile.TemporaryDirectory() as home:
             users = os.path.join(home, "resolve-claude-bridge")  # stands in for the user's bridge folder
             env = dict(os.environ, RESOLVE_BRIDGE_DIR=users, PYTHONDONTWRITEBYTECODE="1")
-            for name in sorted(p.stem for p in (ROOT / "tests").glob("test_*.py")):
+            names = sorted(p.stem for p in (ROOT / "tests" / "unit").glob("test_*.py"))
+            self.assertGreater(len(names), 10)  # finding none would pass without checking anything
+            for name in names:
                 with self.subTest(test_file=name):
                     p = subprocess.run([sys.executable, "-c", PROBE, name], cwd=ROOT, env=env, capture_output=True,
                                        text=True, timeout=60)

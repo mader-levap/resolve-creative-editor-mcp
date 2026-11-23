@@ -141,7 +141,7 @@ Any difference gives `partial` / `contradiction`, with a warning naming expected
 
 **Verified 2026-11-23:**
 
-- `TransitionReadBack` tests (`tests/test_transition.py`); `FakeResolve` now makes a transition item by the T2 rule and can misbehave. Correct transitions pass for every position, alignment and odd/even length, with and without `duration`, on video and audio. A wrong type, category, alignment, track, track type, span or length, a moved clip, or a transition not found give `contradiction`; unreadable properties give `unverified`; an unknown item is blocked before writing. They failed before the fix (except the audio pass, a guard), and each check's test fails again when that check is removed.
+- `TransitionReadBack` tests (`tests/unit/test_transition.py`); `FakeResolve` now makes a transition item by the T2 rule and can misbehave. Correct transitions pass for every position, alignment and odd/even length, with and without `duration`, on video and audio. A wrong type, category, alignment, track, track type, span or length, a moved clip, or a transition not found give `contradiction`; unreadable properties give `unverified`; an unknown item is blocked before writing. They failed before the fix (except the audio pass, a guard), and each check's test fails again when that check is removed.
 - Live T2 (see "Live tests"): 12 cases all matched the rule, with all four properties as requested and no clip changed.
 - Live, old code: a centred 31-frame dissolve and a 30-frame audio crossfade gave `passed` with only `at`. New code: both `success` / `passed`, with `start` 01:00:04:44 / 04:45, `end` 05:15 and `cut` 05:00. Contradictions can't be provoked in real Resolve, so they are covered by the fake.
 - Through MCP after a server restart, on a scratch timeline: a left-aligned 31-frame dissolve at the start of the second clip gave `success` / `passed`, `start` 01:00:04:29, `end` and `cut` 05:00. An audio crossfade with no `duration` gave `success` / `passed`, 30 frames (Resolve's choice), 04:45-05:15.
@@ -163,7 +163,7 @@ What Resolve then does to that transition is untested.
 
 **Verified 2026-11-23:**
 
-- `RippleTransitions` tests (`tests/test_ripple.py`): a transition at 1080-1120 on A1 and on V2 blocks a 30-frame trim of 1000-1100 (V1 stays blocked), transitions clear of the removed frames give `passed` and the later one moves back 30, and a transition left behind by the ripple gives `failed` naming it. Each part's test fails again when it is removed.
+- `RippleTransitions` tests (`tests/unit/test_ripple.py`): a transition at 1080-1120 on A1 and on V2 blocks a 30-frame trim of 1000-1100 (V1 stays blocked), transitions clear of the removed frames give `passed` and the later one moves back 30, and a transition left behind by the ripple gives `failed` naming it. Each part's test fails again when it is removed.
 - Live on scratch timelines, old code vs new: the edge-of-gap transition above went from `passed` with the transition deleted to `blocked` ("a transition on V2 at 01:00:04:50 overlaps the frames being removed"); a dissolve over the removed frames stays blocked; a dissolve after the trim gives `passed` on both, moved back 30.
 
 <a id="i-06"></a>
@@ -181,7 +181,7 @@ for removing or changing a transition, and whether `legacy__delete_items` can re
 
 **Verified 2026-11-23:**
 
-- `TransitionPreview` tests (`tests/test_transition.py`): the preview from either side of the cut shows cut, span and spare frames and writes nothing; no duration gives no span; a gap or a title gives "no clip" / "unknown"; an unknown item is blocked; confirm without `timeline` is blocked; confirm backs up before the write and returns `snapshot`. Batch preview and confirm-safety tests now cover `add_transition` as a previewable tool. Each part's tests fail again when it is removed.
+- `TransitionPreview` tests (`tests/unit/test_transition.py`): the preview from either side of the cut shows cut, span and spare frames and writes nothing; no duration gives no span; a gap or a title gives "no clip" / "unknown"; an unknown item is blocked; confirm without `timeline` is blocked; confirm backs up before the write and returns `snapshot`. Batch preview and confirm-safety tests now cover `add_transition` as a previewable tool. Each part's tests fail again when it is removed.
 - Live on a scratch timeline: the preview (cut 01:00:05:00, span 01:00:04:45-01:00:05:15, spare 1795 after and 1500 before) changed nothing; confirm made the backup timeline and the transition, `success` / `passed`; `delete_items` removed it with the clips unchanged.
 
 <a id="i-07"></a>
@@ -199,7 +199,7 @@ same position, alignment and length (test T5a).
 
 **Verified 2026-11-23:**
 
-- `LinkedAudio` tests (`tests/test_transition.py`): the default makes both with matching options, no duration takes the video's length, `audio_type` is used, `include_linked=false` and a split edit warn with one transition, a refused crossfade is `partial` naming the video transition, the preview lists the crossfade and writes nothing, unlinked and audio targets add nothing extra. Each part's tests fail again when it is removed.
+- `LinkedAudio` tests (`tests/unit/test_transition.py`): the default makes both with matching options, no duration takes the video's length, `audio_type` is used, `include_linked=false` and a split edit warn with one transition, a refused crossfade is `partial` naming the video transition, the preview lists the crossfade and writes nothing, unlinked and audio targets add nothing extra. Each part's tests fail again when it is removed.
 - Live on a scratch timeline with three linked clips: the default at the first cut made a V1 Cross Dissolve and an A1 Cross Fade +3 dB, both 01:00:04:45-01:00:05:15, `success` / `passed`; `include_linked=false` at the second cut made the dissolve only, with "linked audio on A1 keeps a hard cut at 01:00:10:00".
 
 <a id="i-08"></a>
@@ -214,7 +214,7 @@ same position, alignment and length (test T5a).
 
 **Fix:** in `add_transition`, an omitted or null `duration` still means Resolve's default; anything else must be an integer (not a boolean) above 0, or the call is `blocked` before any read or write, naming the value. That covers the preview, the confirm and batch steps, and the linked audio crossfade (I-07), which copies the duration. The schema adds `minimum: 1`.
 
-**Verified 2026-11-23:** `Duration` tests (`tests/test_transition.py`): 0, -5, 2.5, "30" and true are blocked in the preview and on confirm with no `add_transition` or backup call; null gives Resolve's default and 1 passes; a batch stops at a step with 0 and runs nothing after it. Each part of the check fails a test when it is removed.
+**Verified 2026-11-23:** `Duration` tests (`tests/unit/test_transition.py`): 0, -5, 2.5, "30" and true are blocked in the preview and on confirm with no `add_transition` or backup call; null gives Resolve's default and 1 passes; a batch stops at a step with 0 and runs nothing after it. Each part of the check fails a test when it is removed.
 
 <a id="i-09"></a>
 ### I-09 Every refusal blames spare source frames (low, fixed)
@@ -230,7 +230,7 @@ misspelled name, wrong category or unsupported item would get the same hint.
 
 **Verified 2026-11-23:**
 
-- `Refusal` tests (`tests/test_transition.py`, `FakeResolve` can now refuse): `failed` with backup and spare frames, "aren't the cause" with plenty, the short side named for center but not for left, other errors still raise. The Lua smoke test checks the refusal text. Each part's test fails again when it is removed.
+- `Refusal` tests (`tests/unit/test_transition.py`, `FakeResolve` can now refuse): `failed` with backup and spare frames, "aren't the cause" with plenty, the short side named for center but not for left, other errors still raise. The Lua smoke test checks the refusal text. Each part's test fails again when it is removed.
 - Live, new bridge and code: no spare frames after the outgoing clip (center) and before the incoming one (center) each gave `failed` naming that side; "Cross Disolve" gave `failed` with "they aren't the cause; check the type name"; left alignment with none gave `passed`; 10 spare frames each for 60 gave `partial` (length 20).
 
 <a id="i-10"></a>
@@ -254,12 +254,12 @@ listed only V1 and V2, so a new track can't be verified or seen.
 
 **Fix:** the bridge's `get_state` reports `track_counts` (video and audio, from `GetTrackCount`), which the summary already reads, so no extra call. `analyze` takes the counts and lists every track, empty ones with 0. With an older bridge the summary works as before and adds a note to restart the bridge.
 
-**Verified 2026-11-23:** `EmptyTracks` tests (`tests/test_inspection.py`): added tracks show with 0 next to the counted ones; an older bridge gives item-only tracks and the note; `analyze` without counts is unchanged. The Lua smoke test checks `track_counts`. Each part's test fails again when it is removed. Live on a scratch timeline with one clip: `{A1: 1, V1: 1}`, then after adding a video and an audio track `{A1: 1, A2: 0, V1: 1, V2: 0}`.
+**Verified 2026-11-23:** `EmptyTracks` tests (`tests/unit/test_inspection.py`): added tracks show with 0 next to the counted ones; an older bridge gives item-only tracks and the note; `analyze` without counts is unchanged. The Lua smoke test checks `track_counts`. Each part's test fails again when it is removed. Live on a scratch timeline with one clip: `{A1: 1, V1: 1}`, then after adding a video and an audio track `{A1: 1, A2: 0, V1: 1, V2: 0}`.
 
 <a id="i-12"></a>
 ### I-12 The live transition test accepts a refusal as a pass (low, fixed)
 
-**Where:** `tests/live_resolve.py` (the `add_transition` check)
+**Where:** `tests/live/live_resolve.py` (the `add_transition` check)
 
 **Problem:** the check passes on `success`, `partial` or any result containing "refused". The unit tests have no
 `add_transition` test at all.
@@ -269,7 +269,7 @@ the real behaviour) separately. Add `add_transition` to `FakeResolve` with tests
 
 **Done when:** the live test fails if a valid transition is refused or misplaced.
 
-**Fix:** the fake and unit-test half came with I-04 to I-09 (`FakeResolve.transition`, `tests/test_transition.py`). The live test now has its own transition section on fresh clip pairs, with expectations from T2/T3: a valid 10-frame centred Cross Dissolve must be `success`/`passed` at exactly `expected_span`, with the linked audio crossfade at the same span; no spare frames after the outgoing clip must be `failed` naming that side (centred) and made at the exact span (left); a misspelled type must be `failed` pointing at the type. The scratch timeline is also set to 30 fps, the generated clip's rate: on a 60 fps project the move, trim and transition checks were blocked by "clip frame rate differs from the timeline" (8 of 13 failed before this change).
+**Fix:** the fake and unit-test half came with I-04 to I-09 (`FakeResolve.transition`, `tests/unit/test_transition.py`). The live test now has its own transition section on fresh clip pairs, with expectations from T2/T3: a valid 10-frame centred Cross Dissolve must be `success`/`passed` at exactly `expected_span`, with the linked audio crossfade at the same span; no spare frames after the outgoing clip must be `failed` naming that side (centred) and made at the exact span (left); a misspelled type must be `failed` pointing at the type. The scratch timeline is also set to 30 fps, the generated clip's rate: on a 60 fps project the move, trim and transition checks were blocked by "clip frame rate differs from the timeline" (8 of 13 failed before this change).
 
 **Verified 2026-11-23:** live run on a 60 fps project, 28 of 29 checks pass, all transition checks included; the one failure is I-24. Two one-off mutations of `add_transition` were caught: always sending left alignment (the exact-span checks fail) and a broken type name (the valid-transition checks fail).
 
@@ -307,7 +307,7 @@ B was deterministic. Estimated limits: about 70 clips for `item_details`, 320 fo
 <a id="i-14"></a>
 ### I-14 The gateway test writes to the real audit log (low, fixed)
 
-**Where:** `tests/test_gateway.py` (`GatewayTests`, `GatewayResilience`), `tests/support.py`
+**Where:** `tests/unit/test_gateway.py` (`GatewayTests`, `GatewayResilience`), `tests/support.py`
 
 **Problem:** `test_gateway` started the gateway with the user's environment, so the gateway logged the fake
 `legacy__hello` call as a successful change in the real `audit.jsonl`, and `edit__audit_log` showed it.
@@ -317,7 +317,7 @@ B was deterministic. Estimated limits: about 70 clips for `item_details`, 320 fo
 
 **Verified 2026-11-22:**
 
-- `tests/test_isolation.py` loads each test file alone. It failed on `test_gateway` before the fix and catches a
+- `tests/unit/test_isolation.py` loads each test file alone. It failed on `test_gateway` before the fix and catches a
   missing or misplaced import.
 - Running all tests, each file alone and in changed orders, left the real bridge folder untouched.
 
@@ -372,7 +372,7 @@ child's tool call.
 
 **Verified 2026-11-23:**
 
-- `BridgeLock` tests (`tests/test_bridge_lock.py`), with a fake bridge that follows the Lua main loop and real client processes: two clients making 20 calls each lose nothing and run nothing twice; a waiter that gives up sends nothing; a waiter runs once the lock is free, with a fresh `ts`; the lock is released after an error; a client calling back to back lets a waiter in five times in a row and isn't starved in turn. Without the lock the two-client test failed 3 of 3 runs with "Bridge not running", as live. Each test fails again when its part of the fix is removed (the fairness test 5 of 5); with the fix the lock tests passed 5 of 5 runs.
+- `BridgeLock` tests (`tests/unit/test_bridge_lock.py`), with a fake bridge that follows the Lua main loop and real client processes: two clients making 20 calls each lose nothing and run nothing twice; a waiter that gives up sends nothing; a waiter runs once the lock is free, with a fresh `ts`; the lock is released after an error; a client calling back to back lets a waiter in five times in a row and isn't starved in turn. Without the lock the two-client test failed 3 of 3 runs with "Bridge not running", as live. Each test fails again when its part of the fix is removed (the fairness test 5 of 5); with the fix the lock tests passed 5 of 5 runs.
 - Live, `get_state` as fast as possible, 4 s ack timeout: 1 client 60 calls, 2 clients 600, 3 clients 450, all without a failure, at 0.35 s per call overall in each case, so serialising costs no throughput. Before the fix, 2 clients had 19 failures in 860 calls.
 - Through MCP after a server restart, while a script client made 150 `get_state` calls: `edit__timeline_summary`, `edit__inspect_range`, `edit__doctor` (`connected`), `legacy__get_state` and `legacy__list_timelines` all answered correctly, and the script client had no failures. The `edit__` calls run in the gateway and the `legacy__` calls in its child process, so three processes took turns.
 
@@ -464,7 +464,7 @@ back and returns `unverified`, reports `passed`.
 
 **Verified 2026-11-23 (with I-20):**
 
-- `BatchReport` tests (`tests/test_batch.py`): a batched `set_fades` keeps its warning in its row and in the batch's warnings, two moves list "keyframes are not copied" once for steps 1 and 2, a batch with `copy_grade` is `unverified` while markers plus a read are `passed`, and a stop is still `contradiction` with the stopping step's changes. They failed before the fix (the `passed` case is a guard), and each part's test fails again when it is removed.
+- `BatchReport` tests (`tests/unit/test_batch.py`): a batched `set_fades` keeps its warning in its row and in the batch's warnings, two moves list "keyframes are not copied" once for steps 1 and 2, a batch with `copy_grade` is `unverified` while markers plus a read are `passed`, and a stop is still `contradiction` with the stopping step's changes. They failed before the fix (the `passed` case is a guard), and each part's test fails again when it is removed.
 - Live on scratch timelines, a batch of `set_fades`, `copy_grade` and `add_markers`. Old code: `success` / `passed`, no warnings. New code: `success` / `unverified`, with the fades warning (step 1) and the grade warning (step 2), and each step's verification.
 
 <a id="i-19"></a>
@@ -485,7 +485,7 @@ Clip markers: Resolve 21.2 refuses an unnamed marker on a clip too (live probe w
 
 **Verified 2026-11-23:**
 
-- `Markers` tests (`tests/test_markers.py`) and a `Replace` test: unnamed or blank markers blocked with nothing sent, named ones read back, refusals and a lying bridge count give `partial` naming the markers, audio markers read back, a batch with an unnamed marker stops without writing, renamed clip markers give a warning. The Lua smoke test checks the bridge refusals. Each part's tests fail again when it is removed.
+- `Markers` tests (`tests/unit/test_markers.py`) and a `Replace` test: unnamed or blank markers blocked with nothing sent, named ones read back, refusals and a lying bridge count give `partial` naming the markers, audio markers read back, a batch with an unnamed marker stops without writing, renamed clip markers give a warning. The Lua smoke test checks the bridge refusals. Each part's tests fail again when it is removed.
 - Live on scratch timelines, new bridge and code: unnamed → `blocked`, nothing added; named → `success` / `passed`; a second marker on a taken frame → `partial` naming it; raw `add_marker` without a name → "marker needs a name".
 - Through MCP after a server restart: the same four results with `edit__add_markers` and `legacy__add_marker`.
 
@@ -566,7 +566,7 @@ it without gaps. `set_scratch_fps` (test-only, `_RCE_` timelines) sets the rate 
 
 **Verified 2026-11-23:**
 
-- `tests/test_bridge_hang.py`: a fake bridge that acks and hangs gives the timeout text, the record, the "still stuck" text, and clears it after a restart; without a hang the usual text stays; doctor shows both records. The Lua smoke test checks the stages, `previous_run_stuck` after a stuck run (not after idle or reloading), the stall in the marker, `scratch_stall` refused off scratch timelines, and that a replaced copy stays silent (it answered before that change). Each part's test fails again when it is removed.
+- `tests/unit/test_bridge_hang.py`: a fake bridge that acks and hangs gives the timeout text, the record, the "still stuck" text, and clears it after a restart; without a hang the usual text stays; doctor shows both records. The Lua smoke test checks the stages, `previous_run_stuck` after a stuck run (not after idle or reloading), the stall in the marker, `scratch_stall` refused off scratch timelines, and that a replaced copy stays silent (it answered before that change). Each part's test fails again when it is removed.
 - Live: an 8 s timeout on a 30 s stall gave the timeout text and the record, the next call said "still stuck since scratch_stall at …", and the first answer after the stall cleared it; the restart-while-stuck result above. With the final bridge, a second restart during a 300 s stall: 210 calls to the new copy across the old copy's wake-up all answered, and the old copy never sent its stale answer.
 - Through MCP after a server restart: `edit__doctor` reports `stage_marker`.
 
@@ -585,14 +585,14 @@ it without gaps. `set_scratch_fps` (test-only, `_RCE_` timelines) sets the rate 
 
 **Verified 2026-11-23:**
 
-- `ClipMarkers` tests (`tests/test_replace.py`), with clip markers in `FakeResolve`: a move and a head/tail trim keep markers at their source frames, including ones near the ends and hidden ones, with no shift sent; a marker lost in the copy gives `contradiction`; an older bridge is refused. The Lua smoke test copies markers at 5, 348 and 2000 onto a 10-frame clip, the unnamed one as `Marker`; on the old Lua only frame 5 was copied and nothing was reported. Each part's test fails again when it is removed.
+- `ClipMarkers` tests (`tests/unit/test_replace.py`), with clip markers in `FakeResolve`: a move and a head/tail trim keep markers at their source frames, including ones near the ends and hidden ones, with no shift sent; a marker lost in the copy gives `contradiction`; an older bridge is refused. The Lua smoke test copies markers at 5, 348 and 2000 onto a 10-frame clip, the unnamed one as `Marker`; on the old Lua only frame 5 was copied and nothing was reported. Each part's test fails again when it is removed.
 - Live, new bridge and code, on the probe timeline: moving A to 01:00:12:00 and trimming 30 frames off B's head gave `success` / `passed`, and all four items kept every marker at the same source frame. The user confirmed by the playhead that the hand and scripted markers sit on the same pictures.
 - Through MCP after a server restart: `edit__move_item` (A back to 01:00:00:00) and `edit__trim_item` (40 frames off B's tail) gave `success` / `passed` with all markers kept.
 
 <a id="i-24"></a>
 ### I-24 The live caption check assumes one Standard Generator Duration (low, fixed)
 
-**Where:** `tests/live_resolve.py` ("caption lengths 45/150/54")
+**Where:** `tests/live/live_resolve.py` ("caption lengths 45/150/54")
 
 **Problem:** the check expects the 204-frame caption in two parts, 150 + 54, which holds only when Resolve inserts a 150-frame title (5 s at 30 fps). On 2026-11-23 it came back as 45 and 204 (one part): the user's Standard Generator Duration is 15 s, and caption timelines take the target's rate (I-21), so the inserted title was 450 frames. "captions placed with exact lengths" passed.
 
@@ -604,8 +604,8 @@ it without gaps. `set_scratch_fps` (test-only, `_RCE_` timelines) sets the rate 
 
 **Verified 2026-11-23:**
 
-- `tests/test_prefs.py`: seconds and frames, a missing file, missing entries and broken XML, the doctor report, the preview note (1 caption in 3 parts for 40 s at 15 s and 30 fps) and no note without the preference. Each part's test fails again when it is removed, including pointing the tests at the real file.
-- Live: `tests/live_resolve.py` 31 of 31 on a 60 fps project, including "inserted title matches Standard Generator Duration (450 frames)". With the preference patched to 10 s, that check fails.
+- `tests/unit/test_prefs.py`: seconds and frames, a missing file, missing entries and broken XML, the doctor report, the preview note (1 caption in 3 parts for 40 s at 15 s and 30 fps) and no note without the preference. Each part's test fails again when it is removed, including pointing the tests at the real file.
+- Live: `tests/live/live_resolve.py` 31 of 31 on a 60 fps project, including "inserted title matches Standard Generator Duration (450 frames)". With the preference patched to 10 s, that check fails.
 
 <a id="i-25"></a>
 ### I-25 A long caption is several clips; it could be one (decided: keep parts)

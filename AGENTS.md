@@ -6,9 +6,11 @@
   - `tools/`: the `edit__` tools, one file per area (captions, clips, placement, ripple, ...).
   - `schemas/`: tool definitions (names, arguments, descriptions) for the `edit__`, `legacy__` and `media__` tools.
   - `servers/`: the MCP servers: `gateway.py` (the one clients connect to; runs `edit__` itself and forwards the rest), `legacy.py` (the `legacy__` bridge tools and the `media__` tools), `upstream.py` (where the upstream engine and legacy server are, and how to start them), `child.py` (one child server process over stdio).
-- `tests/`: unit tests with a fake Resolve (`support.py`), the Lua smoke test (`smoke_bridge.py`) and the by-hand live test (`live_resolve.py`).
+- `tests/`: the shared fake Resolve (`support.py`), a fake MCP server (`fake_mcp.py`) and the Lua smoke test (`smoke_bridge.py`).
+  - `unit/`: the unit tests (`test_*.py`), run by `python -m unittest`.
+  - `live/`: the by-hand live test against a real Resolve (`live_resolve.py`).
 - `docs/`:
-  - `ISSUES.md` (known issues and live test results)
+  - `ISSUES.md`: known issues and live test results
   - `PATCH_NOTES.md`
   - `MANUAL.md`
   - `THIRD_PARTY_NOTICES.md`.
@@ -220,7 +222,8 @@ Ask user to reconnect with tool via:
 ### Testing changes
 
 - Create tests first, fix code after, ensuring tests actually catch bugs.
-- Run from the repo root: `python -m unittest`, one area with `python -m unittest tests.test_batch`, the Lua smoke test with `python tests/smoke_bridge.py`, the linter with `python -m ruff check .` and the type checker with `python -m mypy` (settings for both in `pyproject.toml`). A new test file imports `tests.support` before `resolve_editor`.
+- Run from the repo root: `python -m unittest`, one area with `python -m unittest tests.unit.test_batch`, the Lua smoke test with `python tests/smoke_bridge.py`, the linter with `python -m ruff check .` and the type checker with `python -m mypy` (settings for both in `pyproject.toml`). A new unit test file goes in `tests/unit/` and imports `tests.support` before `resolve_editor`.
+- The live test (`python tests/live/live_resolve.py`, Resolve open, bridge running) runs every area on a scratch timeline; `--only captions,markers` runs some (areas: clips, transitions, markers, captions, reads).
 - In DaVinci, test new Resolve behaviour or code modification on a scratch timeline named `_RCE_...` (the bridge's `delete_scratch` removes it), never on the user's timeline.
 - If a call fails, read the timeline back (`edit__inspect_range`) before retrying: a failed insert may or may not have left something behind.
 
