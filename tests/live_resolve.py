@@ -13,7 +13,7 @@ from typing import Any
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from resolve_editor import dispatch, paths, session  # noqa: E402  (needs the sys.path line above)
+from resolve_editor import dispatch, paths, prefs, session  # noqa: E402  (needs the sys.path line above)
 from resolve_editor.tools import clips  # noqa: E402
 
 RESULTS: list[tuple[str, bool]] = []
@@ -65,6 +65,33 @@ def transitions(clip, start, name):
           status(r) == "success" and [r.get("start"), r.get("end")] == span(cut, "left"), r)
     r = add("misspelled", type="Cross Disolve")
     check("misspelled type: refused pointing at the type", status(r) == "failed" and "type" in str(r.get("reason")), r)
+
+
+def captions(start, name):
+    """Each caption covers its time exactly, in parts no longer than the inserted title, whatever Standard Generator
+    Duration is; when the saved preference can be read, the title length must match it (ISSUES.md I-24)."""
+    title = prefs.generator_frames(30)  # the scratch timeline is 30 fps
+    long_end = 2.2 + (title / 30 + 2 if title else 6.8)  # longer than one title when the length is known
+    segs: list[dict[str, Any]] = [{"start": 0.5, "end": 2.0, "text": "First caption"},
+                                  {"start": 2.2, "end": long_end, "text": "A long one"}]
+    r = dispatch.run("add_captions", {"segments": segs, "confirm": True, "timeline": name,
+                                      "folder": "_RCE_LIVE_CAPTIONS"})
+    check("captions placed with exact lengths", status(r) == "success", r)
+    track = max(x["track"] for x in session.items() if x["track_type"] == "video")
+    parts: dict[str, list[Any]] = {}
+    for x in sorted(session.items(), key=lambda x: x["start"]):
+        if x["track_type"] == "video" and x["track"] == track:
+            parts.setdefault(x["name"], []).append(x)
+    rows = [sorted(v, key=lambda x: x["start"]) for _, v in sorted(parts.items())]
+    want = [(start + round(s["start"] * 30), round(s["end"] * 30) - round(s["start"] * 30)) for s in segs]
+    got = [(p[0]["start"], sum(x["duration"] for x in p)) for p in rows]
+    gapless = all(a["end"] == b["start"] for p in rows for a, b in zip(p, p[1:], strict=False))
+    check("each caption covers its time without gaps", got == want and gapless, (want, got))
+    full = {x["duration"] for p in rows for x in p[:-1]}  # every part but the last is one whole title
+    check("parts are one title long, the last no longer",
+          len(full) <= 1 and all(p[-1]["duration"] <= min(full or {p[-1]["duration"]}) for p in rows), rows)
+    if title:
+        check(f"inserted title matches Standard Generator Duration ({title} frames)", full == {title}, full)
 
 
 def main():
@@ -154,14 +181,7 @@ def main():
         r = dispatch.run("add_audio_markers", {"path": clip_path, "kind": "beats", "dry_run": True})
         check("beat analysis runs", status(r) == "planned", r)
 
-        segs = [{"start": 0.5, "end": 2.0, "text": "First caption"},
-                {"start": 2.2, "end": 9.0, "text": "A long second one"}]
-        r = dispatch.run("add_captions", {"segments": segs, "confirm": True, "timeline": name,
-                                          "folder": "_RCE_LIVE_CAPTIONS"})
-        cards = [x for x in session.items() if x["track_type"] == "video" and x["track"] == max(
-            x["track"] for x in session.items() if x["track_type"] == "video")]
-        check("captions placed with exact lengths", status(r) == "success", r)
-        check("caption lengths 45/150/54", sorted(x["duration"] for x in cards) == [45, 54, 150], cards)
+        captions(start, name)
 
         r = dispatch.run("timeline_summary", {})
         check("summary counts transitions separately", "transitions" in r and r["overlaps"]["count"] == 0, r)

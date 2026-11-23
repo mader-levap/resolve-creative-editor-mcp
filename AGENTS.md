@@ -42,7 +42,7 @@ All tools come from the `resolve-creative-editor` MCP server (61 on free Resolve
 
 ### `edit__`: checked editing (preferred)
 
-- **edit__doctor**: check Python, FFmpeg, transcription, the upstream engine and the live Resolve bridge; after a hang, where the bridge stopped.
+- **edit__doctor**: check Python, FFmpeg, transcription, the upstream engine and the live Resolve bridge; after a hang, where the bridge stopped; Standard Generator Duration from Resolve's saved preferences.
 - **edit__timeline_summary**: per-track counts (empty tracks listed with 0), gaps, overlaps, transitions and reused clips. Run before editing.
 - **edit__inspect_range**: items between two frames/timecodes; `details` adds grade, transform, fades, speed, markers.
 - **edit__find_media**: search the Media Pool by name (id, name, frames, fps, type).
@@ -60,7 +60,7 @@ All tools come from the `resolve-creative-editor` MCP server (61 on free Resolve
 - **edit__copy_grade**: copy one clip's grade onto other clips.
 - **edit__add_markers**: add several timeline markers at once, read back. Every marker needs a name.
 - **edit__add_audio_markers**: mark silences or beats found in a file.
-- **edit__add_captions**: editable Text+ captions at exact times, from segments or by transcribing a file. One small timeline per caption; a caption longer than the inserted title (Standard Generator Duration) is placed in parts that share its text.
+- **edit__add_captions**: editable Text+ captions at exact times, from segments or by transcribing a file. One small timeline per caption; a caption longer than the inserted title (Standard Generator Duration) is placed in parts that share its text; the preview says which, from Standard Generator Duration.
 - **edit__export_srt**: write an .srt from segments or a transcription (user imports it by hand).
 - **edit__export_timeline**: export the current timeline as OTIO, FCPXML, EDL, AAF or DRT.
 - **edit__qc_file**: QC a rendered file: loudness, true peak, black/frozen frames, silence.
@@ -133,7 +133,7 @@ Observed on free DaVinci Resolve 21.2.0.6 through this server's Lua bridge. Othe
   - **Ripple insert.** Every clip on an unlocked track that ends after the playhead moves right by the inserted length, and trimming the title doesn't pull it back. Lock the other tracks (`lock_video_tracks`) first. `add_text_plus` refuses when something would move.
   - If the destination track is locked, Resolve refuses the insert ("Resolve refused to insert Text+").
   - On the **Cut page** the insert yields no usable item ("no Text+ tool in this title"). Switch to the Edit page (`legacy__open_page`), insert, then switch back.
-- Inserted length = Preferences > User > Editing > Standard Generator Duration, and that is the longest a script can make a title. There is no `SetEnd`/`SetDuration`/`SetStart`. `SetRightOffset(n)` sets the **absolute** unused tail (`GetRightOffset` reads it), not a delta: a 600-frame title inserted at 900 reports 300; `SetRightOffset(360)` ends it 60 frames earlier and `SetRightOffset(300)` restores it (verified). So titles can be shortened and lengthened again, up to the inserted length.
+- Inserted length = Preferences > User > Editing > Standard Generator Duration, and that is the longest a script can make a title. There is no `SetEnd`/`SetDuration`/`SetStart`. `SetRightOffset(n)` sets the **absolute** unused tail (`GetRightOffset` reads it), not a delta: a 600-frame title inserted at 900 reports 300; `SetRightOffset(360)` ends it 60 frames earlier and `SetRightOffset(300)` restores it (verified). So titles can be shortened and lengthened again, up to the inserted length. The scripting API can't read the preference; `edit__doctor` reads it from `%APPDATA%\Blackmagic Design\DaVinci Resolve\Preferences\config.user.xml` (`GeneratorDurationType`, `GeneratorDurationSecs`/`GeneratorDurationFrames`), which Resolve may write only when it saves its preferences. `SetSpeed` on a title is refused (verified), so slowing it down doesn't lengthen it.
 - Text+ defaults to the "Semibold" style; always set `style` (e.g. Normograf only has "Regular").
 - Text+ `size` is a 0–1 scale (default 0.08), not points. `x`/`y` are 0–1 with 0.5, 0.5 at the centre and y = 0 at the bottom.
 - Different sizes in one title card need two Text+ clips on separate tracks.

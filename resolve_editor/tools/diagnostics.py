@@ -5,7 +5,7 @@ import shutil
 import sys
 from typing import Any
 
-from .. import audit, bridge, paths
+from .. import audit, bridge, paths, prefs
 
 
 def audit_log(a: dict[str, Any]) -> dict[str, Any]:
@@ -26,6 +26,9 @@ def doctor(a: dict[str, Any] | None = None) -> dict[str, Any]:
     report = {"python": sys.version.split()[0], "ffmpeg": bool(shutil.which("ffmpeg") or os.environ.get("FFMPEG")),
               "ffprobe": bool(shutil.which("ffprobe") or os.environ.get("FFPROBE")), "faster_whisper": whisper,
               "bridge_folder": paths.DIR}
+    generator = prefs.describe(prefs.generator_duration())
+    if generator:  # the longest a script can make a title (ISSUES.md I-24)
+        report["standard_generator_duration"] = f"{generator} ({prefs.NOTE})"
     hang = bridge.read_hang()  # read first: an answer below clears it
     if hang:
         report["bridge_hang"] = hang

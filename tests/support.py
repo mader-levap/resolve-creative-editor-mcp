@@ -16,6 +16,8 @@ from typing import Any
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 os.environ["RESOLVE_BRIDGE_DIR"] = tempfile.mkdtemp()
+# Resolve's saved preferences: never the user's own file, so tests don't depend on their settings
+os.environ["RESOLVE_USER_PREFS"] = os.path.join(os.environ["RESOLVE_BRIDGE_DIR"], "config.user.xml")
 from resolve_editor import bridge, session  # noqa: E402  (only after the line above)
 
 

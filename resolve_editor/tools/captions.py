@@ -3,7 +3,7 @@ import time
 from fractions import Fraction
 from typing import Any
 
-from .. import media, outcome, paths, session, timecode, timeline
+from .. import media, outcome, paths, prefs, session, timecode, timeline
 
 CAPTION_BIN = "Captions (Resolve Creative Editor)"
 
@@ -73,6 +73,19 @@ def _complete(cards: list[dict[str, Any]], placed: list[dict[str, Any]]) -> int:
     return done
 
 
+def _parts_note(cards: list[dict[str, Any]], fps: Fraction) -> list[str]:
+    """Which captions will be placed in parts, from Standard Generator Duration (ISSUES.md I-24)."""
+    length = prefs.generator_frames(fps)
+    if not length:
+        return []
+    long = [c for c in cards if c["frames"] > length]
+    if not long:
+        return []
+    parts = sum(-(-c["frames"] // length) for c in long)
+    return [f"captions longer than {prefs.describe(prefs.generator_duration())} ({length} frames) are placed in parts: "
+            f"{len(long)} caption(s) in {parts} parts (Standard Generator Duration, {prefs.NOTE})"]
+
+
 def add_captions(a: dict[str, Any]) -> dict[str, Any]:
     segments = _segments(a)
     fps, _, state = session.clock()
@@ -82,7 +95,8 @@ def add_captions(a: dict[str, Any]) -> dict[str, Any]:
     if a.get("dry_run") or not a.get("confirm") or not cards:
         return outcome.preview({"captions": preview[: a.get("limit") or 20], "count": len(cards), "bin": CAPTION_BIN},
                                ["each caption is a small timeline in the bin; edit its text there",
-                                "a caption longer than Resolve's inserted title is placed in parts sharing its text"])
+                                "a caption longer than Resolve's inserted title is placed in parts sharing its text"]
+                               + _parts_note(cards, fps))
     if not state.get("caption_parts"):
         return outcome.blocked("the Resolve bridge is older than this server and can't place long captions; "
                                "restart the bridge (Workspace > Scripts > resolve_bridge)")

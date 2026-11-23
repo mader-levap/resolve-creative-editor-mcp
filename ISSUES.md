@@ -1,6 +1,6 @@
 # Issues
 
-Found while testing `edit__add_transition`, 2026-11-22. This is the base for fixes. Fixed so far: I-01, I-02, I-03, I-04, I-05, I-06, I-07, I-08, I-09, I-10, I-11, I-12, I-13, I-14, I-15, I-16, I-17, I-18, I-19, I-20, I-21, I-23.
+Found while testing `edit__add_transition`, 2026-11-22. This is the base for fixes. Fixed so far: I-01, I-02, I-03, I-04, I-05, I-06, I-07, I-08, I-09, I-10, I-11, I-12, I-13, I-14, I-15, I-16, I-17, I-18, I-19, I-20, I-21, I-23, I-24.
 
 - Environment: free DaVinci Resolve 21.2.0.6, Windows 10, 60 fps timeline.
 - Code is named by file and function, with paths from the repo root.
@@ -39,9 +39,10 @@ How each item is known:
 | [I-21](#i-21) | ~~High~~ **Fixed** | A long caption fails and takes the following ones with it | Live, fake |
 | [I-22](#i-22) | Medium, **handled** | The bridge can stop answering, cause unknown | Live, once |
 | [I-23](#i-23) | ~~High~~ **Fixed** | Moving or trimming a clip drops its clip markers, reported as `passed` | Live, fake |
-| [I-24](#i-24) | Low | The live caption check assumes one Standard Generator Duration | Live |
+| [I-24](#i-24) | ~~Low~~ **Fixed** | The live caption check assumes one Standard Generator Duration | Live, fake |
+| [I-25](#i-25) | **Decided**: keep parts | A long caption is several clips; it could be one | Live probe |
 
-Order, one fix at a time, worst first: low (I-24); I-22 waits for the next sighting, which will now name where it stopped. Re-rank after each fix.
+Order, one fix at a time, worst first: nothing open; I-22 waits for the next sighting, which will now name where it stopped. Re-rank after each fix.
 
 ## Issues
 
@@ -589,15 +590,41 @@ it without gaps. `set_scratch_fps` (test-only, `_RCE_` timelines) sets the rate 
 - Through MCP after a server restart: `edit__move_item` (A back to 01:00:00:00) and `edit__trim_item` (40 frames off B's tail) gave `success` / `passed` with all markers kept.
 
 <a id="i-24"></a>
-### I-24 The live caption check assumes one Standard Generator Duration (low)
+### I-24 The live caption check assumes one Standard Generator Duration (low, fixed)
 
 **Where:** `tests/live_resolve.py` ("caption lengths 45/150/54")
 
-**Problem:** the check expects the 204-frame caption in two parts, 150 + 54, which holds only when Resolve inserts a 150-frame title (5 s at 30 fps). On 2026-11-23 it came back as 45 and 204 (one part), so the inserted title was longer; "captions placed with exact lengths" passed. Likely the Standard Generator Duration preference or the project's 60 fps rate for the caption timelines; not checked.
+**Problem:** the check expects the 204-frame caption in two parts, 150 + 54, which holds only when Resolve inserts a 150-frame title (5 s at 30 fps). On 2026-11-23 it came back as 45 and 204 (one part): the user's Standard Generator Duration is 15 s, and caption timelines take the target's rate (I-21), so the inserted title was 450 frames. "captions placed with exact lengths" passed.
 
-**Fix:** check each caption's total length and that no part is longer than the inserted title, instead of a fixed split.
+**Fix:**
 
-**Done when:** the check passes for any Standard Generator Duration and still fails when a caption's length is wrong.
+- New `resolve_editor/prefs.py` reads Standard Generator Duration from Resolve's saved preferences, which the scripting API doesn't expose: `%APPDATA%\Blackmagic Design\DaVinci Resolve\Preferences\config.user.xml`, `GeneratorDurationType` (`DURATION_IN_SECONDS` or `DURATION_IN_FRAMES`) with `GeneratorDurationSecs` or `GeneratorDurationFrames`. Only read; `None` when it can't be. `RESOLVE_USER_PREFS` overrides the path, and the tests point it at a file that doesn't exist, so they never read the user's settings. Resolve may write the file only when it saves its preferences, so a change in the current session may not show yet; the bridge still measures the inserted title when it places captions.
+- `edit__doctor` reports `standard_generator_duration`. The `edit__add_captions` preview says how many captions will be placed in parts and in how many.
+- The live test checks what the tool promises: each caption covers its time without gaps, every part but the last is one title long, and the last no longer. When the preference can be read, the long caption is made 2 s longer than it and the inserted title must match it.
+
+**Verified 2026-11-23:**
+
+- `tests/test_prefs.py`: seconds and frames, a missing file, missing entries and broken XML, the doctor report, the preview note (1 caption in 3 parts for 40 s at 15 s and 30 fps) and no note without the preference. Each part's test fails again when it is removed, including pointing the tests at the real file.
+- Live: `tests/live_resolve.py` 31 of 31 on a 60 fps project, including "inserted title matches Standard Generator Duration (450 frames)". With the preference patched to 10 s, that check fails.
+
+<a id="i-25"></a>
+### I-25 A long caption is several clips; it could be one (decided: keep parts)
+
+**Where:** `resolve_bridge.lua` (`add_title_cards`), `resolve_editor/tools/captions.py`
+
+**Now:** a caption longer than the inserted title (Standard Generator Duration) is placed as several clips back to back on the target, all from its one inner timeline (I-21).
+
+**Probe, live 2026-11-23** (30 fps scratch timelines, 15 s title, a 40 s caption):
+
+| | Method | Result |
+|---|---|---|
+| A | Three Text+ back to back inside the caption's own inner timeline (450 + 450 + 450), then the inner timeline placed once, 1200 frames | **Works.** One clip of 1200 frames on the target. Frames at 5, 445, 455, 895, 905 and 1195 are pixel-identical, so the inner cuts don't show. Fades on the outer clip read back 15/15. `style_text_plus` changed the text of all three inner titles, and the frame showed the new text |
+| B | `SetSpeed` 37.5 % with `RippleTimeline` on the inner title | Refused (`ok: false`, speed stays 100 %), title stays 450 frames |
+| C | Lengthen a title past the inserted length (`SetEnd`/`SetDuration`, a negative `SetRightOffset`) | Not tried: no bridge op does it, and AGENTS.md already records there is no `SetEnd`/`SetDuration` |
+
+**Choice:** A would make every caption one clip on the target. The costs are: in Resolve, changing a long caption's wording by hand means changing each title inside its inner timeline; Text+ animation restarts at each inner cut (a static caption, as now, looks the same); and the inner insert is a ripple insert, harmless only because the inner timeline holds nothing else. Needs a bridge change, so it waits for the user's decision.
+
+**Decision 2026-11-23:** keep parts. Each part is the caption's one inner timeline, so editing its text there changes every part, and nothing changes in the bridge. The probe results stay here in case it comes up again.
 
 ## Live tests
 
