@@ -1,6 +1,6 @@
 # Issues
 
-Found while testing `edit__add_transition`, 2026-11-22. This is the base for fixes. Fixed so far: I-01, I-02, I-03, I-04, I-05, I-06, I-07, I-08, I-09, I-10, I-11, I-13, I-14, I-15, I-16, I-17, I-18, I-19, I-20, I-21, I-23.
+Found while testing `edit__add_transition`, 2026-11-22. This is the base for fixes. Fixed so far: I-01, I-02, I-03, I-04, I-05, I-06, I-07, I-08, I-09, I-10, I-11, I-12, I-13, I-14, I-15, I-16, I-17, I-18, I-19, I-20, I-21, I-23.
 
 - Environment: free DaVinci Resolve 21.2.0.6, Windows 10, 60 fps timeline.
 - Code is named by file and function, with paths from the repo root.
@@ -39,8 +39,9 @@ How each item is known:
 | [I-21](#i-21) | ~~High~~ **Fixed** | A long caption fails and takes the following ones with it | Live, fake |
 | [I-22](#i-22) | Medium, **handled** | The bridge can stop answering, cause unknown | Live, once |
 | [I-23](#i-23) | ~~High~~ **Fixed** | Moving or trimming a clip drops its clip markers, reported as `passed` | Live, fake |
+| [I-24](#i-24) | Low | The live caption check assumes one Standard Generator Duration | Live |
 
-Order, one fix at a time, worst first: low (I-12); I-22 waits for the next sighting, which will now name where it stopped. Re-rank after each fix.
+Order, one fix at a time, worst first: low (I-24); I-22 waits for the next sighting, which will now name where it stopped. Re-rank after each fix.
 
 ## Issues
 
@@ -255,7 +256,7 @@ listed only V1 and V2, so a new track can't be verified or seen.
 **Verified 2026-11-23:** `EmptyTracks` tests (`tests/test_inspection.py`): added tracks show with 0 next to the counted ones; an older bridge gives item-only tracks and the note; `analyze` without counts is unchanged. The Lua smoke test checks `track_counts`. Each part's test fails again when it is removed. Live on a scratch timeline with one clip: `{A1: 1, V1: 1}`, then after adding a video and an audio track `{A1: 1, A2: 0, V1: 1, V2: 0}`.
 
 <a id="i-12"></a>
-### I-12 The live transition test accepts a refusal as a pass (low)
+### I-12 The live transition test accepts a refusal as a pass (low, fixed)
 
 **Where:** `tests/live_resolve.py` (the `add_transition` check)
 
@@ -266,6 +267,10 @@ listed only V1 and V2, so a new track can't be verified or seen.
 the real behaviour) separately. Add `add_transition` to `FakeResolve` with tests for the issues above.
 
 **Done when:** the live test fails if a valid transition is refused or misplaced.
+
+**Fix:** the fake and unit-test half came with I-04 to I-09 (`FakeResolve.transition`, `tests/test_transition.py`). The live test now has its own transition section on fresh clip pairs, with expectations from T2/T3: a valid 10-frame centred Cross Dissolve must be `success`/`passed` at exactly `expected_span`, with the linked audio crossfade at the same span; no spare frames after the outgoing clip must be `failed` naming that side (centred) and made at the exact span (left); a misspelled type must be `failed` pointing at the type. The scratch timeline is also set to 30 fps, the generated clip's rate: on a 60 fps project the move, trim and transition checks were blocked by "clip frame rate differs from the timeline" (8 of 13 failed before this change).
+
+**Verified 2026-11-23:** live run on a 60 fps project, 28 of 29 checks pass, all transition checks included; the one failure is I-24. Two one-off mutations of `add_transition` were caught: always sending left alignment (the exact-span checks fail) and a broken type name (the valid-transition checks fail).
 
 <a id="i-13"></a>
 ### I-13 Bridge replies fail when half-written or over 65 KB (critical, fixed)
@@ -582,6 +587,17 @@ it without gaps. `set_scratch_fps` (test-only, `_RCE_` timelines) sets the rate 
 - `ClipMarkers` tests (`tests/test_replace.py`), with clip markers in `FakeResolve`: a move and a head/tail trim keep markers at their source frames, including ones near the ends and hidden ones, with no shift sent; a marker lost in the copy gives `contradiction`; an older bridge is refused. The Lua smoke test copies markers at 5, 348 and 2000 onto a 10-frame clip, the unnamed one as `Marker`; on the old Lua only frame 5 was copied and nothing was reported. Each part's test fails again when it is removed.
 - Live, new bridge and code, on the probe timeline: moving A to 01:00:12:00 and trimming 30 frames off B's head gave `success` / `passed`, and all four items kept every marker at the same source frame. The user confirmed by the playhead that the hand and scripted markers sit on the same pictures.
 - Through MCP after a server restart: `edit__move_item` (A back to 01:00:00:00) and `edit__trim_item` (40 frames off B's tail) gave `success` / `passed` with all markers kept.
+
+<a id="i-24"></a>
+### I-24 The live caption check assumes one Standard Generator Duration (low)
+
+**Where:** `tests/live_resolve.py` ("caption lengths 45/150/54")
+
+**Problem:** the check expects the 204-frame caption in two parts, 150 + 54, which holds only when Resolve inserts a 150-frame title (5 s at 30 fps). On 2026-11-23 it came back as 45 and 204 (one part), so the inserted title was longer; "captions placed with exact lengths" passed. Likely the Standard Generator Duration preference or the project's 60 fps rate for the caption timelines; not checked.
+
+**Fix:** check each caption's total length and that no part is longer than the inserted title, instead of a fixed split.
+
+**Done when:** the check passes for any Standard Generator Duration and still fails when a caption's length is wrong.
 
 ## Live tests
 

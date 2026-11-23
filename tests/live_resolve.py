@@ -14,6 +14,7 @@ from typing import Any
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from resolve_editor import dispatch, paths, session  # noqa: E402  (needs the sys.path line above)
+from resolve_editor.tools import clips  # noqa: E402
 
 RESULTS: list[tuple[str, bool]] = []
 
@@ -29,6 +30,41 @@ def B(op, **a):
 
 def status(r):
     return r.get("_operation", {}).get("status")
+
+
+def transitions(clip, start, name):
+    """A valid transition must land exactly where asked; refusals must be the ones seen live (ISSUES.md I-12, T3/T4)."""
+    pairs = {"valid": (1000, 30), "no spare": (1200, 300), "misspelled": (1400, 30)}  # record offset, first source
+    r = dispatch.run("place_clips", {"clips": [c for at, src in pairs.values() for c in (
+        {"clip": clip, "start_frame": src, "end_frame": src + 60, "record": start + at},
+        {"clip": clip, "start_frame": 120, "end_frame": 180, "record": start + at + 60})],
+        "confirm": True, "timeline": name})
+    check("transition clips placed", status(r) == "success", r)
+    outgoing = {x["start"] - start: x for x in session.items() if x["track_type"] == "video"}
+
+    def add(case, **extra):
+        return dispatch.run("add_transition", {"item_id": outgoing[pairs[case][0]]["id"], "duration": 10,
+                                               "confirm": True, "timeline": name, **extra})
+
+    def span(cut, alignment):
+        return [session.to_tc(f) for f in clips.expected_span(cut, alignment, 10)]
+
+    cut = start + 1060
+    r = add("valid")
+    linked = (r.get("linked") or [{}])[0]
+    verdict = (status(r), r.get("_operation", {}).get("verification"))
+    check("valid transition passes", verdict == ("success", "passed"), r)
+    check("valid transition at the exact span", [r.get("start"), r.get("end")] == span(cut, "center"), r)
+    check("linked audio crossfade at the same span", [linked.get("start"), linked.get("end")] == span(cut, "center"), r)
+    cut = start + 1260  # the outgoing clip ends at the source's last frame
+    r = add("no spare")
+    check("no spare frames, centred: refused naming the side",
+          status(r) == "failed" and "after the outgoing clip" in str(r.get("reason")), r)
+    r = add("no spare", alignment="left")
+    check("no spare frames, left: made at the exact span",
+          status(r) == "success" and [r.get("start"), r.get("end")] == span(cut, "left"), r)
+    r = add("misspelled", type="Cross Disolve")
+    check("misspelled type: refused pointing at the type", status(r) == "failed" and "type" in str(r.get("reason")), r)
 
 
 def main():
@@ -49,6 +85,7 @@ def main():
         media = [m for m in B("list_media") if m["name"] == "rce_live_clip.mp4"]
         clip = media[0]["id"] if media else B("import_media", paths=[clip_path])[0]["id"]
         B("create_timeline", name=name)
+        B("set_scratch_fps", timeline=name, fps=30)  # the generated clip's rate, whatever the project's is
         B("set_current_timeline", name=name)
         session.invalidate()
         start = B("get_state")["timeline_start_frame"]
@@ -104,9 +141,7 @@ def main():
         trimmed = (r.get("_operation", {}).get("changes", {}).get("replaced") or [{}])[0]
         check("trim preserves and verifies", status(r) == "success" and trimmed.get("to", [None, 0])[1] == 45, r)
 
-        r = dispatch.run("add_transition", {"item_id": second["id"], "position": "start", "duration": 10,
-                                            "confirm": True, "timeline": name})
-        check("transition refused or added honestly", status(r) in ("success", "partial") or "refused" in str(r), r)
+        transitions(clip, start, name)
         r = dispatch.run("set_fades", {"item_ids": [second["id"]], "fade_in": 0, "fade_out": 8})
         check("set_fades read-back", status(r) == "success", r)
         r = dispatch.run("set_enabled", {"item_ids": [second["id"]], "enabled": False})

@@ -2,6 +2,7 @@
 
 ## 2026-11-23
 
+- Fixed: the live test accepted a refused or misplaced transition as a pass (ISSUES.md I-12). It now checks a valid transition's exact span and linked audio crossfade, and the refusals seen live. Its scratch timeline is set to 30 fps, so it also runs on projects at other rates. Logged I-24: the caption length check assumes one Standard Generator Duration.
 - Fixed: `edit__timeline_summary` left out empty tracks, so a newly added track couldn't be seen (ISSUES.md I-11). Every track is now listed, empty ones with 0. Needs the new bridge script.
 - Fixed: a refused transition always blamed spare source frames and ended in a bare error (ISSUES.md I-09). It is now a `failed` result with the request, the checked spare frames and the likely cause (a side with none that the alignment needs, or the type). Live T3/T4 recorded what Resolve refuses and when it shortens instead. Needs the new bridge script.
 - Changed: when the bridge stops answering after acknowledging a request (ISSUES.md I-22, cause still unknown), the error names the op, says a write may have been made and asks for a restart; later calls say it is still stuck instead of "not running"; `edit__doctor` shows where the stuck copy stopped (`previous_run_stuck`). A replaced copy no longer sends a late answer. Needs the new bridge script.

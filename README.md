@@ -117,7 +117,7 @@ Claude makes a backup copy of the timeline before every move or trim, and asks b
 
 ## What works
 
-**Live-tested** means it ran against real DaVinci Resolve 21.1.0.17 free on Windows (`tests/live_resolve.py`, 23 checks, all passing). **Automated** means it is covered by tests with a fake Resolve, which prove the logic but not Resolve's behaviour.
+**Live-tested** means it ran against real DaVinci Resolve free on Windows (`tests/live_resolve.py`, on a 30 fps scratch timeline: 23 checks all passing on 21.1.0.17; 28 of 29 on 21.2.0.6, the failure being a test assumption, ISSUES.md I-24). **Automated** means it is covered by tests with a fake Resolve, which prove the logic but not Resolve's behaviour.
 
 | Area | Tool | Free 21.1 | Studio |
 |---|---|---|---|
