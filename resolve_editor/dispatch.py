@@ -28,11 +28,22 @@ def batch(a: dict[str, Any]) -> dict[str, Any]:
         rows = [_preview_step(o) for o in ops]
         unchecked = sum("not_run" in r for r in rows)
         return outcome.preview(rows, [f"{unchecked} step(s) have no preview and were not checked"] if unchecked else [])
-    snapshot = timeline.snapshot_timeline({"label": "before batch"}).get("snapshot")
+    try:
+        backup = timeline.snapshot_timeline({"label": "before batch"})
+    except Exception as exc:
+        backup = outcome.op("failed", False, reason=f"{type(exc).__name__}: {exc}")
+    snapshot = backup.get("snapshot")
+    if backup.get("_operation", {}).get("status") != "success":
+        return outcome.op("failed", False, reason=f"no backup, so no step was run: {backup.get('reason')}",
+                          results=[], not_run=[o["tool"] for o in ops], snapshot=snapshot)
     results = []
     for o in ops:
         args = dict(o.get("args") or {}, confirm=True, backup=False)
-        r = run(o["tool"], args)
+        try:
+            r = run(o["tool"], args)
+        except Exception as exc:  # a refusal by Resolve, or a bug: stop like a failed step (ISSUES.md I-02)
+            r = outcome.op("failed", False, reason=f"{type(exc).__name__}: {exc}",
+                           warnings=["the step may have changed the timeline before the error; read it back"])
         status = r.get("_operation", {}).get("status", "success")
         row = {"tool": o["tool"], "status": status, "reason": r.get("reason")}
         results.append(row)
@@ -123,7 +134,13 @@ def _run_pinned(name: str, args: dict[str, Any]) -> dict[str, Any]:
 
 
 def _dispatch(name: str, args: dict[str, Any]) -> dict[str, Any]:
-    result = HANDLERS[name](args)
+    try:
+        result = HANDLERS[name](args)
+    except Exception:
+        if session.pin is not None and name not in READ_ONLY:  # a write was under way and may have changed something
+            session.invalidate()
+            audit.log_audit("edit__" + name, args, "error")
+        raise
     status = result.get("_operation", {}).get("status") if isinstance(result, dict) else None
     if name not in READ_ONLY and status not in (None, "preview", "planned", "blocked"):
         session.invalidate()

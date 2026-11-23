@@ -2,6 +2,7 @@
 
 ## 2026-11-23
 
+- Fixed: an error inside `edit__batch`, such as Resolve refusing a transition, lost the completed steps and the backup name and wasn't audited (ISSUES.md I-02). The batch now stops at that step and returns the steps done, the error, the steps not run and the backup. A batch whose backup fails runs no step. Writing `edit__` calls that end in an error are audited as `error`.
 - Fixed: a long caption failed and took the following captions with it (ISSUES.md I-21). Each caption is now one
   small timeline, placed in parts no longer than the inserted Text+ title, at any frame rate. Needs the new bridge
   script.

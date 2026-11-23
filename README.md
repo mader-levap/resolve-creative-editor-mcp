@@ -159,7 +159,7 @@ Workaround: drag any fade handle on the clip once, any length. From then on, fad
 
 ## Safety
 
-- Destructive `edit__` tools return a **preview** first and need `confirm=true` to run. Only the boolean `true` counts, not `"true"` or `1`. The confirm must also name the timeline the preview was for (`timeline`); it is refused if another timeline is current. An unconfirmed `edit__batch` changes nothing: it lists the steps that have no preview.
+- Destructive `edit__` tools return a **preview** first and need `confirm=true` to run. Only the boolean `true` counts, not `"true"` or `1`. The confirm must also name the timeline the preview was for (`timeline`); it is refused if another timeline is current. An unconfirmed `edit__batch` changes nothing: it lists the steps that have no preview. A confirmed batch stops at the first step that doesn't succeed, including one that ends in an error, and returns what ran, what didn't and the backup name.
 - Moves and trims make a **backup timeline**, build the replacement before removing the original, and put the clip back with its settings if anything fails.
 - Every result says whether Resolve's read-back matched (`verification: passed`) or not.
 - `legacy__delete_items` and `legacy__start_render` need `confirm=true`.

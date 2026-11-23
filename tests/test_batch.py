@@ -3,7 +3,7 @@ from unittest import mock
 
 from tests.support import SAMPLE_ARGS, Base, FakeResolve, item
 
-from resolve_editor import dispatch, media, outcome
+from resolve_editor import audit, dispatch, media, outcome, timeline
 
 
 class Answers(FakeResolve):
@@ -105,3 +105,81 @@ class BatchStop(Base):
         self.assertEqual((f.calls.count("add_markers"), f.calls.count("copy_grade")), (1, 1))
         self.assertFalse(r.get("reason"))
         self.assertFalse(r.get("not_run"))
+
+
+class BatchError(Base):
+    """An error inside a step stops the batch like a failed step, and nothing is lost (ISSUES.md I-02)."""
+
+    def setUp(self):
+        self.audited: list[tuple[str, str]] = []
+        patch = mock.patch.object(audit, "log_audit", lambda tool, args, status: self.audited.append((tool, status)))
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def batch(self, *ops):
+        return dispatch.run("batch", {"confirm": True, "timeline": "T", "operations": list(ops)})
+
+    STEPS = ({"tool": "add_markers", "args": SAMPLE_ARGS["add_markers"]},
+             {"tool": "add_transition", "args": SAMPLE_ARGS["add_transition"]},
+             {"tool": "copy_grade", "args": SAMPLE_ARGS["copy_grade"]})
+
+    def test_refusal_at_step_2_of_3_keeps_results_and_backup(self):
+        f = self.use(FakeResolve([item("a", 1000, 10, src=5)], fail_on={"add_transition": 1}))
+        r = self.batch(*self.STEPS)
+        self.assertEqual([x["status"] for x in r["results"]], ["success", "failed"])
+        self.assertIn("add_transition failed", r["results"][1]["reason"])
+        self.assertIn("read it back", " ".join(r["results"][1]["warnings"]))
+        self.assertEqual(r["not_run"], ["copy_grade"])
+        self.assertNotIn("copy_grade", f.calls)
+        self.assertIn(r["snapshot"], f.timelines)
+        self.assertIn("step 2 of 3 (add_transition: failed); 1 not run", r["reason"])
+        self.assertEqual(r["_operation"]["status"], "partial")
+
+    def test_failed_batch_is_audited(self):
+        self.use(FakeResolve([item("a", 1000, 10, src=5)], fail_on={"add_transition": 1}))
+        self.batch(*self.STEPS)
+        self.assertEqual([x for x in self.audited if x[0] != "edit__snapshot_timeline"],
+                         [("edit__add_markers", "success"), ("edit__add_transition", "error"),
+                          ("edit__batch", "partial")])
+
+    def test_any_exception_in_a_step_is_caught(self):
+        f = self.use(FakeResolve([item("a", 1000, 10, src=5)]))
+
+        def boom(a):
+            raise ValueError("bad value")
+        with mock.patch.dict(dispatch.HANDLERS, {"stub": boom}):
+            r = self.batch({"tool": "stub"}, self.STEPS[2])
+        self.assertEqual(r["results"][0]["status"], "failed")
+        self.assertIn("ValueError: bad value", r["results"][0]["reason"])
+        self.assertNotIn("copy_grade", f.calls)
+        self.assertEqual(r["not_run"], ["copy_grade"])
+
+    def test_backup_error_runs_no_step(self):
+        f = self.use(FakeResolve([item("a", 1000, 10, src=5)], fail_on={"duplicate_timeline": 1}))
+        r = self.batch(*self.STEPS)
+        self.assertEqual(r["_operation"]["status"], "failed")
+        self.assertIn("duplicate_timeline failed", r["reason"])
+        self.assertEqual(r["not_run"], ["add_markers", "add_transition", "copy_grade"])
+        self.assertFalse({"add_markers", "add_transition", "copy_grade"} & set(f.calls))
+        self.assertIn(("edit__batch", "failed"), self.audited)
+
+    def test_backup_not_made_runs_no_step(self):
+        f = self.use(FakeResolve([item("a", 1000, 10, src=5)]))
+        with mock.patch.object(timeline, "snapshot_timeline", lambda a: outcome.blocked("no current timeline")):
+            r = self.batch(*self.STEPS)
+        self.assertEqual(r["_operation"]["status"], "failed")
+        self.assertIn("no current timeline", r["reason"])
+        self.assertEqual(r["not_run"], ["add_markers", "add_transition", "copy_grade"])
+        self.assertFalse({"add_markers", "add_transition", "copy_grade"} & set(f.calls))
+
+    def test_single_write_that_raises_is_audited_and_still_raises(self):
+        self.use(FakeResolve([item("a", 1000, 10, src=5)], fail_on={"add_transition": 1}))
+        with self.assertRaises(RuntimeError):
+            dispatch.run("add_transition", SAMPLE_ARGS["add_transition"])
+        self.assertEqual(self.audited, [("edit__add_transition", "error")])
+
+    def test_preview_that_raises_is_not_audited(self):
+        self.use(FakeResolve([item("a", 1000, 10, src=5)], fail_on={"item_details": 9}))
+        with self.assertRaises(RuntimeError):
+            dispatch.run("move_item", SAMPLE_ARGS["move_item"])
+        self.assertEqual(self.audited, [])

@@ -1,6 +1,6 @@
 # Issues
 
-Found while testing `edit__add_transition`, 2026-11-22. This is the base for fixes. Fixed so far: I-01, I-03, I-13, I-14, I-16, I-17, I-21.
+Found while testing `edit__add_transition`, 2026-11-22. This is the base for fixes. Fixed so far: I-01, I-02, I-03, I-13, I-14, I-16, I-17, I-21.
 
 - Environment: free DaVinci Resolve 21.2.0.6, Windows 10, 60 fps timeline.
 - Code is named by file and function, with paths from the repo root.
@@ -17,7 +17,7 @@ How each item is known:
 | ID | Severity | Issue | Known by |
 |---|---|---|---|
 | [I-01](#i-01) | ~~Critical~~ **Fixed** | `batch` preview makes real changes | Fake, live |
-| [I-02](#i-02) | High | An error inside `batch` loses the results and backup name | Fake |
+| [I-02](#i-02) | ~~High~~ **Fixed** | An error inside `batch` loses the results and backup name | Live, fake |
 | [I-03](#i-03) | ~~High~~ **Fixed** | `batch` continues after a `partial` step | Live, fake |
 | [I-04](#i-04) | High | `add_transition` verifies only the length | Fake |
 | [I-05](#i-05) | Medium | `ripple_trim` ignores transitions on other tracks | Fake |
@@ -39,7 +39,7 @@ How each item is known:
 | [I-21](#i-21) | ~~High~~ **Fixed** | A long caption fails and takes the following ones with it | Live, fake |
 | [I-22](#i-22) | Medium | The bridge can stop answering, cause unknown | Live, once |
 
-Order, one fix at a time, worst first: I-02, I-15, I-04, then medium (I-19 first, as it now stops
+Order, one fix at a time, worst first: I-15, I-04, then medium (I-19 first, as it now stops
 batches), then low. Re-rank after each fix.
 
 ## Issues
@@ -75,7 +75,7 @@ The old `test_batch_previews_without_writing` only covered `move_item` without a
 a preview still write when called directly (I-06).
 
 <a id="i-02"></a>
-### I-02 An error inside `batch` loses the results and backup name (high)
+### I-02 An error inside `batch` loses the results and backup name (high, fixed)
 
 **Where:** `resolve_editor/dispatch.py` (`batch`, `run`), `resolve_editor/session.py` (`call`)
 
@@ -85,10 +85,15 @@ completed steps and not the name of the backup that was made. The failed batch i
 **Repro:** confirmed batch whose `add_transition` is refused. The backup is created, then a bare `RuntimeError`
 is raised and the audit log stays empty.
 
-**Fix:** catch per step, record it as `failed` with the reason, stop, and return `results` and `snapshot`.
+**Fix:** an error in a step is caught and stops the batch like a `failed` step: the result has the steps done, the error as the step's reason with a warning to read back, `not_run` and `snapshot`, and the batch is audited. A writing `edit__` call that raises, in a batch or alone, is audited as `error` and still raises; previews and reads aren't audited. If the backup raises or doesn't succeed, the batch returns `failed` and runs no step (before, a backup that didn't succeed gave `snapshot: null` and the steps still ran).
 
-**Done when:** a refusal at step 2 of 3 returns step 1, the failure and the backup name; step 3 doesn't run; the
-batch is audited.
+**Verified 2026-11-23:**
+
+- `BatchError` tests: a refusal at step 2 of 3, any exception in a step, a backup that raises or isn't made, auditing of the batch and of a single write that raises, no audit for a preview that raises. Six failed before the fix (the preview one is a guard), and each fails again when its part of the fix is removed.
+- Live on scratch timelines, a batch of a marker, a transition Resolve refuses (no spare head frames) and a marker. Old code: a bare `RuntimeError`, although the first marker and the backup had been made; only the marker step was audited. New code: `partial`, step 1 `success`, step 2 `failed` with Resolve's reason, step 3 in `not_run`, the backup named and present; the marker step, the failed step (`error`) and the batch are audited.
+- Through MCP after a server restart: the same batch gave the same result, with only the step 1 marker on the timeline, the backup named, and the three audit entries in `edit__audit_log`.
+
+**Limit:** when the backup is made but Resolve doesn't return to the timeline, the error doesn't name the backup.
 
 <a id="i-03"></a>
 ### I-03 `batch` continues after a `partial` step (high, fixed)
@@ -574,7 +579,7 @@ bug until that is known.
 
 ## After fixing
 
-- From the repo root: `python -m unittest` (baseline: 69 tests, all pass) and `python tests/smoke_bridge.py`
+- From the repo root: `python -m unittest` (baseline: 86 tests, all pass) and `python tests/smoke_bridge.py`
   (needs `lupa`).
 - Restart the MCP server, and the bridge if the Lua changed, then repeat the affected live tests.
 - Update the transitions row in `README.md`, plus `AGENTS.md` and `PATCH_NOTES.md`.
