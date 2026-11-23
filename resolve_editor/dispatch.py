@@ -36,26 +36,45 @@ def batch(a: dict[str, Any]) -> dict[str, Any]:
     if backup.get("_operation", {}).get("status") != "success":
         return outcome.op("failed", False, reason=f"no backup, so no step was run: {backup.get('reason')}",
                           results=[], not_run=[o["tool"] for o in ops], snapshot=snapshot)
-    results = []
-    for o in ops:
+    results: list[dict[str, Any]] = []
+    notes: dict[str, list[tuple[int, str]]] = {}  # each warning once, with the steps that gave it (ISSUES.md I-20)
+    unverified = False
+    for n, o in enumerate(ops, 1):
         args = dict(o.get("args") or {}, confirm=True, backup=False)
         try:
             r = run(o["tool"], args)
         except Exception as exc:  # a refusal by Resolve, or a bug: stop like a failed step (ISSUES.md I-02)
             r = outcome.op("failed", False, reason=f"{type(exc).__name__}: {exc}",
                            warnings=["the step may have changed the timeline before the error; read it back"])
-        status = r.get("_operation", {}).get("status", "success")
+        step = r.get("_operation") or {}  # a read has none
+        status = step.get("status", "success")
         row = {"tool": o["tool"], "status": status, "reason": r.get("reason")}
+        if step:
+            row["verification"] = step.get("verification")
+        if step.get("warnings"):
+            row["warnings"] = list(step["warnings"])
+        for w in step.get("warnings") or ():
+            notes.setdefault(w, []).append((n, o["tool"]))
+        # a write that worked but couldn't be checked keeps the whole batch from passing (ISSUES.md I-18)
+        unverified |= status == "success" and step.get("verification") == "unverified"
         results.append(row)
         if status not in DONE:
-            row.update({k: r["_operation"].get(k) for k in ("changes", "warnings")})
+            row["changes"] = step.get("changes")
             break
     not_run = [o["tool"] for o in ops[len(results):]]
     ok = all(r["status"] in DONE for r in results)  # the loop only breaks after a step that isn't
     why = {} if ok else {"reason": f"stopped at step {len(results)} of {len(ops)} ({row['tool']}: {row['status']}); "
                                    f"{len(not_run)} not run. Read the timeline back, don't repeat the whole batch"}
-    return outcome.op("success" if ok else "partial", ok, {"steps_done": len(results)}, results=results,
-                      not_run=not_run, snapshot=snapshot, **why)
+    return outcome.op("success" if ok else "partial", (None if unverified else True) if ok else False,
+                      {"steps_done": len(results)}, [_step_note(w, where) for w, where in notes.items()],
+                      results=results, not_run=not_run, snapshot=snapshot, **why)
+
+
+def _step_note(warning: str, where: list[tuple[int, str]]) -> str:
+    """One warning for the batch result, naming the steps it came from: "steps 1, 3 (move_item): ..."."""
+    steps = ", ".join(str(n) for n, _ in where)
+    tools = ", ".join(dict.fromkeys(t for _, t in where))
+    return f"{'steps' if len(where) > 1 else 'step'} {steps} ({tools}): {warning}"
 
 
 HANDLERS = {"doctor": diagnostics.doctor, "timeline_summary": inspection.timeline_summary,

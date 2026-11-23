@@ -4,6 +4,7 @@ from unittest import mock
 from tests.support import SAMPLE_ARGS, Base, FakeResolve, item
 
 from resolve_editor import audit, dispatch, media, outcome, timeline
+from resolve_editor.tools.clips import FADES_NOT_SAVED
 
 
 class Answers(FakeResolve):
@@ -183,3 +184,45 @@ class BatchError(Base):
         with self.assertRaises(RuntimeError):
             dispatch.run("move_item", SAMPLE_ARGS["move_item"])
         self.assertEqual(self.audited, [])
+
+
+class BatchReport(Base):
+    """A batch keeps every step's warnings (ISSUES.md I-20) and is only passed when every write was (I-18)."""
+
+    def batch(self, *ops):
+        self.use(FakeResolve([item("a", 1000, 10, src=5), item("b", 1100, 10, src=5)]))
+        return dispatch.run("batch", {"confirm": True, "timeline": "T", "operations": [
+            {"tool": t, "args": SAMPLE_ARGS[t] if a is None else a} for t, a in ops]})
+
+    def verdict(self, r):
+        return r["_operation"]["status"], r["_operation"]["verification"]
+
+    def test_successful_steps_keep_their_warnings(self):
+        r = self.batch(("set_fades", None), ("add_markers", None))
+        self.assertIn(FADES_NOT_SAVED, r["results"][0]["warnings"])
+        self.assertIn(FADES_NOT_SAVED, " ".join(r["_operation"]["warnings"]))
+        self.assertIn("step 1 (set_fades)", " ".join(r["_operation"]["warnings"]))
+        self.assertNotIn("warnings", r["results"][1])  # none to show
+
+    def test_identical_warnings_are_listed_once_with_their_steps(self):
+        r = self.batch(("move_item", {"item_id": "a", "record": 1050}), ("move_item", {"item_id": "b", "record": 1200}))
+        keyframes = [w for w in r["_operation"]["warnings"] if "keyframes are not copied" in w]
+        self.assertEqual(len(keyframes), 1, r["_operation"]["warnings"])
+        self.assertIn("steps 1, 2 (move_item)", keyframes[0])
+
+    def test_verification_follows_the_writes(self):
+        for ops, expected in (([("copy_grade", None)], ("success", "unverified")),
+                              ([("copy_grade", None), ("add_markers", None)], ("success", "unverified")),
+                              ([("add_markers", None), ("timeline_summary", {})], ("success", "passed"))):
+            with self.subTest(ops=[t for t, _ in ops]):
+                r = self.batch(*ops)
+                self.assertEqual(self.verdict(r), expected, r)
+                if "copy_grade" in [t for t, _ in ops]:
+                    self.assertEqual(r["results"][0]["verification"], "unverified")
+
+    def test_a_stop_is_still_a_contradiction_with_the_steps_changes(self):
+        r = self.batch(("copy_grade", None), ("add_markers", {"markers": [{"at": 1001}]}), ("set_fades", None))
+        self.assertEqual(self.verdict(r), ("partial", "contradiction"))
+        self.assertEqual(r["results"][1]["status"], "blocked")
+        self.assertIn("changes", r["results"][1])
+        self.assertIn("grades can't be read back", " ".join(r["_operation"]["warnings"]))

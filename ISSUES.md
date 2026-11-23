@@ -1,6 +1,6 @@
 # Issues
 
-Found while testing `edit__add_transition`, 2026-11-22. This is the base for fixes. Fixed so far: I-01, I-02, I-03, I-04, I-10, I-13, I-14, I-15, I-16, I-17, I-19, I-21, I-23.
+Found while testing `edit__add_transition`, 2026-11-22. This is the base for fixes. Fixed so far: I-01, I-02, I-03, I-04, I-10, I-13, I-14, I-15, I-16, I-17, I-18, I-19, I-20, I-21, I-23.
 
 - Environment: free DaVinci Resolve 21.2.0.6, Windows 10, 60 fps timeline.
 - Code is named by file and function, with paths from the repo root.
@@ -33,14 +33,14 @@ How each item is known:
 | [I-15](#i-15) | ~~High~~ **Fixed** | Two clients sharing the bridge lose or drop requests and replies | Live, fake, code |
 | [I-16](#i-16) | ~~Critical~~ **Fixed** | Edits and backups can hit the wrong timeline | Live, fake |
 | [I-17](#i-17) | ~~High~~ **Fixed** | A confirm isn't tied to the previewed timeline | Live, fake |
-| [I-18](#i-18) | Medium | `batch` reports `passed` for unverified steps | Fake |
+| [I-18](#i-18) | ~~Medium~~ **Fixed** | `batch` reports `passed` for unverified steps | Fake, live |
 | [I-19](#i-19) | ~~Medium~~ **Fixed** | Markers without a name are never added | Live, fake |
-| [I-20](#i-20) | Medium | `batch` drops the warnings of successful steps | Fake |
+| [I-20](#i-20) | ~~Medium~~ **Fixed** | `batch` drops the warnings of successful steps | Fake, live |
 | [I-21](#i-21) | ~~High~~ **Fixed** | A long caption fails and takes the following ones with it | Live, fake |
 | [I-22](#i-22) | Medium | The bridge can stop answering, cause unknown | Live, once |
 | [I-23](#i-23) | ~~High~~ **Fixed** | Moving or trimming a clip drops its clip markers, reported as `passed` | Live, fake |
 
-Order, one fix at a time, worst first: medium (I-20, I-18, I-05, I-06, I-07, I-08, I-22), then low. Re-rank after each fix.
+Order, one fix at a time, worst first: medium (I-05, I-06, I-07, I-08, I-22), then low. Re-rank after each fix.
 
 ## Issues
 
@@ -432,16 +432,19 @@ timeline are current and drop the cache if that changed.
   without `timeline` are refused and leave both timelines empty; the right name places the clip.
 
 <a id="i-18"></a>
-### I-18 `batch` reports `passed` for unverified steps (medium)
+### I-18 `batch` reports `passed` for unverified steps (medium, fixed)
 
 **Where:** `resolve_editor/dispatch.py` (`batch`)
 
 **Problem:** verification is derived from the step statuses. A batch with only `copy_grade`, which can't be read
 back and returns `unverified`, reports `passed`.
 
-**Fix:** report `unverified` if any successful writing step was.
+**Fix:** a batch that ran to its end is `unverified` if any step that succeeded was `unverified`, otherwise `passed`; reads and `planned` steps don't count. A stopped batch stays `contradiction`. Each step's row now shows its `verification`. Fixed together with I-20, in the same loop.
 
-**Done when:** that batch reports `unverified`.
+**Verified 2026-11-23 (with I-20):**
+
+- `BatchReport` tests (`tests/test_batch.py`): a batched `set_fades` keeps its warning in its row and in the batch's warnings, two moves list "keyframes are not copied" once for steps 1 and 2, a batch with `copy_grade` is `unverified` while markers plus a read are `passed`, and a stop is still `contradiction` with the stopping step's changes. They failed before the fix (the `passed` case is a guard), and each part's test fails again when it is removed.
+- Live on scratch timelines, a batch of `set_fades`, `copy_grade` and `add_markers`. Old code: `success` / `passed`, no warnings. New code: `success` / `unverified`, with the fades warning (step 1) and the grade warning (step 2), and each step's verification.
 
 <a id="i-19"></a>
 ### I-19 Markers without a name are never added (medium, fixed)
@@ -466,7 +469,7 @@ Clip markers: Resolve 21.2 refuses an unnamed marker on a clip too (live probe w
 - Through MCP after a server restart: the same four results with `edit__add_markers` and `legacy__add_marker`.
 
 <a id="i-20"></a>
-### I-20 `batch` drops the warnings of successful steps (medium)
+### I-20 `batch` drops the warnings of successful steps (medium, fixed)
 
 **Where:** `resolve_editor/dispatch.py` (`batch`)
 
@@ -475,9 +478,7 @@ restart and `copy_grade` that grades can't be read back. Inside a batch neither 
 
 **Repro, fake:** each tool returns one warning alone and none in a batch.
 
-**Fix:** keep each step's warnings, without repeating identical ones.
-
-**Done when:** a batched `set_fades` shows its warning.
+**Fix:** every step's row keeps its `warnings`, and the batch's own warnings list each one once with the steps that gave it, e.g. "steps 1, 2 (move_item): keyframes are not copied". `changes` stays only on the step the batch stops at. Verified with I-18 (see there).
 
 <a id="i-21"></a>
 ### I-21 A long caption fails and takes the following ones with it (high, fixed)
@@ -621,7 +622,7 @@ bug until that is known.
 
 ## After fixing
 
-- From the repo root: `python -m unittest` (baseline: 108 tests, all pass) and `python tests/smoke_bridge.py`
+- From the repo root: `python -m unittest` (baseline: 112 tests, all pass) and `python tests/smoke_bridge.py`
   (needs `lupa`).
 - Restart the MCP server, and the bridge if the Lua changed, then repeat the affected live tests.
 - Update the transitions row in `README.md`, plus `AGENTS.md` and `PATCH_NOTES.md`.
