@@ -9,6 +9,11 @@ TIMELINE = {"type": "string", "description": "With confirm=true: the timeline na
 SEGMENTS = {"type": "array", "items": {"type": "object", "properties": {"start": N, "end": N, "text": S},
                                        "required": ["start", "end", "text"]},
             "description": "Caption lines in seconds. Omit to transcribe `path` instead."}
+LINES = {"line_split": {"type": "string", "enum": ["stack", "sequence"],
+                        "description": "Text longer than max_chars: stack (default) wraps it onto lines shown one "
+                        "under another, at most max_lines at once; sequence shows one line after another"},
+         "max_lines": {"type": "integer", "minimum": 1,
+                       "description": "Lines on screen at once with stack (default 2)"}}
 TOOLS = [
     T("doctor", "Check Python, FFmpeg, transcription, the upstream engine and the live Resolve bridge."),
     T("timeline_summary", "Compact health check of the current timeline: per-track counts, gaps, overlaps, "
@@ -73,12 +78,16 @@ TOOLS = [
        "color": S, "noise_db": N, "min_duration": N, "max_markers": I, "dry_run": B}, ["path", "kind"]),
     T("add_captions", "Editable Text+ captions at exact times and lengths, from segments or by transcribing `path`. "
       "record is where the audio starts (default timeline start). Each caption is a small timeline in a bin, "
-      "placed like a clip; long lines are split. dry_run only lists them.",
+      "placed like a clip; long text is wrapped onto lines one under another (line_split). dry_run only lists them.",
       {"path": S, "segments": SEGMENTS, "record": WHEN, "track_index": I, "max_chars": I, "model": S, "language": S,
-       "font": S, "size": N, "y": N, "dry_run": B, "confirm": CONFIRM, "timeline": TIMELINE}),
+       "font": S, "size": N, "y": {"type": "number", "description": "0-1 from the bottom; with anchor=bottom, where "
+                                   "the caption's bottom edge sits"},
+       "anchor": {"type": "string", "enum": ["bottom", "center"], "description": "bottom (default): extra lines grow "
+                  "upward from y; center: the text block is centred on y"},
+       "dry_run": B, "confirm": CONFIRM, "timeline": TIMELINE, **LINES}),
     T("export_srt", "Write an .srt subtitle file from segments or by transcribing `path`. Import it in Resolve with "
       "File > Import > Subtitle (importing subtitles by script can crash Resolve 21).",
-      {"path": S, "segments": SEGMENTS, "output": S, "model": S, "language": S, "max_chars": I}),
+      {"path": S, "segments": SEGMENTS, "output": S, "model": S, "language": S, "max_chars": I, **LINES}),
     T("export_timeline", "Export the current timeline as OTIO, FCPXML, EDL, AAF or DRT for review or hand-off.",
       {"format": {"type": "string", "enum": ["OTIO", "FCPXML", "EDL", "AAF", "DRT"]}, "output": S}, ["format"]),
     T("qc_file", "Quality check a rendered file: loudness (LUFS, true peak), black frames, frozen frames, silence.",

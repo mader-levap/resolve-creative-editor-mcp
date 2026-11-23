@@ -9,7 +9,7 @@ class Captions(Base):
     def test_split_and_no_overlap(self):
         segs = captions.split_segments(
             [{"start": 0, "end": 4, "text": "one two three four five six seven eight nine ten"},
-             {"start": 3.5, "end": 5, "text": "next"}], max_chars=20)
+             {"start": 3.5, "end": 5, "text": "next"}], max_chars=20, line_split="sequence")
         self.assertTrue(all(len(s["text"]) <= 20 for s in segs))
         for a, b in zip(segs, segs[1:], strict=False):
             self.assertLessEqual(a["end"], b["start"])
@@ -86,3 +86,100 @@ class Captions(Base):
     def test_srt(self):
         self.assertEqual(captions.to_srt([{"start": 61.5, "end": 62, "text": "hi"}]),
                          "1\n00:01:01,500 --> 00:01:02,000\nhi\n\n")
+
+
+
+class Lines(Base):
+    """Long lines one under another by default, one after another as an option."""
+
+    SIXTY = "the quick brown fox jumps over the lazy dog and runs far away"  # 61 characters
+
+    def test_default_stacks_lines_in_one_caption_over_the_whole_time(self):
+        segs = captions.split_segments([{"start": 1, "end": 4, "text": self.SIXTY}])
+        self.assertEqual(len(segs), 1, segs)
+        self.assertEqual((segs[0]["start"], segs[0]["end"]), (1, 4))
+        lines = segs[0]["text"].split("\n")
+        self.assertEqual(len(lines), 2, lines)
+        self.assertTrue(all(len(x) <= 42 for x in lines), lines)
+        self.assertEqual(" ".join(lines), self.SIXTY)
+
+    def test_lines_are_balanced(self):
+        segs = captions.split_segments([{"start": 0, "end": 2, "text": "one two three four five six"}], max_chars=20)
+        self.assertEqual(segs[0]["text"], "one two three\nfour five six")
+
+    def test_more_lines_than_max_lines_become_screens_one_after_another(self):
+        text = " ".join(f"word{i:02d}" for i in range(25))  # 174 characters: 5 lines of 42
+        segs = captions.split_segments([{"start": 0, "end": 10, "text": text}], max_lines=2)
+        self.assertEqual(len(segs), 3, segs)
+        self.assertEqual((segs[0]["start"], segs[-1]["end"]), (0, 10))
+        for a, b in zip(segs, segs[1:], strict=False):
+            self.assertEqual(a["end"], b["start"])
+        self.assertTrue(all(len(s["text"].split("\n")) <= 2 for s in segs), segs)
+        self.assertEqual(" ".join(s["text"].replace("\n", " ") for s in segs), text)
+        three = captions.split_segments([{"start": 0, "end": 10, "text": text}], max_lines=3)
+        self.assertEqual([len(s["text"].split("\n")) for s in three], [3, 2])
+
+    def test_sequence_keeps_one_line_per_caption(self):
+        segs = captions.split_segments([{"start": 1, "end": 4, "text": self.SIXTY}], line_split="sequence")
+        self.assertEqual(len(segs), 2, segs)
+        self.assertTrue(all("\n" not in s["text"] for s in segs))
+        self.assertEqual((segs[0]["start"], segs[-1]["end"]), (1, 4))
+
+    def test_a_word_longer_than_max_chars_stays_one_line(self):
+        segs = captions.split_segments([{"start": 0, "end": 1, "text": "x" * 50}])
+        self.assertEqual(segs[0]["text"], "x" * 50)
+
+    def test_srt_cue_has_both_lines(self):
+        srt = captions.to_srt(captions.split_segments([{"start": 0, "end": 2, "text": self.SIXTY}]))
+        self.assertEqual(srt.split("\n")[2:5], ["the quick brown fox jumps over", "the lazy dog and runs far away", ""])
+
+    def test_tool_passes_the_options_and_refuses_an_unknown_one(self):
+        self.use(FakeResolve([]))
+        seg = [{"start": 0, "end": 3, "text": self.SIXTY}]
+        r = dispatch.run("add_captions", {"segments": seg})
+        self.assertEqual(r["plan"]["count"], 1)
+        r = dispatch.run("add_captions", {"segments": seg, "line_split": "sequence"})
+        self.assertEqual(r["plan"]["count"], 2)
+        long = [{"start": 0, "end": 3, "text": " ".join(["word"] * 20)}]  # 3 lines of up to 42
+        self.assertEqual(dispatch.run("add_captions", {"segments": long})["plan"]["count"], 2)
+        self.assertEqual(dispatch.run("add_captions", {"segments": long, "max_lines": 3})["plan"]["count"], 1)
+        with self.assertRaisesRegex(ValueError, "line_split must be one of stack, sequence"):
+            dispatch.run("add_captions", {"segments": seg, "line_split": "sideways"})
+        with self.assertRaisesRegex(ValueError, "max_lines must be at least 1"):
+            dispatch.run("add_captions", {"segments": seg, "max_lines": 0})
+
+    def test_schema_offers_the_options(self):
+        from resolve_editor.schemas import edit as schema
+        for name in ("add_captions", "export_srt"):
+            props = next(t for t in schema.TOOLS if t["name"] == name)["inputSchema"]["properties"]
+            self.assertEqual(props["line_split"]["enum"], ["stack", "sequence"])
+            self.assertIn("max_lines", props)
+
+
+class Anchor(Base):
+    """Captions sit on their bottom line, so extra lines grow upward (live 2026-11-23: VerticalTopCenterBottom 1)."""
+
+    def place(self, **extra):
+        f = self.use(FakeResolve([]))
+        r = dispatch.run("add_captions", {"segments": [{"start": 0, "end": 2, "text": "hi"}], "confirm": True,
+                                          "timeline": "T", "track_index": 2, **extra})
+        self.assertEqual(r["_operation"]["status"], "success", r)
+        return f.title_args
+
+    def test_bottom_by_default_with_the_style(self):
+        args = self.place(font="Normograf", size=0.034, y=0.08)
+        self.assertEqual(args["inputs"], {"VerticalTopCenterBottom": 1})
+        self.assertEqual((args["font"], args["size"], args["y"]), ("Normograf", 0.034, 0.08))
+
+    def test_center_sends_no_anchor(self):
+        self.assertNotIn("inputs", self.place(anchor="center"))
+
+    def test_unknown_anchor_is_refused(self):
+        self.use(FakeResolve([]))
+        with self.assertRaisesRegex(ValueError, "anchor must be bottom or center"):
+            dispatch.run("add_captions", {"segments": [{"start": 0, "end": 2, "text": "hi"}], "anchor": "top"})
+
+    def test_schema_offers_anchor(self):
+        from resolve_editor.schemas import edit as schema
+        props = next(t for t in schema.TOOLS if t["name"] == "add_captions")["inputSchema"]["properties"]
+        self.assertEqual(props["anchor"]["enum"], ["bottom", "center"])

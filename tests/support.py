@@ -138,6 +138,7 @@ class FakeResolve:
                     "export_timeline"):
             r = {"ok": True}
         elif op == "add_title_cards":
+            self.title_args = dict(args)  # what add_captions sent, style included
             r = self.title_cards(args)
         return {"ok": True, "result": r}
 

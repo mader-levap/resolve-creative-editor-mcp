@@ -6,25 +6,76 @@ from typing import Any
 from .. import media, outcome, paths, prefs, session, timecode, timeline
 
 CAPTION_BIN = "Captions (Resolve Creative Editor)"
+# Text+ inputs per anchor. VerticalTopCenterBottom 1 puts the block's bottom at y, so extra lines grow upward
+# (live 2026-11-23, 21.2.0.6: bottom row the same for 1 and 3 lines; the default 0 centres the block on y).
+ANCHORS: dict[str, dict[str, int]] = {"bottom": {"VerticalTopCenterBottom": 1}, "center": {}}
 
 
-def split_segments(segments: list[dict[str, Any]], max_chars: int = 42) -> list[dict[str, Any]]:
-    """Split long lines at word boundaries, sharing time by length, and stop lines overlapping."""
+LINE_SPLITS = ("stack", "sequence")
+
+
+def _wrap(words: list[str], max_chars: int) -> list[str]:
+    """Greedy wrap at word boundaries; a word longer than max_chars stays one line."""
+    lines, line = [], ""
+    for w in words:
+        if line and len(line) + 1 + len(w) > max_chars:
+            lines.append(line)
+            line = w
+        else:
+            line = f"{line} {w}".strip()
+    return lines + [line]
+
+
+def _balance(words: list[str], n: int) -> list[str]:
+    """The same words on n lines, the longest as short as possible (so no long line over a short one)."""
+    best: dict[tuple[int, int], tuple[int, list[str]]] = {}
+
+    def go(i: int, k: int) -> tuple[int, list[str]]:  # words[i:] on k lines
+        if (i, k) not in best:
+            if k == 1:
+                line = " ".join(words[i:])
+                best[i, k] = (len(line), [line])
+            else:
+                options = []
+                for j in range(i + 1, len(words) - k + 2):
+                    head = " ".join(words[i:j])
+                    width, rest = go(j, k - 1)
+                    options.append((max(len(head), width), [head] + rest))
+                best[i, k] = min(options, key=lambda o: o[0])
+        return best[i, k]
+
+    return go(0, min(n, len(words)))[1]
+
+
+def _screens(text: str, max_chars: int, line_split: str, max_lines: int) -> list[str]:
+    """What one segment shows, in order: one line each ("sequence"), or up to max_lines lines one under another."""
+    lines = _wrap(text.split(), max_chars)
+    if line_split == "sequence":
+        return lines
+    screens = []
+    for k in range(0, len(lines), max_lines):
+        group = lines[k:k + max_lines]
+        screens.append("\n".join(_balance(" ".join(group).split(), len(group))))
+    return screens
+
+
+def split_segments(segments: list[dict[str, Any]], max_chars: int = 42, line_split: str = "stack",
+                   max_lines: int = 2) -> list[dict[str, Any]]:
+    """Wrap long text at word boundaries: by default up to max_lines lines one under another in one caption, more
+    than that in captions one after another; line_split="sequence" puts each line in its own caption. A segment's
+    time is shared by length, and captions don't overlap."""
+    if line_split not in LINE_SPLITS:
+        raise ValueError(f"line_split must be one of {', '.join(LINE_SPLITS)}, not {line_split!r}")
+    if max_lines < 1:
+        raise ValueError("max_lines must be at least 1")
     out: list[dict[str, Any]] = []
     for s in segments:
-        words, text = s["text"].split(), s["text"].strip()
+        text = s["text"].strip()
         if not text:
             continue
-        lines, line = [], ""
-        for w in words:
-            if line and len(line) + 1 + len(w) > max_chars:
-                lines.append(line)
-                line = w
-            else:
-                line = f"{line} {w}".strip()
-        lines.append(line)
-        total, t = sum(len(x) for x in lines), float(s["start"])
-        for x in lines:
+        screens = _screens(text, max_chars, line_split, max_lines)
+        total, t = sum(len(x) for x in screens), float(s["start"])
+        for x in screens:
             end = t + (float(s["end"]) - float(s["start"])) * len(x) / total
             out.append({"start": round(t, 3), "end": round(end, 3), "text": x})
             t = end
@@ -35,14 +86,16 @@ def split_segments(segments: list[dict[str, Any]], max_chars: int = 42) -> list[
 
 
 def _segments(a: dict[str, Any]) -> list[dict[str, Any]]:
+    split: dict[str, Any] = {"max_chars": a.get("max_chars") or 42, "line_split": a.get("line_split") or "stack",
+                             "max_lines": 2 if a.get("max_lines") is None else a["max_lines"]}
     if a.get("segments"):
-        return split_segments(a["segments"], a.get("max_chars") or 42)
+        return split_segments(a["segments"], **split)
     if not a.get("path"):
         raise ValueError("provide segments, or a path to transcribe")
     args = {"path": a["path"], "model": a.get("model") or "base"}
     if a.get("language"):
         args["language"] = a["language"]
-    return split_segments(media.run_media_tool("transcribe_audio", args)["segments"], a.get("max_chars") or 42)
+    return split_segments(media.run_media_tool("transcribe_audio", args)["segments"], **split)
 
 
 def caption_cards(segments: list[dict[str, Any]], fps: Fraction | float, base: int, timeline: str,
@@ -87,6 +140,9 @@ def _parts_note(cards: list[dict[str, Any]], fps: Fraction) -> list[str]:
 
 
 def add_captions(a: dict[str, Any]) -> dict[str, Any]:
+    anchor = a.get("anchor") or "bottom"
+    if anchor not in ANCHORS:
+        raise ValueError(f"anchor must be bottom or center, not {anchor!r}")
     segments = _segments(a)
     fps, _, state = session.clock()
     base = session.to_frame(a["record"]) if a.get("record") is not None else state["timeline_start_frame"]
@@ -108,7 +164,9 @@ def add_captions(a: dict[str, Any]) -> dict[str, Any]:
         if hit:
             return outcome.blocked(f"V{track} is busy at {session.to_tc(hit['start'])}; "
                                    "leave track_index out to use a new track")
-    style = {k: a[k] for k in ("font", "size", "y") if k in a}
+    style: dict[str, Any] = {k: a[k] for k in ("font", "size", "y") if k in a}
+    if ANCHORS[anchor]:
+        style["inputs"] = ANCHORS[anchor]
     r = session.call("add_title_cards", cards=cards, folder=a.get("folder") or CAPTION_BIN, track_index=track, **style)
     session.invalidate()
     placed = session.as_list(r.get("placed"))
