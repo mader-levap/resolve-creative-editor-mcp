@@ -80,7 +80,7 @@ class BridgeReply(unittest.TestCase):
             now[0] += 0.5
             polls[0] += 1
             on_poll(polls[0])
-        clock = types.SimpleNamespace(time=lambda: now[0], sleep=sleep)
+        clock = types.SimpleNamespace(time=lambda: now[0], monotonic=lambda: now[0], sleep=sleep)
         with (mock.patch.object(bridge, "time", clock),
               mock.patch.object(bridge.uuid, "uuid4", lambda: types.SimpleNamespace(hex=RID))):
             return bridge.call_bridge("get_state", {}, timeout=10, ack_timeout=5)

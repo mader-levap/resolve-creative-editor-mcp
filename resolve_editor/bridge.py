@@ -3,16 +3,25 @@
 Transport: request.lua in %USERPROFILE%\\resolve-claude-bridge. Replies come back through Fusion.prefs
 (Resolve 21.1 and older) or through reply.csv, a metadata export of the bridge's token clip (Resolve 21.2+).
 """
+import contextlib
 import json
 import os
 import re
 import struct
+import sys
+import threading
 import time
 import uuid
 import zlib
-from typing import Any
+from collections.abc import Iterator
+from typing import IO, Any
 
 from . import paths
+
+if sys.platform == "win32":
+    import msvcrt
+else:
+    import fcntl
 
 NOT_RUNNING = ("Bridge not running. In Resolve open Workspace > Console (Lua tab) and run "
                '(Resolve 21.2+): fusion:RunScript(os.getenv("USERPROFILE")'
@@ -84,24 +93,120 @@ def lua_long_string(s: str) -> str:
     return "[" + "=" * n + "[" + s + "]" + "=" * n + "]"
 
 
+class BridgeBusy(ConnectionError):
+    """Another process kept the bridge for the whole wait. Nothing was sent."""
+
+
+def _lock(f: IO[bytes]) -> None:
+    f.seek(0)
+    if sys.platform == "win32":
+        msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
+    else:
+        fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+
+def _unlock(f: IO[bytes]) -> None:
+    f.seek(0)
+    if sys.platform == "win32":
+        msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
+    else:
+        fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+
+
+WAIT_MARK = "bridge.wait."  # + pid.thread: a client waiting for the lock touches it on every try
+FRESH_MARK = 0.5  # older marks are from a waiter that gave up or died
+_released_at = float("-inf")  # when this process last let go of the lock
+
+
+def _others_waiting(own: str) -> bool:
+    now = time.time()
+    for name in os.listdir(paths.DIR):
+        path = os.path.join(paths.DIR, name)
+        if name.startswith(WAIT_MARK) and path != own:
+            with contextlib.suppress(OSError):
+                if now - os.path.getmtime(path) < FRESH_MARK:
+                    return True
+    return False
+
+
+@contextlib.contextmanager
+def _bridge_lock(wait: float) -> Iterator[None]:
+    """One bridge call at a time across processes: every client shares request.lua and the reply slot
+    (ISSUES.md I-15). The OS drops the lock if the process dies.
+
+    The OS doesn't queue waiters, so a client calling back to back (a long batch) would take the lock again before
+    a waiter polling every 50 ms sees it free. Waiters leave a mark, and a client that has just let go steps aside
+    for a moment when it sees one."""
+    global _released_at
+    own = os.path.join(paths.DIR, f"{WAIT_MARK}{os.getpid()}.{threading.get_ident()}")
+    if time.monotonic() - _released_at < 0.2 and _others_waiting(own):
+        time.sleep(0.15)
+    with open(os.path.join(paths.DIR, "bridge.lock"), "a+b") as f:
+        deadline = time.monotonic() + wait
+        try:
+            while True:
+                try:
+                    _lock(f)
+                    break
+                except OSError:
+                    if time.monotonic() >= deadline:
+                        raise BridgeBusy(f"bridge busy: another client has been using it for {wait:g} s; nothing "
+                                         "was sent. Try again; the bridge itself is running") from None
+                    with contextlib.suppress(OSError), open(own, "a"):
+                        os.utime(own)
+                    time.sleep(0.05)
+        finally:
+            with contextlib.suppress(OSError):
+                os.remove(own)
+        try:
+            yield
+        finally:
+            _unlock(f)
+            _released_at = time.monotonic()
+
+
+def _put_request(tmp: str, req_path: str) -> None:
+    """Move the request into place. Resolve may still be reading the previous one for a moment."""
+    for attempt in range(40):
+        try:
+            os.replace(tmp, req_path)
+            return
+        except PermissionError:
+            if attempt == 39:
+                with contextlib.suppress(OSError):
+                    os.remove(tmp)
+                raise
+            time.sleep(0.05)
+
+
 # The timeout allows for Resolve stalling a few seconds (e.g. LUT rescans).
 def call_bridge(op: str, args: dict[str, Any], timeout: float = 120, ack_timeout: float = 15,
-                timeline: dict[str, Any] | None = None) -> dict[str, Any]:
+                timeline: dict[str, Any] | None = None, lock_timeout: float = 60) -> dict[str, Any]:
+    """Send one op to the bridge and wait for its reply. Holds the bridge lock from writing the request to
+    cleanup; if another client holds it longer than lock_timeout, raises BridgeBusy without sending anything."""
+    with _bridge_lock(lock_timeout):
+        return _call(op, args, timeout, ack_timeout, timeline)
+
+
+def _call(op: str, args: dict[str, Any], timeout: float, ack_timeout: float,
+          timeline: dict[str, Any] | None) -> dict[str, Any]:
     req_path = os.path.join(paths.DIR, "request.lua")
     rid = uuid.uuid4().hex
     ensure_token_png()
     # ts lets the bridge refuse a leftover request instead of running it again (see resolve_bridge.lua main loop).
+    # Taken after the lock: the bridge drops requests over 60 s old.
     request = {"id": rid, "ts": int(time.time()), "op": op, "args": args}
     if timeline:
         request["timeline"] = timeline  # {project, name}: the bridge runs the op there or not at all
     body = lua_long_string(json.dumps(request, ensure_ascii=False))
     # 21.1 and older load this with loadfile and use the returned string; 21.2+ runs it with
     # fusion:RunScript, which cannot return values, so it also hands the JSON over with fusion:SetData.
-    with open(req_path + ".tmp", "w", encoding="utf-8") as f:
+    tmp = os.path.join(paths.DIR, f"request.{rid}.tmp")  # own name, also against clients without the lock
+    with open(tmp, "w", encoding="utf-8") as f:
         f.write("local s = " + body + "\n"
                 "if fusion and fusion.SetData then fusion:SetData(\"claude_bridge_req\", s) end\n"
                 "return s\n")
-    os.replace(req_path + ".tmp", req_path)
+    _put_request(tmp, req_path)
     try:
         start, acked = time.time(), False
         while time.time() - start < timeout:

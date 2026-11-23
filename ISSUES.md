@@ -1,6 +1,6 @@
 # Issues
 
-Found while testing `edit__add_transition`, 2026-11-22. This is the base for fixes. Fixed so far: I-01, I-02, I-03, I-13, I-14, I-16, I-17, I-21.
+Found while testing `edit__add_transition`, 2026-11-22. This is the base for fixes. Fixed so far: I-01, I-02, I-03, I-13, I-14, I-15, I-16, I-17, I-21.
 
 - Environment: free DaVinci Resolve 21.2.0.6, Windows 10, 60 fps timeline.
 - Code is named by file and function, with paths from the repo root.
@@ -30,7 +30,7 @@ How each item is known:
 | [I-12](#i-12) | Low | The live transition test accepts a refusal as a pass | Code |
 | [I-13](#i-13) | ~~Critical~~ **Fixed** | Bridge replies fail when half-written or over 65 KB | Live, fake |
 | [I-14](#i-14) | ~~Low~~ **Fixed** | The gateway test writes to the real audit log | Live |
-| [I-15](#i-15) | High | Two clients sharing the bridge lose or drop requests and replies | Live, fake, code |
+| [I-15](#i-15) | ~~High~~ **Fixed** | Two clients sharing the bridge lose or drop requests and replies | Live, fake, code |
 | [I-16](#i-16) | ~~Critical~~ **Fixed** | Edits and backups can hit the wrong timeline | Live, fake |
 | [I-17](#i-17) | ~~High~~ **Fixed** | A confirm isn't tied to the previewed timeline | Live, fake |
 | [I-18](#i-18) | Medium | `batch` reports `passed` for unverified steps | Fake |
@@ -39,7 +39,7 @@ How each item is known:
 | [I-21](#i-21) | ~~High~~ **Fixed** | A long caption fails and takes the following ones with it | Live, fake |
 | [I-22](#i-22) | Medium | The bridge can stop answering, cause unknown | Live, once |
 
-Order, one fix at a time, worst first: I-15, I-04, then medium (I-19 first, as it now stops
+Order, one fix at a time, worst first: I-04, then medium (I-19 first, as it now stops
 batches), then low. Re-rank after each fix.
 
 ## Issues
@@ -293,7 +293,7 @@ B was deterministic. Estimated limits: about 70 clips for `item_details`, 320 fo
 **Limit:** entries that earlier test runs wrote to the real log stay there.
 
 <a id="i-15"></a>
-### I-15 Two clients sharing the bridge collide (high)
+### I-15 Two clients sharing the bridge collide (high, fixed)
 
 **Where:** `resolve_editor/bridge.py` (`call_bridge`), `resolve_bridge.lua` (`REQ`, `REPLY_CSV`)
 
@@ -332,23 +332,24 @@ rename of the request (in `call_bridge`), because reading and cleanup catch `OSE
 waits for its legacy child. A bridge call gives up after 120 s, well inside the gateway's 1800 s limit for a
 child's tool call.
 
-**Fix:** hold an OS file lock in the bridge folder from writing the request to cleanup (`msvcrt` on Windows, `fcntl`
-elsewhere). The OS releases it if the process dies.
+**Fix:** `call_bridge` holds an OS file lock on `bridge.lock` in the bridge folder from writing the request to cleanup (`msvcrt` on Windows, `fcntl` elsewhere). The OS releases it if the process dies. The Lua bridge is unchanged.
 
-- Bound the wait, and then fail with "bridge busy, nothing was sent". `edit__` calls have no gateway timeout, so
-  after an unbounded wait a write could run long after the client gave up on the call.
-- A unique `.tmp` name alone fixes only 5 and 6.
-- Servers started before the fix ignore the lock until restarted.
+- The wait is bounded (`lock_timeout`, 60 s; `doctor` 4 s). Then it raises `BridgeBusy`: "bridge busy ... nothing was sent", not "Bridge not running". `edit__` calls have no gateway timeout, so after an unbounded wait a write could run long after the client gave up on the call.
+- The request and its `ts` are made after the wait, because the bridge drops requests over 60 s old.
+- Each request has its own `.tmp` name, and moving it into place retries for up to 2 s if Resolve still has the previous one open (the `PermissionError` seen live).
+- Fairness: the OS doesn't queue lock waiters, so a client calling back to back (a long batch) took the lock again before a waiter polling every 50 ms saw it free. In the first live run with the lock, each of two clients once waited the full 60 s. Waiters now touch a `bridge.wait.<pid>.<thread>` mark, and a client that let go under 0.2 s ago steps aside for 150 ms when it sees a mark under 0.5 s old. A dead waiter's mark goes stale in 0.5 s.
 
-**Limits of that fix:**
+**Verified 2026-11-23:**
 
-- It serializes single bridge calls, not whole tools. Another client can still edit between a tool's read and
-  its write. A timeline switch there is undone by the pin (I-16).
-- After a timeout the lock is released while Resolve may still be busy, so the next call can still report "Bridge
-  not running".
+- `BridgeLock` tests (`tests/test_bridge_lock.py`), with a fake bridge that follows the Lua main loop and real client processes: two clients making 20 calls each lose nothing and run nothing twice; a waiter that gives up sends nothing; a waiter runs once the lock is free, with a fresh `ts`; the lock is released after an error; a client calling back to back lets a waiter in five times in a row and isn't starved in turn. Without the lock the two-client test failed 3 of 3 runs with "Bridge not running", as live. Each test fails again when its part of the fix is removed (the fairness test 5 of 5); with the fix the lock tests passed 5 of 5 runs.
+- Live, `get_state` as fast as possible, 4 s ack timeout: 1 client 60 calls, 2 clients 600, 3 clients 450, all without a failure, at 0.35 s per call overall in each case, so serialising costs no throughput. Before the fix, 2 clients had 19 failures in 860 calls.
+- Through MCP after a server restart, while a script client made 150 `get_state` calls: `edit__timeline_summary`, `edit__inspect_range`, `edit__doctor` (`connected`), `legacy__get_state` and `legacy__list_timelines` all answered correctly, and the script client had no failures. The `edit__` calls run in the gateway and the `legacy__` calls in its child process, so three processes took turns.
 
-**Done when:** a test with two processes and a fake bridge loses nothing, a waiter that gives up sends nothing, and
-the live two-client run has no failures.
+**Limits:**
+
+- Servers and scripts started before the fix ignore the lock until restarted.
+- It serializes single bridge calls, not whole tools. Another client can still edit between a tool's read and its write. A timeline switch there is undone by the pin (I-16).
+- After a timeout the lock is released while Resolve may still be busy, so the next call can still report "Bridge not running".
 
 <a id="i-16"></a>
 ### I-16 Edits and backups can hit the wrong timeline (critical, fixed)
@@ -579,7 +580,7 @@ bug until that is known.
 
 ## After fixing
 
-- From the repo root: `python -m unittest` (baseline: 86 tests, all pass) and `python tests/smoke_bridge.py`
+- From the repo root: `python -m unittest` (baseline: 91 tests, all pass) and `python tests/smoke_bridge.py`
   (needs `lupa`).
 - Restart the MCP server, and the bridge if the Lua changed, then repeat the affected live tests.
 - Update the transitions row in `README.md`, plus `AGENTS.md` and `PATCH_NOTES.md`.

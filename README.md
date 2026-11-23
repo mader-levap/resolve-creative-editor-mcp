@@ -181,6 +181,7 @@ Workaround: drag any fade handle on the clip once, any length. From then on, fad
 | Problem | Fix |
 |---|---|
 | `Bridge not running` | Repeat [step 3](#3-start-the-bridge). The bridge stops when Resolve closes. |
+| `bridge busy ... nothing was sent` | Another session or script kept the bridge for 60 s. The bridge is running; try again when the other one is done. |
 | `SCRIPTING_UNAVAILABLE` from `resolve__` tools | On free, use `edit__` tools. On Studio, set External scripting to Local and restart Resolve. |
 | `resolve_bridge` does nothing from the Scripts menu | Use the Console line in step 3. |
 | `dofile` says the file isn't found | Run `.\setup.ps1` again from a normal PowerShell window. |

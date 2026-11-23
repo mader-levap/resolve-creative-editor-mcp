@@ -27,9 +27,11 @@ def doctor(a: dict[str, Any] | None = None) -> dict[str, Any]:
               "ffprobe": bool(shutil.which("ffprobe") or os.environ.get("FFPROBE")), "faster_whisper": whisper,
               "bridge_folder": paths.DIR}
     try:
-        res = bridge.call_bridge("get_state", {}, timeout=6, ack_timeout=4)
+        res = bridge.call_bridge("get_state", {}, timeout=6, ack_timeout=4, lock_timeout=4)
         report["bridge"] = "connected" if res.get("ok") else res.get("error")
         report["resolve"] = res.get("result")
+    except bridge.BridgeBusy:
+        report["bridge"] = "busy: another client is using it (it is running)"
     except Exception as exc:
         report["bridge"] = f"not running: start it from the Resolve Console ({type(exc).__name__})"
     return report

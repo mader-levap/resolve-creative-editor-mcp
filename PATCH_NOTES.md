@@ -2,6 +2,7 @@
 
 ## 2026-11-23
 
+- Fixed: two processes using the bridge at once (another session's server, a script) could lose requests, get another's reply or a false "Bridge not running", and an edit could run while its caller got an error (ISSUES.md I-15). Bridge calls now take turns through a file lock in the bridge folder; a call that can't get a turn within 60 s fails with "bridge busy ... nothing was sent". Restart every server and script that uses the bridge; old ones ignore the lock.
 - Fixed: an error inside `edit__batch`, such as Resolve refusing a transition, lost the completed steps and the backup name and wasn't audited (ISSUES.md I-02). The batch now stops at that step and returns the steps done, the error, the steps not run and the backup. A batch whose backup fails runs no step. Writing `edit__` calls that end in an error are audited as `error`.
 - Fixed: a long caption failed and took the following captions with it (ISSUES.md I-21). Each caption is now one
   small timeline, placed in parts no longer than the inserted Text+ title, at any frame rate. Needs the new bridge

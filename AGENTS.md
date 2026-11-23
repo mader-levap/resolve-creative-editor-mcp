@@ -174,6 +174,8 @@ fusion:RunScript(os.getenv("USERPROFILE").."\\resolve-claude-bridge\\resolve_bri
 ```
 or from the menu: `Workspace > Scripts > resolve_bridge`.
 
+Bridge calls from all processes take turns through `bridge.lock` in the bridge folder (`bridge.call_bridge`). Never write `request.lua` another way. "bridge busy" means another client held it for 60 s and nothing was sent; retrying is safe.
+
 `reload_bridge` only works while the bridge is running. After Resolve starts, the user has to start the bridge once (console command or menu); no tool can do that.
 
 ### MCP server and tools
