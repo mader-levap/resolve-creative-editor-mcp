@@ -17,7 +17,7 @@ It works with the **free version** of Resolve and with **Studio**, through [MCP]
 
 | | Resolve **free** | Resolve **Studio** |
 |---|---|---|
-| Main tools | `edit__` (24), `legacy__` (29), `media__` (5) | the same, plus all 37 `resolve__` tools |
+| Main tools | `edit__` (26), `legacy__` (32), `media__` (5) | the same, plus all 37 `resolve__` tools |
 | One-time Resolve setting | None | Preferences > General > External scripting using > **Local** |
 | Each time you open Resolve | Run one line in the Console ([step 3](#3-start-the-bridge)) | Nothing for `resolve__`; the line for `edit__` |
 
@@ -163,7 +163,7 @@ Workaround: drag any fade handle on the clip once, any length. From then on, fad
 - Destructive `edit__` tools return a **preview** first and need `confirm=true` to run. Only the boolean `true` counts, not `"true"` or `1`. The confirm must also name the timeline the preview was for (`timeline`); it is refused if another timeline is current. An unconfirmed `edit__batch` changes nothing: it lists the steps that have no preview. A confirmed batch stops at the first step that doesn't succeed, including one that ends in an error, and returns what ran, what didn't and the backup name.
 - Moves and trims make a **backup timeline**, build the replacement before removing the original, and put the clip back with its settings if anything fails.
 - Every result says whether Resolve's read-back matched (`verification: passed`) or not.
-- `legacy__delete_items` and `legacy__start_render` need `confirm=true`.
+- `legacy__delete_items`, `legacy__delete_bin` and `legacy__start_render` need `confirm=true`.
 - Every change is logged in `%USERPROFILE%\resolve-claude-bridge\audit.jsonl` (`edit__audit_log`).
 - Studio-only features are never called on free, because they open a dialog that blocks Resolve.
 

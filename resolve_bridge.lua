@@ -354,6 +354,54 @@ local PAGES = { media = true, cut = true, edit = true, fusion = true, color = tr
 -- ---------- operations (allowlist) ----------
 local OPS = {}
 
+-- Media Pool bins by path from the root, "/" between levels; "" (or "/") is the root. Resolve hands out a new object
+-- on every call, so folders are compared by GetUniqueId.
+local function bin_parts(path)
+  local parts = {}
+  for name in tostring(path or ""):gmatch("[^/]+") do parts[#parts + 1] = name end
+  return parts
+end
+
+local function bin_join(parts) return table.concat(parts, "/") end
+
+local function same_folder(a, b)
+  local oka, ida = pcall(function() return a:GetUniqueId() end)
+  local okb, idb = pcall(function() return b:GetUniqueId() end)
+  if oka and okb and ida and idb then return ida == idb end
+  return a == b
+end
+
+local function find_bin(path)
+  local f, parts = pool():GetRootFolder(), bin_parts(path)
+  for i, name in ipairs(parts) do
+    local hits = {}
+    for _, sub in ipairs(each(f:GetSubFolderList())) do if sub:GetName() == name then hits[#hits + 1] = sub end end
+    local here = bin_join({ unpack(parts, 1, i) })
+    if #hits == 0 then error("no bin " .. here, 0) end
+    if #hits > 1 then error("ambiguous bin " .. here .. ": " .. #hits .. " bins have that name", 0) end
+    f = hits[1]
+  end
+  return f, bin_join(parts)
+end
+
+local function bin_path(target)  -- the path of a folder, found by searching the tree; nil when it isn't in it
+  local function walk(f, parts)
+    if same_folder(f, target) then return bin_join(parts) end
+    for _, sub in ipairs(each(f:GetSubFolderList())) do
+      local parts2 = { unpack(parts) }
+      parts2[#parts2 + 1] = sub:GetName()
+      local hit = walk(sub, parts2)
+      if hit then return hit end
+    end
+  end
+  return target and walk(pool():GetRootFolder(), {})
+end
+
+local function current_bin()
+  local ok, r = pcall(function() return bin_path(pool():GetCurrentFolder()) end)
+  return ok and r or nil
+end
+
 function OPS.get_state()
   local p = resolve:GetProjectManager():GetCurrentProject()
   local t = p and p:GetCurrentTimeline()
@@ -368,7 +416,83 @@ function OPS.get_state()
            timeline = t and t:GetName(), timeline_fps = t and t:GetSetting("timelineFrameRate"),
            timeline_drop_frame = t and t:GetSetting("timelineDropFrameTimecode"),
            timeline_start_frame = t and t:GetStartFrame(), timeline_end_frame = t and t:GetEndFrame(),
-           current_timecode = t and t:GetCurrentTimecode() }
+           current_timecode = t and t:GetCurrentTimecode(), current_bin = p and current_bin() }
+end
+
+-- Creates only the last level of the path, under a parent that exists. The current bin stays as it was.
+function OPS.create_bin(a)
+  local parts = bin_parts(a.bin)
+  if #parts == 0 then error("the root bin always exists; give a bin path such as Footage/Day 1", 0) end
+  local name = table.remove(parts)
+  local parent, parent_path = find_bin(bin_join(parts))
+  local path = parent_path == "" and name or parent_path .. "/" .. name
+  for _, sub in ipairs(each(parent:GetSubFolderList())) do
+    if sub:GetName() == name then error("bin " .. path .. " already exists", 0) end
+  end
+  local mp = pool()
+  local previous = mp:GetCurrentFolder()
+  local f = mp:AddSubFolder(parent, name)
+  if previous then mp:SetCurrentFolder(previous) end
+  if not f then error("Resolve refused to create bin " .. path, 0) end
+  if f:GetName() ~= name then
+    local got = f:GetName()
+    mp:DeleteFolders({ f })
+    error("Resolve named the new bin " .. got .. " instead of " .. name .. "; it was removed again", 0)
+  end
+  return { bin = path }
+end
+
+function OPS.use_bin(a)
+  local f, path = find_bin(a.bin)
+  local previous = current_bin()
+  local mp = pool()
+  if not mp:SetCurrentFolder(f) or not same_folder(mp:GetCurrentFolder(), f) then
+    error("Resolve refused to make bin " .. (path ~= "" and path or "(root)") .. " current", 0)
+  end
+  return { bin = path, previous = previous }
+end
+
+-- Removes a bin. Anything in it (clips, timelines, bins) only with with_contents; its timelines are deleted first,
+-- in every sub-bin too, so none is left without a bin. Files on disk are never touched.
+function OPS.delete_bin(a)
+  local f, path = find_bin(a.bin)
+  if path == "" then error("the root bin can't be deleted", 0) end
+  local mp = pool()
+  local cur = mp:GetCurrentFolder()
+  local function contains(x)
+    if same_folder(x, cur) then return true end
+    for _, sub in ipairs(each(x:GetSubFolderList())) do if contains(sub) then return true end end
+    return false
+  end
+  if cur and contains(f) then error("bin " .. path .. " is or holds the current bin; use_bin another one first", 0) end
+  local timeline_now = current_name(proj())
+  local n, tls = { bins = 0, clips = 0, timelines = 0 }, {}
+  local function count(x)
+    for _, c in ipairs(each(x:GetClipList())) do
+      local ok, inner = pcall(function() return c:GetTimeline() end)
+      if ok and inner then
+        if inner:GetName() == timeline_now then
+          error("bin " .. path .. " holds the current timeline " .. timeline_now .. "; switch timelines first", 0)
+        end
+        tls[#tls + 1] = inner
+        n.timelines = n.timelines + 1
+      else
+        n.clips = n.clips + 1
+      end
+    end
+    for _, sub in ipairs(each(x:GetSubFolderList())) do n.bins = n.bins + 1; count(sub) end
+  end
+  count(f)
+  if n.bins + n.clips + n.timelines > 0 and a.with_contents ~= true then
+    local function many(k, word) return n[k] .. " " .. word .. (n[k] == 1 and "" or "s") end
+    error("bin " .. path .. " holds " .. many("bins", "bin") .. ", " .. many("clips", "clip") .. ", "
+          .. many("timelines", "timeline") .. "; give with_contents=true to delete them with it", 0)
+  end
+  if #tls > 0 and not mp:DeleteTimelines(tls) then error("Resolve refused to delete the timelines in " .. path, 0) end
+  if not mp:DeleteFolders({ f }) then error("Resolve refused to delete bin " .. path, 0) end
+  if cur then mp:SetCurrentFolder(cur) end  -- deleting a bin makes the root current (live 21.2.0.6)
+  n.bin = path
+  return n
 end
 
 function OPS.list_timelines()

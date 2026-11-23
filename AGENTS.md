@@ -62,7 +62,7 @@ In order: story/emotion, clarity, rhythm, continuity, visual polish.
 
 ## Available tools
 
-All tools come from the `resolve-creative-editor` MCP server (63 on free Resolve; `resolve__` timeline tools need Studio and are hidden). `edit__` tools that take `confirm` return a preview first; repeat with `confirm=true` and `timeline` set to the timeline the preview names (refused if another timeline is current). The others run on the first call.
+All tools come from the `resolve-creative-editor` MCP server (66 on free Resolve; `resolve__` timeline tools need Studio and are hidden). `edit__` tools that take `confirm` return a preview first; repeat with `confirm=true` and `timeline` set to the timeline the preview names (refused if another timeline is current). The others run on the first call.
 
 ### `edit__`: checked editing (preferred)
 
@@ -99,6 +99,9 @@ All tools come from the `resolve-creative-editor` MCP server (63 on free Resolve
 - **legacy__list_timelines**: names of all timelines in the project.
 - **legacy__set_current_timeline**: switch the active timeline.
 - **legacy__create_timeline**: new timeline, empty or from Media Pool clips.
+- **legacy__create_bin**: create a Media Pool bin by its path from the root (`Footage/Day 1`); only the last level, under an existing parent; the current bin stays.
+- **legacy__use_bin**: make a bin current (`""` is the root); new clips, timelines and backups go there. Returns `previous`, for switching back. `legacy__get_state` gives `current_bin`.
+- **legacy__delete_bin**: delete a bin (needs `confirm`). A bin with anything in it needs `with_contents=true`, which deletes its clips, timelines and bins too (Media Pool entries only; files stay). Refuses the root, the current bin and a bin holding the current timeline.
 - **legacy__duplicate_timeline**: duplicate the current timeline under a new name.
 - **legacy__list_timeline_items**: items on the current timeline's video, audio or subtitle tracks.
 - **legacy__list_media**: all Media Pool clips (id, name, duration, fps, resolution, path).
@@ -180,6 +183,7 @@ Observed on free DaVinci Resolve 21.2.0.6 through this server's Lua bridge. Othe
 - Fades are in frames (`edit__set_fades`); at 60 fps a 1 s fade is 60 frames. An end you leave out keeps its length.
 - Resolve bug (free 21.2, Text+ titles): script fades are lost on restart unless the user has dragged a fade handle on that clip by hand at least once. Ask the user to do that first; after it, script fades on the clip are saved (both ends, including 0 and back). Read-back passing does not prove the fade is saved. Tried and failed: saving, Ctrl+S, script text/size changes plus save. See README "Known Resolve bug".
 - `edit__move_item` and `edit__trim_item` rebuild the clip and copy grade, transform, audio levels, fades, colour, flags and markers, but not keyframes. They refuse titles and generators (no Media Pool item, Fusion comp).
+- Deleting a bin makes the root bin current; `delete_bin` makes the previous current bin current again (verified).
 - `edit__ripple_trim` shortens clip ends and pulls everything after them earlier, keeping the gaps. It works on titles because nothing is rebuilt: it trims in place (`trim_tail`), drops a filler from a Media Pool timeline into the gap, and ripple-deletes the filler. Verified: `DeleteClips(..., ripple=true)` shifts later clips on **all** tracks by the deleted length, and a title's text, fades and ID survive. Titles can't be moved directly, so this ripple trick is the only way to shift them.
 - `edit__add_transition` needs Resolve 21.1+. Resolve refuses an unknown type, and a cut where a side the alignment needs has no unused source frames (center: both; right: after the outgoing clip); with only a few it makes a shorter transition, reported as `partial`. A refusal is a `failed` result naming the likely cause.
 - A writing `edit__` call stays on the timeline that was current when it started: if the user clicks another one
@@ -223,8 +227,8 @@ Ask user to reconnect with tool via:
 
 - Create tests first, fix code after, ensuring tests actually catch bugs.
 - Run from the repo root: `python -m unittest`, one area with `python -m unittest tests.unit.test_batch`, the Lua smoke test with `python tests/smoke_bridge.py`, the linter with `python -m ruff check .` and the type checker with `python -m mypy` (settings for both in `pyproject.toml`). A new unit test file goes in `tests/unit/` and imports `tests.support` before `resolve_editor`.
-- The live test (`python tests/live/live_resolve.py`, Resolve open, bridge running) runs every area on a scratch timeline; `--only captions,markers` runs some (areas: clips, transitions, markers, captions, reads).
-- In DaVinci, test new Resolve behaviour or code modification on a scratch timeline named `_RCE_...` (the bridge's `delete_scratch` removes it), never on the user's timeline.
+- The live test (`python tests/live/live_resolve.py`, Resolve open, bridge running) runs every area in its own `_RCE_LIVE_<time>` bin, deletes the bin with everything in it at the end and makes your bin current again; `--only captions,markers` runs some (areas: clips, transitions, markers, captions, reads).
+- In DaVinci, test new Resolve behaviour or code modification on a scratch timeline named `_RCE_...`, never on the user's timeline. Work in a scratch bin: remember `current_bin` from `get_state`, `create_bin` and `use_bin` an `_RCE_...` bin, and at the end `use_bin` the remembered bin and `delete_bin` the scratch one with `with_contents=true`. Otherwise new clips, timelines and backups land in the user's current bin.
 - If a call fails, read the timeline back (`edit__inspect_range`) before retrying: a failed insert may or may not have left something behind.
 
 ## Commits

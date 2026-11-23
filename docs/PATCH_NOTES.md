@@ -1,5 +1,10 @@
 # Patch notes — DaVinci Resolve MCP
 
+## 2026-11-24
+
+- Added: `legacy__create_bin`, `legacy__use_bin` and `legacy__delete_bin` (with `confirm`) work with Media Pool bins by their path from the root, and `legacy__get_state` reports `current_bin`. `delete_bin` refuses a bin with anything in it unless `with_contents=true`, and keeps the current bin current (Resolve makes the root current when a bin is deleted). Needs the new bridge script.
+- Changed: the live test works in its own `_RCE_LIVE_<time>` bin (test clip, timelines, backups, captions), deletes it with everything in it at the end, and makes the bin you had selected current again. It used to leave `rce_live_clip.mp4` in whichever bin was current.
+
 ## 2026-11-23
 
 - Changed: the unit tests moved to `tests/unit/` (one area: `python -m unittest tests.unit.test_batch`) and the live test to `tests/live/live_resolve.py`, which can now run some areas with `--only`. `python -m unittest` and `python tests/smoke_bridge.py` are unchanged.

@@ -93,3 +93,17 @@ class GatewayResilience(unittest.TestCase):
         with open(os.path.join(folder.name, "audit.jsonl"), encoding="utf-8") as f:
             log = [json.loads(line) for line in f]
         self.assertEqual([(e["tool"], e["args"], e["status"]) for e in log], [("legacy__hello", {"x": 1}, "success")])
+
+    def test_delete_bin_needs_confirm_and_it_is_not_forwarded(self):
+        fake = [sys.executable, str(ROOT / "tests" / "fake_mcp.py"), "delete_bin"]
+        env = dict(os.environ, LEGACY_MCP_COMMAND=json.dumps(fake), RESOLVE_MCP_REPO=tempfile.mkdtemp(),
+                   RESOLVE_MCP_SERVER="missing.py", RESOLVE_MCP_PYTHON="missing.exe")
+        env.pop("RESOLVE_MCP_COMMAND", None)
+        call = self.rpc(env)
+        call(1, "initialize", {"protocolVersion": "2025-03-26"})
+        call(2, "tools/list")
+        r = call(3, "tools/call", {"name": "legacy__delete_bin", "arguments": {"bin": "_RCE_X"}})["result"]
+        self.assertTrue(r["isError"])
+        self.assertIn("confirm", r["content"][0]["text"])
+        r = call(4, "tools/call", {"name": "legacy__delete_bin", "arguments": {"bin": "_RCE_X", "confirm": True}})
+        self.assertEqual(r["result"]["content"][0]["text"], 'called:delete_bin {"bin": "_RCE_X"}')

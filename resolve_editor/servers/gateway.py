@@ -23,7 +23,7 @@ from . import upstream as engine
 # Upstream tools that work without a live scripting connection, so they stay useful on free Resolve.
 OFFLINE_UPSTREAM = {"knowledge", "media_analysis", "setup"}
 # Legacy tools that destroy work or start long jobs need an explicit confirm=true.
-GUARDED_LEGACY = {"delete_items", "start_render"}
+GUARDED_LEGACY = {"delete_items", "start_render", "delete_bin"}
 READ_ONLY_LEGACY = {"get_state", "list_timelines", "list_media", "list_timeline_items", "list_markers", "probe_color",
                     "export_frame", "list_render_presets", "render_status", "goto_timecode", "open_page",
                     "set_current_timeline"}

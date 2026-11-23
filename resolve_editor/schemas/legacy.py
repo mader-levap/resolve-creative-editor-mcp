@@ -11,6 +11,13 @@ TOOLS = [
     T("set_current_timeline", "Switch the active timeline.", {"name": S}, ["name"]),
     T("list_media", "All clips in the media pool (id, name, duration, frames, fps, resolution, path)."),
     T("import_media", "Import files from disk into the media pool.", {"paths": STRS}, ["paths"]),
+    T("create_bin", "Create a Media Pool bin by its path from the root, / between levels (e.g. Footage/Day 1). Only "
+      "the last level is created; its parent must exist. The current bin doesn't change.", {"bin": S}, ["bin"]),
+    T("use_bin", "Make a bin current (path from the root; empty is the root). New clips and timelines go there. "
+      "Returns the previous bin, to switch back to it later.", {"bin": S}, ["bin"]),
+    T("delete_bin", "Delete a bin (path from the root). A bin with clips, timelines or bins in it is refused unless "
+      "with_contents=true, which deletes them with it (Media Pool entries only, files on disk stay). Refuses the "
+      "root, the current bin and a bin holding the current timeline.", {"bin": S, "with_contents": B}, ["bin"]),
     T("create_timeline", "Create a timeline, empty or from media-pool clips.",
       {"name": S, "clips": {"type": "array", "items": S, "description": CLIP_REF}}, ["name"]),
     T("append_clips",

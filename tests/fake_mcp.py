@@ -15,7 +15,9 @@ for line in sys.stdin:
         result={"tools":[{"name":n,"description":"fake tool","inputSchema":{"type":"object","properties":{}}}
                          for n in NAMES]}
     elif method=="tools/call":
-        result={"content":[{"type":"text","text":"called:"+msg["params"]["name"]}]}
+        args=msg["params"].get("arguments") or {}  # echoed, so a test sees what was forwarded
+        text="called:"+msg["params"]["name"]+(" "+json.dumps(args) if args else "")
+        result={"content":[{"type":"text","text":text}]}
     elif method=="resources/list":
         result={"resources":[]}
     elif method=="prompts/list":

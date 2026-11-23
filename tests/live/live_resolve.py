@@ -1,8 +1,9 @@
 """Live checks against a REAL DaVinci Resolve. Not part of the automated tests.
 
-Requires Resolve open with a project and the bridge running. Everything happens on a new scratch timeline
-named _RCE_LIVE_<time> and a bin named _RCE_LIVE_CAPTIONS; your other timelines are compared before and after.
-The scratch timeline is deleted at the end unless --keep is given. Run: python tests/live/live_resolve.py
+Requires Resolve open with a project and the bridge running. Everything happens in a new bin _RCE_LIVE_<time> (the
+test clip, the scratch timeline of the same name, its backups and the captions); your current timeline is compared
+before and after. At the end the bin you had selected is current again and the run's bin is deleted with everything
+in it, unless --keep is given. Run: python tests/live/live_resolve.py
 One or more areas only: --only captions,markers (areas: clips, transitions, markers, captions, reads).
 """
 import os
@@ -27,6 +28,15 @@ def check(name, ok, detail=""):
 
 def B(op, **a):
     return session.call(op, **a)
+
+
+def _refusal(op, **a):
+    """The error text of a call expected to be refused, or "" when it succeeds."""
+    try:
+        B(op, **a)
+    except RuntimeError as exc:
+        return str(exc)
+    return ""
 
 
 def status(r):
@@ -78,7 +88,7 @@ def captions(start, name):
                                   {"start": 2.2, "end": long_end, "text": "A long one"},
                                   {"start": long_end + 0.5, "end": long_end + 2, "text": "Last words"}]
     r = dispatch.run("add_captions", {"segments": segs, "confirm": True, "timeline": name,
-                                      "folder": "_RCE_LIVE_CAPTIONS"})
+                                      "folder": name})  # the run's bin
     check("captions placed with exact lengths", status(r) == "success", r)
     track = max(x["track"] for x in session.items() if x["track_type"] == "video")
     parts: dict[str, list[Any]] = {}
@@ -232,10 +242,15 @@ def main():
     original = sys.argv[sys.argv.index("--return-to") + 1] if "--return-to" in sys.argv else state["timeline"]
     B("set_current_timeline", name=original)
     before = (B("list_timeline_items", track_type="video"), B("list_timeline_items", track_type="audio"))
-    name = "_RCE_LIVE_" + time.strftime("%H%M%S")
+    name = "_RCE_LIVE_" + time.strftime("%H%M%S")  # the run's bin and its scratch timeline
+
+    def test_clips():
+        return sum(1 for m in B("list_media") if m["name"] == "rce_live_clip.mp4")
+    clips_before, start_bin = test_clips(), state.get("current_bin") or ""
     try:
-        media = [m for m in B("list_media") if m["name"] == "rce_live_clip.mp4"]
-        clip = media[0]["id"] if media else B("import_media", paths=[clip_path])[0]["id"]
+        B("create_bin", bin=name)
+        B("use_bin", bin=name)  # new clips, timelines and backups go here
+        clip = B("import_media", paths=[clip_path])[0]["id"]
         B("create_timeline", name=name)
         B("set_scratch_fps", timeline=name, fps=30)  # the generated clip's rate, whatever the project's is
         B("set_current_timeline", name=name)
@@ -257,10 +272,20 @@ def main():
         session.invalidate()
         after = (B("list_timeline_items", track_type="video"), B("list_timeline_items", track_type="audio"))
         check("your current timeline is unchanged", after == before)
+        B("use_bin", bin=start_bin)
         if not keep:
-            for t in [t for t in B("list_timelines") if t.startswith(name)]:
+            try:
+                print("cleanup", B("delete_bin", bin=name, with_contents=True))
+            except RuntimeError as exc:  # not created, or Resolve refusing: reported by the checks below
+                print("cleanup failed:", exc)
+            left = [t for t in B("list_timelines") if t.startswith(name)]
+            check("nothing of the run is left: no bin, timeline or test clip",
+                  not left and test_clips() == clips_before and "no bin" in _refusal("delete_bin", bin=name),
+                  (left, test_clips(), clips_before))
+            for t in left:  # a timeline made outside the run's bin; the check above already failed
                 print("cleanup", t, B("delete_scratch", timeline=t))
-            print("cleanup bin", B("delete_scratch", folder="_RCE_LIVE_CAPTIONS"))
+        now = B("get_state").get("current_bin")  # checked after the cleanup, which could change it
+        check("the bin you had selected is current again", now == start_bin, (now, start_bin))
     failed = [n for n, ok in RESULTS if not ok]
     print(f"\n{len(RESULTS) - len(failed)} passed, {len(failed)} failed")
     return 1 if failed else 0

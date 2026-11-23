@@ -25,7 +25,36 @@ os.makedirs(bridge_dir)
 FAKE = r"""
 local clip = {GetMediaId=function() return "id1" end, GetName=function() return "a.mp4" end,
   GetClipProperty=function() return {Frames="240", FPS="24", ["File Path"]="C:\\v\\a.mp4"} end}
-local folder = {GetClipList=function() return {clip} end, GetSubFolderList=function() return {} end}
+-- A Media Pool folder tree: Footage/Day 1 holds a clip and a timeline, Edits holds the timeline WORK, two bins are
+-- named Dup. Like Resolve, every call hands out a new proxy object, so folders must be compared by GetUniqueId.
+local ids = 0
+local function newfolder(name, parent)
+  ids = ids + 1
+  local f = {name=name, subs={}, clips={}, parent=parent, id="f" .. ids}
+  if parent then table.insert(parent.subs, f) end
+  return f
+end
+local function proxy(f)
+  if not f then return nil end
+  return {f=f, GetName=function() return f.name end, GetUniqueId=function() return f.id end,
+    GetClipList=function() return f.clips end,
+    GetSubFolderList=function() local out = {}; for i, x in ipairs(f.subs) do out[i] = proxy(x) end; return out end}
+end
+local function tl_clip(name)
+  return {GetMediaId=function() return "tl-" .. name end, GetName=function() return name end,
+    GetClipProperty=function() return {Type="Timeline"} end,
+    GetTimeline=function() return {GetName=function() return name end} end}
+end
+local root = newfolder("Master")
+root.clips = {clip}
+local footage = newfolder("Footage", root)
+local day1 = newfolder("Day 1", footage)
+day1.clips = {{GetMediaId=function() return "id2" end, GetName=function() return "b.mp4" end,
+  GetClipProperty=function() return {Frames="10", FPS="24"} end}, tl_clip("_RCE_INNER")}
+local edits = newfolder("Edits", root)
+edits.clips = {tl_clip("WORK")}
+newfolder("Dup", root); newfolder("Dup", root)
+local current_folder = root
 local made = {}
 local placed = {GetUniqueId=function() return "item1" end, GetName=function() return "placed" end,
   GetStart=function() return 0 end, GetEnd=function() return 10 end, GetDuration=function() return 10 end,
@@ -58,9 +87,24 @@ local function timeline(name)
   end
   return made[name]
 end
-local pool = {GetRootFolder=function() return folder end,
-  AddSubFolder=function() return folder end, GetCurrentFolder=function() return folder end,
-  SetCurrentFolder=function() return true end,
+local pool = {GetRootFolder=function() return proxy(root) end,
+  AddSubFolder=function(self, parent, name)
+    if name == "_RCE_RENAMED" then name = "_RCE_RENAMED 1" end  -- Resolve picking another name
+    current_folder = parent.f  -- Resolve may make the parent current; create_bin must undo it
+    return proxy(newfolder(name, parent.f))
+  end,
+  GetCurrentFolder=function() return proxy(current_folder) end,
+  SetCurrentFolder=function(self, f) current_folder = f.f; return true end,
+  DeleteFolders=function(self, list)
+    for _, f in ipairs(list) do
+      local subs = f.f.parent.subs
+      for i, x in ipairs(subs) do if x == f.f then table.remove(subs, i); break end end
+      folder_deleted(f.f.name)
+    end
+    current_folder = root  -- like Resolve: deleting a bin makes the root current
+    return true
+  end,
+  DeleteTimelines=function(self, list) for _, t in ipairs(list) do tl_deleted(t:GetName()) end; return true end,
   CreateEmptyTimeline=function(self, name) created(name); return timeline(name) end,
   AppendToTimeline=function(self, list)
     record(list[1].startFrame, list[1].endFrame); wrote("append", current())
@@ -79,7 +123,7 @@ resolve = {GetVersionString=function() return "21.1-fake" end, GetCurrentPage=fu
 L: dict[str, Any] = {}
 appended: list[tuple[int, int]] = []
 clip_marks: list[tuple[int, str]] = []
-world: dict[str, Any] = {"project": "demo", "names": [], "cur": None, "wrote": [], "ignore": {}}
+world: dict[str, Any] = {"project": "demo", "names": [], "cur": None, "wrote": [], "ignore": {}, "deleted": []}
 titles: dict[str, Any] = {"length": 300, "settings": {}, "stuck": False, "parts": []}
 
 
@@ -132,6 +176,8 @@ def run_bridge():
     g.title_len = lambda: titles["length"]
     g.setting, g.set_setting = setting, set_setting
     g.part = lambda rec, s, e: titles["parts"].append((rec, s, e))
+    g.folder_deleted = lambda name: world["deleted"].append(("bin", name))
+    g.tl_deleted = lambda name: world["deleted"].append(("timeline", name))
     # mimic Resolve's sandbox: no io/require; loadfile reads, fusion prefs is the only writer
     lua.execute("io = nil; require = nil; bmd = {}; fusion = {}")
     g.bmd.wait = time.sleep
@@ -287,6 +333,50 @@ r = bridge.call_bridge("caption_texts", {"item_ids": ["item1", "nope"]})
 assert r["ok"] and r["result"]["item1"] == {"text": "line one\nline two"}, r
 assert "not found" in r["result"]["nope"]["error"], r
 
+
+# Bins by path from the Media Pool root ("" is the root); every refusal changes nothing
+def call(op, **a):
+    return bridge.call_bridge(op, a)
+
+
+def current_bin():
+    return call("get_state")["result"]["current_bin"]
+
+
+reset(cur="WORK", names=("WORK", "OTHER"))
+world["deleted"].clear()
+assert current_bin() == "", current_bin()
+r = call("create_bin", bin="Footage/_RCE_NEW")
+assert r["ok"] and r["result"] == {"bin": "Footage/_RCE_NEW"} and current_bin() == "", r
+for path, why in (("Footage/_RCE_NEW", "already"), ("Nope/_RCE_X", "no bin Nope"), ("", "root"), ("/", "root"),
+                 ("Dup/_RCE_X", "ambiguous")):
+    r = call("create_bin", bin=path)
+    assert not r["ok"] and why in r["error"], (path, r)
+r = call("create_bin", bin="_RCE_RENAMED")
+assert not r["ok"] and "_RCE_RENAMED 1" in r["error"] and ("bin", "_RCE_RENAMED 1") in world["deleted"], r
+assert current_bin() == "", current_bin()
+r = call("use_bin", bin="Footage/Day 1")
+assert r["ok"] and r["result"] == {"bin": "Footage/Day 1", "previous": ""} and current_bin() == "Footage/Day 1", r
+r = call("use_bin", bin="/Footage/_RCE_NEW/")  # slashes at the ends are ignored
+assert r["ok"] and r["result"] == {"bin": "Footage/_RCE_NEW", "previous": "Footage/Day 1"}, r
+assert not call("use_bin", bin="Footage/Nope")["ok"] and current_bin() == "Footage/_RCE_NEW"
+world["deleted"].clear()
+for path, why in (("", "root"), ("Footage/_RCE_NEW", "current bin"), ("Footage", "current bin"),
+                 ("Edits", "current timeline"), ("Dup", "ambiguous"), ("Nope", "no bin")):
+    r = call("delete_bin", bin=path, with_contents=True)
+    assert not r["ok"] and why in r["error"], (path, r)
+call("use_bin", bin="")
+r = call("delete_bin", bin="Footage")
+assert not r["ok"] and "with_contents" in r["error"] and "2 bins, 1 clip, 1 timeline" in r["error"], r
+assert world["deleted"] == [], world["deleted"]
+call("use_bin", bin="Edits")
+r = call("delete_bin", bin="Footage/_RCE_NEW")  # empty: no with_contents needed
+assert current_bin() == "Edits", current_bin()  # the current bin stays current
+assert r["ok"] and r["result"] == {"bin": "Footage/_RCE_NEW", "bins": 0, "clips": 0, "timelines": 0}, r
+r = call("delete_bin", bin="Footage", with_contents=True)
+assert r["ok"] and r["result"] == {"bin": "Footage", "bins": 1, "clips": 1, "timelines": 1}, r
+assert world["deleted"] == [("bin", "_RCE_NEW"), ("timeline", "_RCE_INNER"), ("bin", "Footage")], world["deleted"]
+assert not call("use_bin", bin="Footage")["ok"]
 
 # The scratch-only frame rate helper used by the live tests
 reset(cur="WORK", names=("WORK", "_RCE_A", "_RCE_FULL"))
