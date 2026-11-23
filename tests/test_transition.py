@@ -223,3 +223,33 @@ class LinkedAudio(Base):
         self.assertFalse([w for w in r["_operation"]["warnings"] if "hard cut" in w])
         r, sent = self.run_on(linked(), item_id="a2", type="Cross Fade +3 dB", category="audio", duration=30)
         self.assertEqual([s["item_id"] for s in sent], ["a2"])
+
+
+class Duration(Base):
+    """A duration is a whole number of frames above 0, or left out for Resolve's default (ISSUES.md I-08)."""
+
+    def test_bad_durations_are_blocked_before_anything_is_written(self):
+        for bad in (0, -5, 2.5, "30", True):
+            for confirm in ({}, {"confirm": True, "timeline": "T"}):
+                with self.subTest(duration=bad, confirm=bool(confirm)):
+                    f = self.use(timeline())
+                    r = dispatch.run("add_transition", {"item_id": "a", "duration": bad, **confirm})
+                    self.assertEqual(r["_operation"]["status"], "blocked", r)
+                    self.assertIn(repr(bad), r["reason"])
+                    self.assertFalse({"add_transition", "duplicate_timeline"} & set(f.calls))
+
+    def test_none_means_resolves_default_and_one_frame_is_fine(self):
+        self.use(timeline())
+        r = dispatch.run("add_transition", {"item_id": "a", "duration": None})
+        self.assertIn("default", str(r["plan"]["frames"]))
+        r = dispatch.run("add_transition", {"item_id": "a", "duration": 1, "confirm": True, "timeline": "T"})
+        self.assertEqual(r["_operation"]["status"], "success", r)
+
+    def test_a_batch_stops_at_a_bad_duration(self):
+        f = self.use(timeline())
+        r = dispatch.run("batch", {"confirm": True, "timeline": "T", "operations": [
+            {"tool": "add_transition", "args": {"item_id": "a", "duration": 0}},
+            {"tool": "add_markers", "args": {"markers": [{"at": 1001, "name": "m"}]}}]})
+        self.assertEqual(r["results"][0]["status"], "blocked")
+        self.assertEqual(r["not_run"], ["add_markers"])
+        self.assertNotIn("add_transition", f.calls)

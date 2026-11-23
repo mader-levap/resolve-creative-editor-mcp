@@ -2,6 +2,7 @@
 
 ## 2026-11-23
 
+- Fixed: `edit__add_transition` treated `duration: 0` as "use Resolve's default" and sent negative lengths to Resolve (ISSUES.md I-08). A duration must now be a whole number of frames above 0, or left out.
 - Changed: `edit__add_transition` on a video clip also adds a matching crossfade on its linked audio by default (ISSUES.md I-07), `Cross Fade +3 dB` unless `audio_type` says otherwise. `include_linked=false` keeps the hard audio cut and warns; a split edit gets a warning instead of a crossfade.
 - Changed: `edit__add_transition` previews first (cut, expected span, spare source frames) and makes a backup timeline on confirm (ISSUES.md I-06). Callers must now send `confirm=true` and the previewed `timeline`. Live check: `legacy__delete_items` removes a transition without touching its clips.
 - Fixed: `edit__ripple_trim` ignored transitions on other tracks (ISSUES.md I-05). A transition at a clip's edge reaching into the removed frames was deleted by Resolve while the trim said `passed`. Such a transition now blocks the trim, and the check after the trim includes transitions.

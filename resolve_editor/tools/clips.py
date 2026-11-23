@@ -56,8 +56,12 @@ def _clips() -> dict[str, tuple[Any, ...]]:
 def add_transition(a: dict[str, Any]) -> dict[str, Any]:
     options = {"type": a.get("type") or "Cross Dissolve", "category": a.get("category") or "simple",
                "position": a.get("position") or "end", "alignment": a.get("alignment") or "center"}
-    if a.get("duration"):
-        options["duration"] = a["duration"]
+    duration = a.get("duration")
+    if duration is not None:  # 0 isn't "not given", and bool counts as int in Python (ISSUES.md I-08)
+        if isinstance(duration, bool) or not isinstance(duration, int) or duration <= 0:
+            return outcome.blocked(f"duration must be a whole number of frames above 0, or left out for Resolve's "
+                                   f"default (got {duration!r})")
+        options["duration"] = duration
     target = next((x for x in session.items() if x["id"] == a["item_id"]), None)
     if target is None or target.get("type") == "transition":
         return outcome.blocked(f"no clip with id {a['item_id']} on the current timeline")

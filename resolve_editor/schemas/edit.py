@@ -48,7 +48,8 @@ TOOLS = [
       "backup timeline, adds it and checks what Resolve made. On a video clip, linked audio at the same cut gets a "
       "matching crossfade (audio_type, default 'Cross Fade +3 dB') unless include_linked is false.",
       {"item_id": S, "type": S, "position": {"type": "string", "enum": ["start", "end"]},
-       "alignment": {"type": "string", "enum": ["left", "center", "right"]}, "duration": I,
+       "alignment": {"type": "string", "enum": ["left", "center", "right"]},
+       "duration": {"type": "integer", "minimum": 1, "description": "Frames; leave out for Resolve's default"},
        "category": {"type": "string", "enum": ["simple", "fusion", "ofx", "audio"]}, "include_linked": B,
        "audio_type": S, "confirm": CONFIRM,
        "timeline": TIMELINE}, ["item_id"]),

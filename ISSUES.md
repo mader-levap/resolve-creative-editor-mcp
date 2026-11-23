@@ -1,6 +1,6 @@
 # Issues
 
-Found while testing `edit__add_transition`, 2026-11-22. This is the base for fixes. Fixed so far: I-01, I-02, I-03, I-04, I-05, I-06, I-07, I-10, I-13, I-14, I-15, I-16, I-17, I-18, I-19, I-20, I-21, I-23.
+Found while testing `edit__add_transition`, 2026-11-22. This is the base for fixes. Fixed so far: I-01, I-02, I-03, I-04, I-05, I-06, I-07, I-08, I-10, I-13, I-14, I-15, I-16, I-17, I-18, I-19, I-20, I-21, I-23.
 
 - Environment: free DaVinci Resolve 21.2.0.6, Windows 10, 60 fps timeline.
 - Code is named by file and function, with paths from the repo root.
@@ -23,7 +23,7 @@ How each item is known:
 | [I-05](#i-05) | ~~Medium~~ **Fixed** | `ripple_trim` ignores transitions on other tracks | Fake, live |
 | [I-06](#i-06) | ~~Medium~~ **Fixed** | `add_transition` has no preview or backup | Fake, live |
 | [I-07](#i-07) | ~~Medium~~ **Fixed** | Linked audio keeps a hard cut, without a warning | Live, fake |
-| [I-08](#i-08) | Medium | Zero and negative durations aren't rejected | Fake |
+| [I-08](#i-08) | ~~Medium~~ **Fixed** | Zero and negative durations aren't rejected | Fake |
 | [I-09](#i-09) | Low | Every refusal blames spare source frames | Code |
 | [I-10](#i-10) | ~~Low~~ **Fixed** | `at` in the transition result is ambiguous | Live |
 | [I-11](#i-11) | Low | `timeline_summary` hides empty tracks | Live, fake |
@@ -40,7 +40,7 @@ How each item is known:
 | [I-22](#i-22) | Medium | The bridge can stop answering, cause unknown | Live, once |
 | [I-23](#i-23) | ~~High~~ **Fixed** | Moving or trimming a clip drops its clip markers, reported as `passed` | Live, fake |
 
-Order, one fix at a time, worst first: medium (I-08, I-22), then low. Re-rank after each fix.
+Order, one fix at a time, worst first: medium (I-22), then low. Re-rank after each fix.
 
 ## Issues
 
@@ -201,7 +201,7 @@ same position, alignment and length (test T5a).
 - Live on a scratch timeline with three linked clips: the default at the first cut made a V1 Cross Dissolve and an A1 Cross Fade +3 dB, both 01:00:04:45-01:00:05:15, `success` / `passed`; `include_linked=false` at the second cut made the dissolve only, with "linked audio on A1 keeps a hard cut at 01:00:10:00".
 
 <a id="i-08"></a>
-### I-08 Zero and negative durations aren't rejected (medium)
+### I-08 Zero and negative durations aren't rejected (medium, fixed)
 
 **Where:** `resolve_editor/tools/clips.py` (`add_transition`)
 
@@ -210,9 +210,9 @@ same position, alignment and length (test T5a).
 
 **Repro:** with 0 the options sent have no `duration`; with -5 they contain `-5`.
 
-**Fix:** omitted or null means automatic; anything else must be a positive integer, otherwise `blocked`.
+**Fix:** in `add_transition`, an omitted or null `duration` still means Resolve's default; anything else must be an integer (not a boolean) above 0, or the call is `blocked` before any read or write, naming the value. That covers the preview, the confirm and batch steps, and the linked audio crossfade (I-07), which copies the duration. The schema adds `minimum: 1`.
 
-**Done when:** 0 and -5 are blocked without a bridge write.
+**Verified 2026-11-23:** `Duration` tests (`tests/test_transition.py`): 0, -5, 2.5, "30" and true are blocked in the preview and on confirm with no `add_transition` or backup call; null gives Resolve's default and 1 passes; a batch stops at a step with 0 and runs nothing after it. Each part of the check fails a test when it is removed.
 
 <a id="i-09"></a>
 ### I-09 Every refusal blames spare source frames (low)
@@ -633,7 +633,7 @@ bug until that is known.
 
 ## After fixing
 
-- From the repo root: `python -m unittest` (baseline: 129 tests, all pass) and `python tests/smoke_bridge.py`
+- From the repo root: `python -m unittest` (baseline: 132 tests, all pass) and `python tests/smoke_bridge.py`
   (needs `lupa`).
 - Restart the MCP server, and the bridge if the Lua changed, then repeat the affected live tests.
 - Update the transitions row in `README.md`, plus `AGENTS.md` and `PATCH_NOTES.md`.
