@@ -897,7 +897,14 @@ end
 
 function OPS.add_transition(a)
   local tr = find_item(a.item_id):AddTransition(a.options)
-  if not tr then error("Resolve refused the transition (the clips may have no spare source frames)", 0) end
+  if not tr then  -- AddTransition gives no reason; name the request and the causes seen live (ISSUES.md I-09)
+    local o = a.options or {}
+    error("Resolve refused the transition and gave no reason (" .. tostring(o.type) .. ", " .. tostring(o.category)
+      .. ", " .. tostring(o.position) .. ", " .. tostring(o.alignment) .. ", " .. tostring(o.duration or "default")
+      .. " frames). Seen causes: a type it doesn't know for this item (a misspelled name, an audio type on video), "
+      .. "or no unused source frames on a side the alignment needs (center: both sides of the cut; right: after "
+      .. "the outgoing clip)", 0)
+  end
   return { id = tr:GetUniqueId(), name = tr:GetName(), start = tr:GetStart(), ["end"] = tr:GetEnd(), duration = tr:GetDuration() }
 end
 

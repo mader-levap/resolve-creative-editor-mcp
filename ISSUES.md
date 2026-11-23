@@ -1,6 +1,6 @@
 # Issues
 
-Found while testing `edit__add_transition`, 2026-11-22. This is the base for fixes. Fixed so far: I-01, I-02, I-03, I-04, I-05, I-06, I-07, I-08, I-10, I-13, I-14, I-15, I-16, I-17, I-18, I-19, I-20, I-21, I-23.
+Found while testing `edit__add_transition`, 2026-11-22. This is the base for fixes. Fixed so far: I-01, I-02, I-03, I-04, I-05, I-06, I-07, I-08, I-09, I-10, I-13, I-14, I-15, I-16, I-17, I-18, I-19, I-20, I-21, I-23.
 
 - Environment: free DaVinci Resolve 21.2.0.6, Windows 10, 60 fps timeline.
 - Code is named by file and function, with paths from the repo root.
@@ -24,7 +24,7 @@ How each item is known:
 | [I-06](#i-06) | ~~Medium~~ **Fixed** | `add_transition` has no preview or backup | Fake, live |
 | [I-07](#i-07) | ~~Medium~~ **Fixed** | Linked audio keeps a hard cut, without a warning | Live, fake |
 | [I-08](#i-08) | ~~Medium~~ **Fixed** | Zero and negative durations aren't rejected | Fake |
-| [I-09](#i-09) | Low | Every refusal blames spare source frames | Code |
+| [I-09](#i-09) | ~~Low~~ **Fixed** | Every refusal blames spare source frames | Live, fake |
 | [I-10](#i-10) | ~~Low~~ **Fixed** | `at` in the transition result is ambiguous | Live |
 | [I-11](#i-11) | Low | `timeline_summary` hides empty tracks | Live, fake |
 | [I-12](#i-12) | Low | The live transition test accepts a refusal as a pass | Code |
@@ -40,7 +40,7 @@ How each item is known:
 | [I-22](#i-22) | Medium, **handled** | The bridge can stop answering, cause unknown | Live, once |
 | [I-23](#i-23) | ~~High~~ **Fixed** | Moving or trimming a clip drops its clip markers, reported as `passed` | Live, fake |
 
-Order, one fix at a time, worst first: low (I-09, I-11, I-12); I-22 waits for the next sighting, which will now name where it stopped. Re-rank after each fix.
+Order, one fix at a time, worst first: low (I-11, I-12); I-22 waits for the next sighting, which will now name where it stopped. Re-rank after each fix.
 
 ## Issues
 
@@ -215,17 +215,21 @@ same position, alignment and length (test T5a).
 **Verified 2026-11-23:** `Duration` tests (`tests/test_transition.py`): 0, -5, 2.5, "30" and true are blocked in the preview and on confirm with no `add_transition` or backup call; null gives Resolve's default and 1 passes; a batch stops at a step with 0 and runs nothing after it. Each part of the check fails a test when it is removed.
 
 <a id="i-09"></a>
-### I-09 Every refusal blames spare source frames (low)
+### I-09 Every refusal blames spare source frames (low, fixed)
 
 **Where:** `resolve_bridge.lua` (`add_transition`)
 
 **Problem:** `AddTransition` returns nil without a reason and the bridge always suggests missing spare frames. A
 misspelled name, wrong category or unsupported item would get the same hint.
 
-**Fix:** include the requested options and list the possible causes. Mention spare frames as the cause only after
-checking them.
+**What Resolve does** (live T3/T4, see "Live tests"): it refuses an unknown type for the item, and a side with no unused source frames at all when the alignment needs that side (center: both; right: after the outgoing clip; left was made even with none). With only a few spare frames, or a length longer than the clips, it makes a shorter transition instead, which the I-04 check reports as `partial`. A category that doesn't match the type was ignored.
 
-**Done when:** the message doesn't point to one unverified cause. T3 and T4 will show the real behaviour.
+**Fix:** the bridge's refusal names the request (type, category, position, alignment, length) and the causes seen live, without picking one. `add_transition` turns a refusal into a `failed` result instead of an error: the bridge's text, the spare source frames checked after the refusal, the backup name, and the likely cause from those numbers: the side with none that the alignment needs, or, when they are there, "they aren't the cause; check the type name". Other bridge errors still raise.
+
+**Verified 2026-11-23:**
+
+- `Refusal` tests (`tests/test_transition.py`, `FakeResolve` can now refuse): `failed` with backup and spare frames, "aren't the cause" with plenty, the short side named for center but not for left, other errors still raise. The Lua smoke test checks the refusal text. Each part's test fails again when it is removed.
+- Live, new bridge and code: no spare frames after the outgoing clip (center) and before the incoming one (center) each gave `failed` naming that side; "Cross Disolve" gave `failed` with "they aren't the cause; check the type name"; left alignment with none gave `passed`; 10 spare frames each for 60 gave `partial` (length 20).
 
 <a id="i-10"></a>
 ### I-10 `at` in the transition result is ambiguous (low, fixed)
@@ -598,8 +602,8 @@ Both have plenty of spare frames on each side.
 |---|---|---|---|
 | T1 | Centered 60-frame Cross Dissolve | **Pass** | I-07 (fixed), I-10 (fixed) |
 | T2 | Left/right alignment, start/end position | **Pass** (span rule recorded) | I-04 |
-| T3 | Cut without spare frames | Not run | I-09 |
-| T4 | Misspelled name, zero length, longer than the clip | Not run | I-04, I-08, I-09 |
+| T3 | Cut without spare frames | **Run**: refusal rule recorded | I-09 (fixed) |
+| T4 | Misspelled name, zero length, longer than the clip | **Run** (zero length blocked since I-08) | I-04, I-08, I-09 (fixed) |
 | T5a | Audio `Cross Fade +3 dB` | **Read-back pass**; not listened to or restart-tested | I-07 (fixed) |
 | T5b | Other simple, audio and Fusion types (no OFX: Studio dialog risk) | Not run | I-04 |
 | T6 | Same transition added twice | Not run | |
@@ -621,6 +625,23 @@ Both have plenty of spare frames on each side.
 - Span relative to the cut, the same for both positions: left `-d..0`, center `-ceil(d/2)..+floor(d/2)` (30: -15..15, 31: -16..15), right `0..+d`.
 - `GetProperty()` on each transition gave the requested `TransitionType`, `TransitionCategory`, `TransitionAlignment` and `TransitionDuration`. All clips kept position and source start.
 - Not checked: exported frames, playback.
+
+### T3 No spare frames: run 2026-11-23
+
+Video-only clips cut at 300 (60 fps, 2275-frame source), raw `AddTransition` at the outgoing clip's end, 60-frame Cross Dissolve unless noted.
+
+| Unused source frames | Alignment | Result |
+|---|---|---|
+| plenty both sides | center | made, 270-330 |
+| none after the outgoing clip | center / left / right | refused / made 240-300 / refused |
+| none before the incoming clip | center / left / right | refused / made 240-300 / made 300-360 |
+| none on either side | center | refused |
+| 10 on each side | center 60, 20, 21 | all made 290-310 (shortened to 20) |
+| 10 on each side | left 20 / right 20 | made 290-300 / 300-310 (shortened to 10) |
+
+### T4 Bad requests: run 2026-11-23
+
+Same setup, plenty of spare frames: "Cross Disolve" refused; an audio type (`Cross Fade +3 dB`, category audio) on video refused; Cross Dissolve with category `fusion` made a normal Cross Dissolve; 1000 frames on 300-frame clips made 0-600. Zero length is blocked before Resolve since I-08.
 
 ### T5a Audio crossfade: read-back pass
 
@@ -645,7 +666,7 @@ bug until that is known.
 
 ## After fixing
 
-- From the repo root: `python -m unittest` (baseline: 135 tests, all pass) and `python tests/smoke_bridge.py`
+- From the repo root: `python -m unittest` (baseline: 138 tests, all pass) and `python tests/smoke_bridge.py`
   (needs `lupa`).
 - Restart the MCP server, and the bridge if the Lua changed, then repeat the affected live tests.
 - Update the transitions row in `README.md`, plus `AGENTS.md` and `PATCH_NOTES.md`.

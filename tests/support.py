@@ -127,6 +127,8 @@ class FakeResolve:
             r = {"1": "EBU R128"}
         elif op == "add_transition":
             r = self.transition(args["item_id"], args["options"])
+            if r is None:  # refused, worded like resolve_bridge.lua
+                return {"ok": False, "error": "Resolve refused the transition and gave no reason (...)"}
         elif op in ("set_speed", "copy_grade", "normalize_audio", "set_enabled", "set_item_properties",
                     "export_timeline"):
             r = {"ok": True}
@@ -148,8 +150,10 @@ class FakeResolve:
     def transition(self, item_id, o):
         """Like Resolve 21.2 (live T2): left ends at the cut, right starts there, center puts an odd frame before it.
         self.misbehave changes what Resolve makes: type, category, alignment, duration, track, track_type, shift
-        (frames), move_clip (id), no_props, lost (not on the timeline)."""
+        (frames), move_clip (id), no_props, lost (not on the timeline), refuse (AddTransition gives nil)."""
         bad = getattr(self, "misbehave", {})
+        if bad.get("refuse"):
+            return None
         target = next(x for x in self.items if x["id"] == item_id)
         cut = target["end"] if o.get("position", "end") == "end" else target["start"]
         d = bad.get("duration", o.get("duration") or 10)

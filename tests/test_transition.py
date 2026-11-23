@@ -253,3 +253,34 @@ class Duration(Base):
         self.assertEqual(r["results"][0]["status"], "blocked")
         self.assertEqual(r["not_run"], ["add_markers"])
         self.assertNotIn("add_transition", f.calls)
+
+
+class Refusal(Base):
+    """A refusal is a failed result naming the likely cause from checked spare frames (ISSUES.md I-09, live T3/T4)."""
+
+    def refuse(self, media_frames=2275, **args):
+        f = self.use(timeline())
+        f.media_frames, f.misbehave = media_frames, {"refuse": True}
+        args = {"item_id": "a", "duration": 30, "confirm": True, "timeline": "T", **args}
+        return dispatch.run("add_transition", args)
+
+    def test_a_refusal_is_failed_with_the_backup_and_spare_frames(self):
+        r = self.refuse()
+        self.assertEqual(r["_operation"]["status"], "failed", r)
+        self.assertTrue(r["snapshot"])
+        self.assertEqual(r["spare_source_frames"], {"after the outgoing clip": 1795, "before the incoming clip": 1500})
+        self.assertIn("Resolve refused the transition", r["reason"])
+        self.assertIn("aren't the cause", r["reason"])
+        self.assertIn("type", r["reason"])
+
+    def test_a_side_without_spare_frames_is_named_when_the_alignment_needs_it(self):
+        r = self.refuse(media_frames=480)  # a's source ends at the media's last frame: 0 after the cut
+        self.assertIn("no unused source frames after the outgoing clip", r["reason"])
+        r = self.refuse(media_frames=480, alignment="left")  # left needs none there (live T3)
+        self.assertNotIn("no unused source frames", r["reason"])
+        self.assertIn("type", r["reason"])
+
+    def test_other_bridge_errors_still_raise(self):
+        self.use(FakeResolve([item("a", 1000, 300, src=180)], fail_on={"add_transition": 1}))
+        with self.assertRaises(RuntimeError):
+            dispatch.run("add_transition", {"item_id": "a", "duration": 30, "confirm": True, "timeline": "T"})

@@ -32,7 +32,8 @@ local placed = {GetUniqueId=function() return "item1" end, GetName=function() re
   -- clip markers count from the source start (live, ISSUES.md I-23); 21.2 refuses an empty name (I-19)
   GetMarkers=function() return {[348]={name="Marker 1", color="Blue"}, [5]={name="early", color="Red"},
     [2000]={name="", color="Green"}} end,
-  AddMarker=function(self, f, color, name) if name == "" then return false end; clip_marker(f, name); return true end}
+  AddMarker=function(self, f, color, name) if name == "" then return false end; clip_marker(f, name); return true end,
+  AddTransition=function() return nil end}  -- Resolve gives no reason (live T3/T4, ISSUES.md I-09)
 local function timeline(name)
   if not made[name] then
     local tool = {SetInput=function() end}
@@ -266,6 +267,14 @@ assert sorted(clip_marks) == [(5, "early"), (348, "Marker 1"), (2000, "Marker")]
 r = bridge.call_bridge("get_state", {})
 assert r["ok"] and r["result"]["clip_markers_by_source"] is True, r
 
+# A refused transition names what was asked and the causes seen live, without picking one (ISSUES.md I-09)
+r = bridge.call_bridge("add_transition", {"item_id": "item1", "options": {
+    "type": "Cross Disolve", "category": "simple", "position": "end", "alignment": "center", "duration": 30}})
+assert not r["ok"] and r["error"].startswith("Resolve refused the transition"), r
+for part in ("Cross Disolve", "center", "30", "doesn't know", "unused source frames"):
+    assert part in r["error"], (part, r)
+assert "may have no spare" not in r["error"], r
+
 # The scratch-only frame rate helper used by the live tests
 reset(cur="WORK", names=("WORK", "_RCE_A", "_RCE_FULL"))
 r = bridge.call_bridge("set_scratch_fps", {"timeline": "_RCE_A", "fps": 24})
@@ -296,7 +305,9 @@ try:
     bridge.call_bridge("scratch_stall", {"seconds": 2}, timeout=0.5, ack_timeout=0.4)
 except TimeoutError:
     pass
-late = bridge.read_hang()["request"]
+hang = bridge.read_hang()
+assert hang, "the stalled call left no hang record"
+late = hang["request"]
 before = data["claude_bridge_inst"]
 threading.Thread(target=run_bridge, daemon=True).start()
 for _ in range(50):

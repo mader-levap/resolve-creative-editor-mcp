@@ -77,7 +77,15 @@ def add_transition(a: dict[str, Any]) -> dict[str, Any]:
     snapshot = (timeline.snapshot_timeline({"label": "before transition"}).get("snapshot")
                 if a.get("backup", True) else None)
     before = _clips()
-    r = session.call("add_transition", item_id=a["item_id"], options=options)
+    try:
+        r = session.call("add_transition", item_id=a["item_id"], options=options)
+    except RuntimeError as exc:
+        if REFUSED not in str(exc):
+            raise
+        session.invalidate()
+        spare = _spare_frames(target, cut)
+        return outcome.op("failed", False, reason=f"{exc}. {_likely_cause(spare, options['alignment'])}",
+                          snapshot=snapshot, spare_source_frames=spare)
     session.invalidate()
     differs, unchecked, got = _check_transition(r.get("id"), target, cut, options, before)
     frames = got.get("duration") or r.get("duration")
@@ -107,6 +115,24 @@ def add_transition(a: dict[str, Any]) -> dict[str, Any]:
 
 
 AUDIO_CROSSFADE = "Cross Fade +3 dB"  # verified live in test T5a
+REFUSED = "Resolve refused the transition"  # resolve_bridge.lua, when AddTransition gives nil
+# Live T3 (ISSUES.md I-09): Resolve refuses when a side the alignment needs has no unused source frames at all; with a
+# few it shortens the transition instead. Left alignment was made even with none on either side.
+NEEDS = {"center": ("after the outgoing clip", "before the incoming clip"), "right": ("after the outgoing clip",),
+         "left": ()}
+
+
+def _likely_cause(spare: dict[str, Any], alignment: str) -> str:
+    """The refusal's likely cause, from the spare source frames checked after it."""
+    needed = {side: spare.get(side) for side in NEEDS.get(alignment, ())}
+    short = [side for side, n in needed.items() if isinstance(n, int) and n <= 0]
+    if short:
+        return (f"Likely cause: no unused source frames {' and '.join(short)}, which {alignment} alignment needs "
+                "(a few are enough: Resolve then shortens the transition)")
+    if all(isinstance(n, int) for n in needed.values()):
+        return ("The spare source frames this alignment needs are there, so they aren't the cause; check the type "
+                "name and that it suits this item")
+    return "Spare source frames couldn't be checked here; check the type name and the clips' unused frames"
 
 
 def _tc(frame: Any) -> str | None:
