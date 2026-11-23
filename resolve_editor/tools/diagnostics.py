@@ -26,12 +26,18 @@ def doctor(a: dict[str, Any] | None = None) -> dict[str, Any]:
     report = {"python": sys.version.split()[0], "ffmpeg": bool(shutil.which("ffmpeg") or os.environ.get("FFMPEG")),
               "ffprobe": bool(shutil.which("ffprobe") or os.environ.get("FFPROBE")), "faster_whisper": whisper,
               "bridge_folder": paths.DIR}
+    hang = bridge.read_hang()  # read first: an answer below clears it
+    if hang:
+        report["bridge_hang"] = hang
     try:
         res = bridge.call_bridge("get_state", {}, timeout=6, ack_timeout=4, lock_timeout=4)
         report["bridge"] = "connected" if res.get("ok") else res.get("error")
         report["resolve"] = res.get("result")
+        stuck = (res.get("result") or {}).get("previous_run_stuck")
+        if stuck:  # the bridge's own record of where the copy before it stopped (ISSUES.md I-22)
+            report["previous_run_stuck"] = stuck
     except bridge.BridgeBusy:
         report["bridge"] = "busy: another client is using it (it is running)"
     except Exception as exc:
-        report["bridge"] = f"not running: start it from the Resolve Console ({type(exc).__name__})"
+        report["bridge"] = f"not answering ({type(exc).__name__}): {exc}"
     return report

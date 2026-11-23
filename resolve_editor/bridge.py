@@ -29,6 +29,32 @@ NOT_RUNNING = ("Bridge not running. In Resolve open Workspace > Console (Lua tab
                '(Resolve 21.1 and older): dofile(os.getenv("USERPROFILE")'
                '.."\\\\resolve-claude-bridge\\\\resolve_bridge.lua")')
 
+RESTART = ("Ask the user to restart the bridge (Resolve: Workspace > Scripts > resolve_bridge, or the console "
+           "command), then run edit__doctor and read the timeline back before writing again.")
+
+
+def hang_file() -> str:
+    """Written when the bridge acked a request and never answered it, removed by the next answer (ISSUES.md I-22)."""
+    return os.path.join(paths.DIR, "bridge_hang.json")
+
+
+def read_hang() -> dict[str, Any] | None:
+    try:
+        with open(hang_file(), encoding="utf-8") as f:
+            got = json.load(f)
+        return got if isinstance(got, dict) else None
+    except (OSError, ValueError):
+        return None
+
+
+def _not_running() -> ConnectionError:
+    hang = read_hang()
+    if not hang:
+        return ConnectionError(NOT_RUNNING)
+    return ConnectionError(f"The bridge is still stuck since it stopped answering {hang.get('op')} at "
+                           f"{hang.get('at')}: it doesn't take requests until it is restarted. {RESTART}")
+
+
 # Resolve's Lua cannot write files, so the bridge replies via Fusion's prefs file (see resolve_bridge.lua).
 PREFS = os.environ.get("RESOLVE_FUSION_PREFS") or os.path.join(
     os.environ.get("APPDATA", ""), "Blackmagic Design", "DaVinci Resolve", "Support", "Fusion", "Profiles",
@@ -188,6 +214,13 @@ def call_bridge(op: str, args: dict[str, Any], timeout: float = 120, ack_timeout
         return _call(op, args, timeout, ack_timeout, timeline)
 
 
+def _clear_hang() -> None:
+    try:
+        os.remove(hang_file())
+    except OSError:
+        pass
+
+
 def _call(op: str, args: dict[str, Any], timeout: float, ack_timeout: float,
           timeline: dict[str, Any] | None) -> dict[str, Any]:
     req_path = os.path.join(paths.DIR, "request.lua")
@@ -214,14 +247,28 @@ def _call(op: str, args: dict[str, Any], timeout: float, ack_timeout: float,
             if got == rid:
                 if payload:
                     try:
-                        return json.loads(bytes.fromhex(payload).decode("utf-8"))
+                        answer = json.loads(bytes.fromhex(payload).decode("utf-8"))
                     except ValueError:  # caught mid-write
                         pass
+                    else:
+                        _clear_hang()
+                        return answer
                 acked = True
             if not acked and time.time() - start > ack_timeout:
-                raise ConnectionError(NOT_RUNNING)
+                raise _not_running()
             time.sleep(0.05)
-        raise TimeoutError(f"Resolve did not answer {op} within {timeout}s")
+        if not acked:
+            raise _not_running()
+        # Acked, then silence: the bridge's single loop is stuck inside a Resolve call (ISSUES.md I-22).
+        at = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(start))
+        try:
+            with open(hang_file(), "w", encoding="utf-8") as f:
+                json.dump({"op": op, "at": at, "request": rid}, f)
+        except OSError:
+            pass
+        raise TimeoutError(f"The bridge acknowledged {op} at {at} and then stopped answering for {timeout:g} s: it is "
+                           f"probably stuck inside a Resolve call. If {op} changes anything, it may have been made. "
+                           + RESTART)
     finally:
         try:
             os.remove(req_path)

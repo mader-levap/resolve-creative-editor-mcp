@@ -135,6 +135,7 @@ def run_bridge():
     lua.execute(open(os.path.join(here, "resolve_bridge.lua"), encoding="utf-8").read())
 
 
+data["claude_bridge_stage"] = "oldrun op get_state 1795900318"  # a copy that got stuck in a Resolve call (I-22)
 threading.Thread(target=run_bridge, daemon=True).start()
 for _ in range(50):
     if "claude_bridge_inst" in data:
@@ -196,6 +197,10 @@ def reset(cur="OTHER", project="demo", names=("WORK", "OTHER"), ignore=None):
 reset()
 r = bridge.call_bridge("get_state", {})
 assert r["ok"] and r["result"]["pins"] is True and r["result"]["named_markers"] is True, r
+# The new copy names where the one before it stopped, and records its own stages (ISSUES.md I-22)
+assert r["result"]["stage_marker"] is True, r
+assert r["result"]["previous_run_stuck"] == {"op": "get_state", "phase": "op", "at": 1795900318}, r
+assert data["claude_bridge_stage"].split()[1:3] == ["idle", "-"], data["claude_bridge_stage"]
 # Resolve 21.2 refuses markers without a name: the bridge says so and writes none of them (ISSUES.md I-19)
 for op, args in (("add_marker", {"frame": 5}), ("add_marker", {"frame": 5, "name": " "}),
                  ("add_markers", {"markers": [{"frame": 1, "name": "a"}, {"frame": 2}]})):
@@ -270,6 +275,50 @@ for bad in ({"timeline": "WORK", "fps": 24}, {"timeline": "_RCE_FULL", "fps": 24
     r = bridge.call_bridge("set_scratch_fps", bad)
     assert not r["ok"], (bad, r)
 titles.update(settings={})
+
+# A stalled op shows in the stage marker while it runs; the stall helper only runs on scratch timelines (I-22)
+reset(cur="_RCE_A", names=("WORK", "_RCE_A"))
+stalled: dict = {}
+caller = threading.Thread(target=lambda: stalled.update(bridge.call_bridge("scratch_stall", {"seconds": 1})))
+caller.start()
+seen = set()
+while caller.is_alive():
+    seen.add(" ".join((data.get("claude_bridge_stage") or "").split()[1:3]))
+    time.sleep(0.02)
+assert stalled.get("ok") and "op scratch_stall" in seen, (stalled, seen)
+reset(cur="WORK", names=("WORK", "_RCE_A"))
+r = bridge.call_bridge("scratch_stall", {"seconds": 1})
+assert not r["ok"] and "_RCE_" in r["error"], r
+
+# A copy replaced while stuck stays silent when it wakes: its late answer would overwrite a newer reply (I-22)
+reset(cur="_RCE_A", names=("WORK", "_RCE_A"))
+try:
+    bridge.call_bridge("scratch_stall", {"seconds": 2}, timeout=0.5, ack_timeout=0.4)
+except TimeoutError:
+    pass
+late = bridge.read_hang()["request"]
+before = data["claude_bridge_inst"]
+threading.Thread(target=run_bridge, daemon=True).start()
+for _ in range(50):
+    if data["claude_bridge_inst"] != before:
+        break
+    time.sleep(0.1)
+r = bridge.call_bridge("get_state", {})
+assert r["ok"] and r["result"]["previous_run_stuck"]["op"] == "scratch_stall", r
+time.sleep(2.5)  # the old copy wakes up
+assert bridge.read_reply(late)[0] != late, "the replaced copy answered its stale request"
+
+# A copy taking over after a clean stop or a reload reports nothing stuck
+for left in ("x idle - 0", "x reloading - 0"):
+    before = data["claude_bridge_inst"]
+    data["claude_bridge_stage"] = left
+    threading.Thread(target=run_bridge, daemon=True).start()
+    for _ in range(50):
+        if data["claude_bridge_inst"] != before:
+            break
+        time.sleep(0.1)
+    r = bridge.call_bridge("get_state", {})
+    assert r["ok"] and "previous_run_stuck" not in r["result"], (left, r)
 
 data["claude_bridge_inst"] = "other"  # a newer run took over: stops the Lua loop
 time.sleep(0.5)

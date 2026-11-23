@@ -94,6 +94,8 @@ log("starting")
 local resolve = resolve or Resolve()
 if not resolve then error("no resolve object available to this script") end
 local sleep = bmd.wait or function(s) local t = os.clock() + s while os.clock() < t do end end
+-- Where the copy before this one stopped, if it stopped inside a call (ISSUES.md I-22); set at start-up below.
+local previous_stuck
 
 -- ---------- minimal JSON ----------
 local json = {}
@@ -360,6 +362,7 @@ function OPS.get_state()
            caption_parts = true,  -- add_title_cards places a long card in parts (ISSUES.md I-21)
            named_markers = true,  -- add_marker(s) refuse a marker without a name (ISSUES.md I-19)
            clip_markers_by_source = true,  -- copy_settings keeps clip markers at their source frames (ISSUES.md I-23)
+           stage_marker = true, previous_run_stuck = previous_stuck,  -- see the main loop (ISSUES.md I-22)
            timeline = t and t:GetName(), timeline_fps = t and t:GetSetting("timelineFrameRate"),
            timeline_drop_frame = t and t:GetSetting("timelineDropFrameTimecode"),
            timeline_start_frame = t and t:GetStartFrame(), timeline_end_frame = t and t:GetEndFrame(),
@@ -982,6 +985,14 @@ end
 
 -- Test helper: add a marker to a clip on the current scratch timeline (_RCE_ only), with any name, even an empty one.
 -- Answers whether Resolve takes an unnamed clip marker (ISSUES.md I-19).
+-- Test helper: stall inside an op like a Resolve call that doesn't return (ISSUES.md I-22). Scratch timelines only.
+function OPS.scratch_stall(a)
+  if tl():GetName():sub(1, 5) ~= "_RCE_" then error("only on a scratch timeline (_RCE_...)", 0) end
+  local seconds = math.min(math.max(tonumber(a.seconds) or 0, 0), 300)
+  sleep(seconds)
+  return { slept = seconds }
+end
+
 function OPS.scratch_clip_marker(a)
   if tl():GetName():sub(1, 5) ~= "_RCE_" then error("only on a scratch timeline (_RCE_...)", 0) end
   local it = find_item(a.item_id)
@@ -1093,6 +1104,22 @@ end
 local me = tostring({}):gsub("table: ", "")  -- unique per run
 fu:SetData("claude_bridge_inst", me)  -- in-memory; a newer run overwrites it and this loop exits
 local function req_id(raw) return raw and raw:match('"id"%s*:%s*"([^"]*)"') end
+-- The loop records each step in Fusion's in-memory data: "<run> <phase> <op> <time>". The loop is single-threaded,
+-- so a copy stuck inside a Resolve call leaves its last step there, and the copy that replaces it reports it
+-- (ISSUES.md I-22). A stuck copy that wakes up later writes nothing once it isn't the current run.
+local STAGE = "claude_bridge_stage"
+local function stage(phase, op)
+  if fu:GetData("claude_bridge_inst") ~= me then return end
+  local now = os and os.time and os.time()
+  fu:SetData(STAGE, me .. " " .. phase .. " " .. tostring(op or "-") .. " " .. tostring(now or "?"))
+end
+do
+  local run, phase, op, at = tostring(fu:GetData(STAGE) or ""):match("^(%S+) (%S+) (%S+) (%S+)$")
+  if run and run ~= me and phase ~= "idle" and phase ~= "reloading" then
+    previous_stuck = { op = op, phase = phase, at = tonumber(at) }
+    log("the previous bridge stopped inside a call: " .. phase .. " of " .. op .. " (time " .. at .. ")")
+  end
+end
 -- Ignore a stale request left from before this run. On 21.2+ the request also sits in fusion's in-memory
 -- "claude_bridge_req" after it has been answered; readreq can return it when request.lua is gone or before RunScript
 -- has replaced it, so a restarted bridge replayed the previous request. Mark it seen and clear the slot.
@@ -1101,6 +1128,7 @@ if not loadfile then fu:SetData("claude_bridge_req", "") end
 -- Requests carry the sender's clock (mcp_server.py); anything older than this is a leftover, never run it.
 local MAX_REQUEST_AGE = 60
 log("running (" .. (USE_PREFS and "Fusion.prefs" or "RunScript + token clip") .. " transport). Folder: " .. DIR)
+stage("idle")
 
 while fu:GetData("claude_bridge_inst") == me do
   local raw = readreq()
@@ -1110,6 +1138,8 @@ while fu:GetData("claude_bridge_inst") == me do
   if ok and type(req) == "table" then
     last = id
     if not loadfile then fu:SetData("claude_bridge_req", "") end  -- consumed: never hand it out again
+    local name = tostring(req.op):gsub("%s", "_")
+    stage("ack", name)
     reply(id)  -- ack
     local switched
     local good, out = pcall(function()
@@ -1119,12 +1149,21 @@ while fu:GetData("claude_bridge_inst") == me do
       if age and age > MAX_REQUEST_AGE then
         error("stale request ignored (" .. math.floor(age) .. " s old): " .. tostring(req.op), 0)
       end
-      if type(req.timeline) == "table" then switched = pin(req.timeline) end
+      if type(req.timeline) == "table" then
+        stage("pin", name)
+        switched = pin(req.timeline)
+      end
+      stage("op", name)
       return { id = id, ok = true, result = op(req.args or {}) }
     end)
     if not good then out = { id = id, ok = false, error = tostring(out) } end
     out.switched_from = switched
+    -- Replaced while stuck in the op (the user restarted the bridge): stay silent, as a late answer would overwrite
+    -- the newer copy's reply, and stop (ISSUES.md I-22).
+    if fu:GetData("claude_bridge_inst") ~= me then break end
+    stage("reply", name)
     reply(id, json.encode(out))
+    stage(reload_requested and "reloading" or "idle")
     if reload_requested then
       if not loadfile then  -- 21.2+: start the new copy; it takes over and this loop exits
         fu:RunScript(DIR .. "resolve_bridge.lua")

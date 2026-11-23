@@ -42,7 +42,7 @@ All tools come from the `resolve-creative-editor` MCP server (61 on free Resolve
 
 ### `edit__`: checked editing (preferred)
 
-- **edit__doctor**: check Python, FFmpeg, transcription, the upstream engine and the live Resolve bridge.
+- **edit__doctor**: check Python, FFmpeg, transcription, the upstream engine and the live Resolve bridge; after a hang, where the bridge stopped.
 - **edit__timeline_summary**: per-track counts, gaps, overlaps, transitions and reused clips. Run before editing.
 - **edit__inspect_range**: items between two frames/timecodes; `details` adds grade, transform, fades, speed, markers.
 - **edit__find_media**: search the Media Pool by name (id, name, frames, fps, type).
@@ -170,7 +170,7 @@ After modification of `resolve_bridge.lua` script, copy it to **both** places it
 - `%USERPROFILE%\resolve-claude-bridge\resolve_bridge.lua` (run by the console command below and by `reload_bridge`)
 - `%APPDATA%\Blackmagic Design\DaVinci Resolve\Support\Fusion\Scripts\Utility\resolve_bridge.lua` (run by Workspace > Scripts > resolve_bridge in Resolve)
 
-If the reload fails or the bridge stops answering, ask user to restart script in DaVinci's console:
+If the reload fails or the bridge stops answering, ask user to restart script in DaVinci's console (or the menu below):
 ```lua
 fusion:RunScript(os.getenv("USERPROFILE").."\\resolve-claude-bridge\\resolve_bridge.lua")
 ```
@@ -179,6 +179,8 @@ or from the menu: `Workspace > Scripts > resolve_bridge`.
 Bridge calls from all processes take turns through `bridge.lock` in the bridge folder (`bridge.call_bridge`). Never write `request.lua` another way. "bridge busy" means another client held it for 60 s and nothing was sent; retrying is safe.
 
 `reload_bridge` only works while the bridge is running. After Resolve starts, the user has to start the bridge once (console command or menu); no tool can do that.
+
+If a call says the bridge acknowledged an op and then stopped answering, or that it is still stuck (ISSUES.md I-22): the bridge is stuck inside a Resolve call. Ask the user to restart it (menu or console; this works while the old copy is stuck, no Resolve restart needed), then run `edit__doctor`: `previous_run_stuck` names the op and step it stopped in. The stuck op may have made its change, so read the timeline back before writing again. Report the `previous_run_stuck` details in ISSUES.md I-22.
 
 ### MCP server and tools
 

@@ -37,10 +37,10 @@ How each item is known:
 | [I-19](#i-19) | ~~Medium~~ **Fixed** | Markers without a name are never added | Live, fake |
 | [I-20](#i-20) | ~~Medium~~ **Fixed** | `batch` drops the warnings of successful steps | Fake, live |
 | [I-21](#i-21) | ~~High~~ **Fixed** | A long caption fails and takes the following ones with it | Live, fake |
-| [I-22](#i-22) | Medium | The bridge can stop answering, cause unknown | Live, once |
+| [I-22](#i-22) | Medium, **handled** | The bridge can stop answering, cause unknown | Live, once |
 | [I-23](#i-23) | ~~High~~ **Fixed** | Moving or trimming a clip drops its clip markers, reported as `passed` | Live, fake |
 
-Order, one fix at a time, worst first: medium (I-22), then low. Re-rank after each fix.
+Order, one fix at a time, worst first: low (I-09, I-11, I-12); I-22 waits for the next sighting, which will now name where it stopped. Re-rank after each fix.
 
 ## Issues
 
@@ -527,7 +527,7 @@ it without gaps. `set_scratch_fps` (test-only, `_RCE_` timelines) sets the rate 
   `success` with `captions_added` 2 and `parts` 3.
 
 <a id="i-22"></a>
-### I-22 The bridge can stop answering (medium, cause unknown)
+### I-22 The bridge can stop answering (medium, cause unknown, handled)
 
 **Where:** `resolve_bridge.lua` (main loop or a Resolve API call in it)
 
@@ -545,8 +545,20 @@ it without gaps. `set_scratch_fps` (test-only, `_RCE_` timelines) sets the rate 
 
 **Workaround:** restart the bridge, then read the timeline back. A write that hangs like this may have been made.
 
-**Next:** log the op before and after it runs and before the reply, so the next hang shows where it stopped. Then
-repeat the sequence on a bridge started by `reload_bridge`.
+**Not reproduced either, 2026-11-23:** 100 rounds of the same sequence on a bridge started by `reload_bridge`, with `save_project` every 10 rounds to overlap a save: no hang, slowest call 1.68 s.
+
+**Handled 2026-11-23** (the cause is still unknown, so this stays open until the next sighting):
+
+- **Where it stops:** the bridge loop records each step (ack, pin, op, reply, idle, reloading) with the op and time in Fusion's in-memory data `claude_bridge_stage`. A copy started while another was stuck reports that copy's last step as `previous_run_stuck` in `get_state` (and `edit__doctor`), and logs it; `stage_marker` flags the feature.
+- **Restart while stuck works:** live, with the test-only op `scratch_stall` (scratch timelines only) sleeping inside an op, the user restarted the bridge from Workspace > Scripts > resolve_bridge; the new copy answered at once and reported `{op: scratch_stall, phase: op}`. No Resolve restart is needed. The Console showed nothing when started from the menu, so `edit__doctor` is the place to look.
+- **Late answers:** a replaced copy that wakes up later no longer sends its stale answer (it could overwrite the newer copy's reply and time out a call); it stops instead.
+- **Python reaction:** an acked call that never gets an answer raises an error naming the op and time, saying a write may have been made, and asking for a restart, `edit__doctor` and a read-back. It records `bridge_hang.json` in the bridge folder; while that exists, calls with no ack say the bridge is still stuck since that op, instead of the first-start text; the next answer removes it. `edit__doctor` shows the record and `previous_run_stuck`.
+
+**Verified 2026-11-23:**
+
+- `tests/test_bridge_hang.py`: a fake bridge that acks and hangs gives the timeout text, the record, the "still stuck" text, and clears it after a restart; without a hang the usual text stays; doctor shows both records. The Lua smoke test checks the stages, `previous_run_stuck` after a stuck run (not after idle or reloading), the stall in the marker, `scratch_stall` refused off scratch timelines, and that a replaced copy stays silent (it answered before that change). Each part's test fails again when it is removed.
+- Live: an 8 s timeout on a 30 s stall gave the timeout text and the record, the next call said "still stuck since scratch_stall at …", and the first answer after the stall cleared it; the restart-while-stuck result above. With the final bridge, a second restart during a 300 s stall: 210 calls to the new copy across the old copy's wake-up all answered, and the old copy never sent its stale answer.
+- Through MCP after a server restart: `edit__doctor` reports `stage_marker`.
 
 <a id="i-23"></a>
 ### I-23 Moving or trimming a clip drops its clip markers (high, fixed)
@@ -633,7 +645,7 @@ bug until that is known.
 
 ## After fixing
 
-- From the repo root: `python -m unittest` (baseline: 132 tests, all pass) and `python tests/smoke_bridge.py`
+- From the repo root: `python -m unittest` (baseline: 135 tests, all pass) and `python tests/smoke_bridge.py`
   (needs `lupa`).
 - Restart the MCP server, and the bridge if the Lua changed, then repeat the affected live tests.
 - Update the transitions row in `README.md`, plus `AGENTS.md` and `PATCH_NOTES.md`.
