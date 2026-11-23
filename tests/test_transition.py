@@ -132,3 +132,94 @@ class TransitionPreview(Base):
         self.assertEqual(r["_operation"]["status"], "success", r)
         self.assertTrue(r["snapshot"])
         self.assertEqual(self.writes()[:2], ["duplicate_timeline", "add_transition"])
+
+
+LINKS = {"a": {"linked": ["a2"]}, "a2": {"linked": ["a"]}, "b": {"linked": ["b2"]}, "b2": {"linked": ["b"]}}
+
+
+def linked(a2_end=CUT):
+    return FakeResolve([item("a", 1000, 300, src=180), item("b", CUT, 300, src=1500),
+                        item("a2", 1000, a2_end - 1000, src=180, kind="audio"),
+                        item("b2", a2_end, 1600 - a2_end, src=1500, kind="audio")], details=LINKS)
+
+
+class LinkedAudio(Base):
+    """A transition on a video clip also crossfades its linked audio, unless asked not to (ISSUES.md I-07)."""
+
+    def run_on(self, f, **args):
+        self.use(f)
+        sent: list[dict] = []
+        real = f.transition
+
+        def record(item_id, o):
+            sent.append(dict(o, item_id=item_id))
+            return real(item_id, o)
+        f.transition = record
+        args = {"item_id": "a", "confirm": True, "timeline": "T", **args}
+        return dispatch.run("add_transition", args), sent
+
+    def test_linked_audio_gets_a_matching_crossfade(self):
+        r, sent = self.run_on(linked(), duration=30, alignment="left")
+        self.assertEqual((r["_operation"]["status"], r["_operation"]["verification"]), ("success", "passed"), r)
+        self.assertEqual([s["item_id"] for s in sent], ["a", "a2"])
+        self.assertEqual({k: sent[1][k] for k in ("type", "category", "alignment", "duration", "position")},
+                         {"type": "Cross Fade +3 dB", "category": "audio", "alignment": "left", "duration": 30,
+                          "position": "end"})
+        row = r["linked"][0]
+        self.assertEqual((row["track"], row["start"], row["end"]), ("A1", session.to_tc(CUT - 30), session.to_tc(CUT)))
+        self.assertTrue(row["transition_id"])
+
+    def test_without_a_duration_the_audio_takes_the_video_length(self):
+        r, sent = self.run_on(linked())
+        self.assertEqual(sent[1]["duration"], 10)  # what the fake Resolve gave the video one
+        self.assertEqual(r["_operation"]["status"], "success", r)
+
+    def test_audio_type_can_be_chosen(self):
+        _, sent = self.run_on(linked(), duration=30, audio_type="Cross Fade 0 dB")
+        self.assertEqual(sent[1]["type"], "Cross Fade 0 dB")
+
+    def test_include_linked_false_warns_about_the_hard_cut(self):
+        r, sent = self.run_on(linked(), duration=30, include_linked=False)
+        self.assertEqual(len(sent), 1)
+        self.assertIn("A1 keeps a hard cut", " ".join(r["_operation"]["warnings"]))
+
+    def test_refused_audio_is_partial_and_keeps_the_video_transition(self):
+        f = linked()
+        calls = {"n": 0}
+
+        def refuse_second(op, args, **kw):
+            if op == "add_transition":
+                calls["n"] += 1
+                if calls["n"] == 2:
+                    f.calls.append(op)
+                    return {"ok": False, "error": "Resolve refused the transition"}
+            return f(op, args, **kw)
+        self.use(refuse_second)
+        r = dispatch.run("add_transition", {"item_id": "a", "duration": 30, "confirm": True, "timeline": "T"})
+        self.assertEqual(r["_operation"]["status"], "partial", r)
+        self.assertTrue(r["transition_id"])
+        text = " ".join(r["_operation"]["warnings"])
+        self.assertIn("A1", text)
+        self.assertIn(r["transition_id"], text)
+
+    def test_split_edit_gets_no_crossfade_and_a_warning(self):
+        r, sent = self.run_on(linked(a2_end=CUT + 10), duration=30)
+        self.assertEqual(len(sent), 1)
+        self.assertIn("not at the cut", " ".join(r["_operation"]["warnings"]))
+
+    def test_preview_lists_the_crossfade_and_writes_nothing(self):
+        f = self.use(linked())
+        r = dispatch.run("add_transition", {"item_id": "a", "duration": 30})
+        self.assertEqual(r["plan"]["linked"][0]["track"], "A1")
+        self.assertEqual(r["plan"]["linked"][0]["type"], "Cross Fade +3 dB")
+        self.assertEqual([c for c in f.calls if c not in READ_OPS], [])
+        r = dispatch.run("add_transition", {"item_id": "a", "duration": 30, "include_linked": False})
+        self.assertIn("A1 keeps a hard cut", " ".join(r["_operation"]["warnings"]))
+
+    def test_unlinked_and_audio_targets_add_nothing_extra(self):
+        r, sent = self.run_on(timeline(), duration=30)
+        self.assertEqual(len(sent), 1)
+        self.assertNotIn("linked", r)
+        self.assertFalse([w for w in r["_operation"]["warnings"] if "hard cut" in w])
+        r, sent = self.run_on(linked(), item_id="a2", type="Cross Fade +3 dB", category="audio", duration=30)
+        self.assertEqual([s["item_id"] for s in sent], ["a2"])

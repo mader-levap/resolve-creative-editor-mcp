@@ -1,6 +1,6 @@
 # Issues
 
-Found while testing `edit__add_transition`, 2026-11-22. This is the base for fixes. Fixed so far: I-01, I-02, I-03, I-04, I-05, I-06, I-10, I-13, I-14, I-15, I-16, I-17, I-18, I-19, I-20, I-21, I-23.
+Found while testing `edit__add_transition`, 2026-11-22. This is the base for fixes. Fixed so far: I-01, I-02, I-03, I-04, I-05, I-06, I-07, I-10, I-13, I-14, I-15, I-16, I-17, I-18, I-19, I-20, I-21, I-23.
 
 - Environment: free DaVinci Resolve 21.2.0.6, Windows 10, 60 fps timeline.
 - Code is named by file and function, with paths from the repo root.
@@ -22,7 +22,7 @@ How each item is known:
 | [I-04](#i-04) | ~~High~~ **Fixed** | `add_transition` verifies only the length | Fake, live |
 | [I-05](#i-05) | ~~Medium~~ **Fixed** | `ripple_trim` ignores transitions on other tracks | Fake, live |
 | [I-06](#i-06) | ~~Medium~~ **Fixed** | `add_transition` has no preview or backup | Fake, live |
-| [I-07](#i-07) | Medium | Linked audio keeps a hard cut, without a warning | Live |
+| [I-07](#i-07) | ~~Medium~~ **Fixed** | Linked audio keeps a hard cut, without a warning | Live, fake |
 | [I-08](#i-08) | Medium | Zero and negative durations aren't rejected | Fake |
 | [I-09](#i-09) | Low | Every refusal blames spare source frames | Code |
 | [I-10](#i-10) | ~~Low~~ **Fixed** | `at` in the transition result is ambiguous | Live |
@@ -40,7 +40,7 @@ How each item is known:
 | [I-22](#i-22) | Medium | The bridge can stop answering, cause unknown | Live, once |
 | [I-23](#i-23) | ~~High~~ **Fixed** | Moving or trimming a clip drops its clip markers, reported as `passed` | Live, fake |
 
-Order, one fix at a time, worst first: medium (I-07, I-08, I-22), then low. Re-rank after each fix.
+Order, one fix at a time, worst first: medium (I-08, I-22), then low. Re-rank after each fix.
 
 ## Issues
 
@@ -183,7 +183,7 @@ for removing or changing a transition, and whether `legacy__delete_items` can re
 - Live on a scratch timeline: the preview (cut 01:00:05:00, span 01:00:04:45-01:00:05:15, spare 1795 after and 1500 before) changed nothing; confirm made the backup timeline and the transition, `success` / `passed`; `delete_items` removed it with the clips unchanged.
 
 <a id="i-07"></a>
-### I-07 Linked audio keeps a hard cut, without a warning (medium)
+### I-07 Linked audio keeps a hard cut, without a warning (medium, fixed)
 
 **Where:** `resolve_editor/tools/clips.py` (`add_transition`)
 
@@ -193,10 +193,12 @@ for removing or changing a transition, and whether `legacy__delete_items` can re
 **Workaround:** call again on the audio item's id with `category: "audio"`, `type: "Cross Fade +3 dB"` and the
 same position, alignment and length (test T5a).
 
-**Fix:** add `include_linked` to create the matching audio crossfade. Without it, warn. Report clearly if only one
-of the two succeeds.
+**Fix:** `add_transition` on a video clip now also crossfades its linked audio at the same cut: `include_linked` defaults to true (the user's choice), `audio_type` defaults to `Cross Fade +3 dB`, with the same position, alignment and length (the video's actual length when no duration is given). Each crossfade gets the I-04 check and a `linked` row in the result. An audio refusal gives `partial`; the video transition stays and the warning names its id and the snapshot. Linked audio that isn't at the cut (a split edit) gets no crossfade and a warning; `include_linked=false` warns that the audio keeps a hard cut. The preview lists the planned crossfades. Called on an audio clip, linked video is left alone.
 
-**Done when:** one call can create both, and a video-only call on linked clips warns.
+**Verified 2026-11-23:**
+
+- `LinkedAudio` tests (`tests/test_transition.py`): the default makes both with matching options, no duration takes the video's length, `audio_type` is used, `include_linked=false` and a split edit warn with one transition, a refused crossfade is `partial` naming the video transition, the preview lists the crossfade and writes nothing, unlinked and audio targets add nothing extra. Each part's tests fail again when it is removed.
+- Live on a scratch timeline with three linked clips: the default at the first cut made a V1 Cross Dissolve and an A1 Cross Fade +3 dB, both 01:00:04:45-01:00:05:15, `success` / `passed`; `include_linked=false` at the second cut made the dissolve only, with "linked audio on A1 keeps a hard cut at 01:00:10:00".
 
 <a id="i-08"></a>
 ### I-08 Zero and negative durations aren't rejected (medium)
@@ -582,11 +584,11 @@ Both have plenty of spare frames on each side.
 
 | Test | What | Status | Related |
 |---|---|---|---|
-| T1 | Centered 60-frame Cross Dissolve | **Pass** | I-07, I-10 |
+| T1 | Centered 60-frame Cross Dissolve | **Pass** | I-07 (fixed), I-10 (fixed) |
 | T2 | Left/right alignment, start/end position | **Pass** (span rule recorded) | I-04 |
 | T3 | Cut without spare frames | Not run | I-09 |
 | T4 | Misspelled name, zero length, longer than the clip | Not run | I-04, I-08, I-09 |
-| T5a | Audio `Cross Fade +3 dB` | **Read-back pass**; not listened to or restart-tested | I-07 |
+| T5a | Audio `Cross Fade +3 dB` | **Read-back pass**; not listened to or restart-tested | I-07 (fixed) |
 | T5b | Other simple, audio and Fusion types (no OFX: Studio dialog risk) | Not run | I-04 |
 | T6 | Same transition added twice | Not run | |
 | T7 | Transition on a single Text+ edge | Not run | |
@@ -631,7 +633,7 @@ bug until that is known.
 
 ## After fixing
 
-- From the repo root: `python -m unittest` (baseline: 121 tests, all pass) and `python tests/smoke_bridge.py`
+- From the repo root: `python -m unittest` (baseline: 129 tests, all pass) and `python tests/smoke_bridge.py`
   (needs `lupa`).
 - Restart the MCP server, and the bridge if the Lua changed, then repeat the affected live tests.
 - Update the transitions row in `README.md`, plus `AGENTS.md` and `PATCH_NOTES.md`.

@@ -62,8 +62,14 @@ def add_transition(a: dict[str, Any]) -> dict[str, Any]:
     if target is None or target.get("type") == "transition":
         return outcome.blocked(f"no clip with id {a['item_id']} on the current timeline")
     cut = target["end"] if options["position"] == "end" else target["start"]
+    audio, notes = _linked_audio(target, options["position"], cut, a.get("include_linked", True) is not False)
+    audio_type = a.get("audio_type") or AUDIO_CROSSFADE
     if not a.get("confirm"):  # nothing is written before the user approves (ISSUES.md I-06)
-        return outcome.preview(_transition_plan(target, cut, options), ["a backup timeline is made first"])
+        plan = _transition_plan(target, cut, options)
+        if audio:
+            span = {"span": plan["span"]} if "span" in plan else {}
+            plan["linked"] = [{"track": _label(x), "type": audio_type, **span} for x in audio]
+        return outcome.preview(plan, ["a backup timeline is made first", *notes])
     snapshot = (timeline.snapshot_timeline({"label": "before transition"}).get("snapshot")
                 if a.get("backup", True) else None)
     before = _clips()
@@ -72,17 +78,65 @@ def add_transition(a: dict[str, Any]) -> dict[str, Any]:
     differs, unchecked, got = _check_transition(r.get("id"), target, cut, options, before)
     frames = got.get("duration") or r.get("duration")
     start, end = got.get("start", r.get("start")), got.get("end", r.get("end"))
+    rows: list[dict[str, Any]] = []
+    for x in audio:  # the linked audio gets a matching crossfade (ISSUES.md I-07)
+        ao = {"type": audio_type, "category": "audio", "position": options["position"],
+              "alignment": options["alignment"], "duration": options.get("duration") or frames}
+        try:
+            ar = session.call("add_transition", item_id=x["id"], options=ao)
+        except Exception as exc:  # the video transition stays: say so, and how to undo it
+            differs.append(f"audio crossfade on {_label(x)} refused ({exc}); the video transition {r.get('id')} "
+                           f"stays: remove it with legacy__delete_items or restore {snapshot or 'a backup'}")
+            rows.append({"track": _label(x), "error": str(exc)})
+            continue
+        session.invalidate()
+        d, u, g = _check_transition(ar.get("id"), x, cut, ao, before)
+        differs += [f"audio crossfade on {_label(x)}: {w}" for w in d]
+        unchecked += [f"{k} (audio crossfade on {_label(x)})" for k in u]
+        rows.append({"track": _label(x), "transition_id": ar.get("id"), "start": _tc(g.get("start", ar.get("start"))),
+                     "end": _tc(g.get("end", ar.get("end")))})
     ok = None if not differs and unchecked else not differs
-    warnings = differs + ([f"could not read back the transition's {', '.join(unchecked)}"] if unchecked else [])
-    def tc(frame: Any) -> str | None:
-        return None if frame is None else session.to_tc(frame)
+    warnings = differs + ([f"could not read back the transition's {', '.join(unchecked)}"] if unchecked else []) + notes
     return outcome.op("partial" if differs else "success", ok, {"transition": r.get("name"), "frames": frames},
-                      warnings, transition_id=r.get("id"), cut=tc(cut), start=tc(start), end=tc(end),
-                      snapshot=snapshot)
+                      warnings, transition_id=r.get("id"), cut=_tc(cut), start=_tc(start), end=_tc(end),
+                      snapshot=snapshot, **({"linked": rows} if rows else {}))
+
+
+AUDIO_CROSSFADE = "Cross Fade +3 dB"  # verified live in test T5a
+
+
+def _tc(frame: Any) -> str | None:
+    return None if frame is None else session.to_tc(frame)
+
+
+def _label(x: session.Item) -> str:
+    return f"{x['track_type'][0].upper()}{x['track']}"
+
+
+def _linked_audio(target: session.Item, position: str, cut: int,
+                  include: bool) -> tuple[list[session.Item], list[str]]:
+    """The linked audio items that get a crossfade, and warnings for those that don't (ISSUES.md I-07)."""
+    if target["track_type"] != "video":
+        return [], []
+    details = session.as_list(session.call("item_details", item_ids=[target["id"]]))
+    ids = (details[0].get("linked") if details else None) or []
+    items = {x["id"]: x for x in session.items()}
+    planned, notes = [], []
+    for x in (items[i] for i in ids if i in items and items[i]["track_type"] == "audio"):
+        own = x["end"] if position == "end" else x["start"]
+        if own != cut:
+            notes.append(f"linked audio on {_label(x)} {'ends' if position == 'end' else 'starts'} at "
+                         f"{session.to_tc(own)}, not at the cut ({session.to_tc(cut)}): no crossfade added there")
+        elif not include:
+            notes.append(f"linked audio on {_label(x)} keeps a hard cut at {session.to_tc(cut)}; "
+                         "include_linked=true adds a crossfade")
+        else:
+            planned.append(x)
+    return planned, notes
 
 
 def _transition_plan(target: session.Item, cut: int, options: dict[str, Any]) -> dict[str, Any]:
-    plan: dict[str, Any] = {"clip": target["name"], "track": f"{target['track_type'][0].upper()}{target['track']}",
+    plan: dict[str, Any] = {"clip": target["name"], "track": _label(target),
                             "position": options["position"], "cut": session.to_tc(cut), "type": options["type"],
                             "alignment": options["alignment"],
                             "frames": options.get("duration") or "Resolve's default (Preferences)"}
