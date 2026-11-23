@@ -50,7 +50,7 @@ All tools come from the `resolve-creative-editor` MCP server (61 on free Resolve
 - **edit__place_clips**: put Media Pool clips at exact frames and tracks; refuses to overwrite.
 - **edit__move_item**: move a clip (and linked audio/video) by rebuilding it with its settings; not titles.
 - **edit__trim_item**: trim either end of a clip by rebuilding it with its settings; not titles.
-- **edit__ripple_trim**: shorten clip ends in place and pull everything after them earlier; works on titles.
+- **edit__ripple_trim**: shorten clip ends in place and pull everything after them earlier; works on titles. Refuses when a clip or transition on any track overlaps the frames being removed.
 - **edit__set_enabled**: disable/enable clips (reversible alternative to deleting).
 - **edit__set_fades**: video/audio fade-in/out in frames, with read-back. Only saved on clips with a hand-dragged fade (Resolve bug, see Editing below).
 - **edit__add_transition**: native transition at a clip's start or end (Resolve 21.1+).

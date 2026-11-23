@@ -15,7 +15,8 @@ def _filler_source(frames: int, prefer: str | None = None,
 
 
 def _positions() -> dict[str, tuple[int, int]]:
-    return {x["id"]: (x["start"], x["end"]) for x in session.items() if x.get("type") != "transition"}
+    """Every item's span, transitions included: the ripple moves them too, so they are checked after it (I-05)."""
+    return {x["id"]: (x["start"], x["end"]) for x in session.items()}
 
 
 def _plan(items: dict[str, session.Item], ids: list[str],
@@ -37,9 +38,13 @@ def _plan(items: dict[str, session.Item], ids: list[str],
             if x["id"] == i:
                 continue
             if x.get("type") == "transition":
-                if ((x["track_type"], x["track"]) == ("video", it["track"])
-                        and x["start"] <= it["end"] and it["start"] <= x["end"]):
-                    return outcome.blocked(f"{where} has a transition touching it; remove it in Resolve first")
+                if (x["track_type"], x["track"]) == ("video", it["track"]):
+                    if x["start"] <= it["end"] and it["start"] <= x["end"]:
+                        return outcome.blocked(f"{where} has a transition touching it; remove it in Resolve first")
+                elif x["start"] < it["end"] and x["end"] > new_end:  # the ripple shifts every track (ISSUES.md I-05)
+                    return outcome.blocked(f"{where}: a transition on {x['track_type'][0].upper()}{x['track']} at "
+                                           f"{session.to_tc(x['start'])} overlaps the frames being removed; "
+                                           "remove it in Resolve first")
             elif x["start"] < it["end"] and x["end"] > new_end:
                 return outcome.blocked(f"{where}: {x['name']} on {x['track_type'][0].upper()}{x['track']} "
                                        f"at {session.to_tc(x['start'])} overlaps the frames being removed")

@@ -49,3 +49,48 @@ class Ripple(Base):
         self.assertEqual(r["_operation"]["changes"], {"trimmed": 0})
         self.assertTrue(any("expected" in w for w in r["_operation"]["warnings"]), r)
         self.assertTrue(r["snapshot"])
+
+
+def tr(id, start, dur, track=1, kind="video"):
+    return item(id, start, dur, name="Cross Dissolve", track=track, kind=kind, type="transition")
+
+
+class RippleTransitions(Base):
+    """A ripple delete shifts every track, so transitions anywhere count (ISSUES.md I-05)."""
+
+    def test_a_transition_over_the_removed_frames_blocks_on_any_track(self):
+        for track, kind, label in ((1, "audio", "A1"), (2, "video", "V2"), (1, "video", "V1")):
+            with self.subTest(track=label):
+                f = self.use(FakeResolve([item("a", 1000, 100), tr("x", 1080, 40, track, kind)]))
+                r = dispatch.run("ripple_trim", {"item_ids": ["a"], "tail_frames": 30})
+                self.assertEqual(r["_operation"]["status"], "blocked", r)
+                self.assertIn("transition", r["reason"])
+                if label != "V1":
+                    self.assertIn(label, r["reason"])
+                self.assertNotIn("trim_tail", f.calls)
+
+    def test_transitions_clear_of_the_removed_frames_are_checked_after(self):
+        f = self.use(FakeResolve([item("a", 1000, 100), item("b", 1200, 100, track=2),
+                                  tr("early", 1040, 30, 1, "audio"), tr("late", 1150, 20, 2)]))
+        self.assertEqual(dispatch.run("ripple_trim", {"item_ids": ["a"], "tail_frames": 30})["_operation"]["status"],
+                         "preview")
+        r = dispatch.run("ripple_trim", {"item_ids": ["a"], "tail_frames": 30, "confirm": True, "timeline": "T"})
+        self.assertEqual((r["_operation"]["status"], r["_operation"]["verification"]), ("success", "passed"), r)
+        got = {x["id"]: (x["start"], x["end"]) for x in f.items}
+        self.assertEqual(got["early"], (1040, 1070))
+        self.assertEqual(got["late"], (1120, 1140))
+
+    def test_a_transition_left_behind_is_a_failure(self):
+        f = FakeResolve([item("a", 1000, 100), item("b", 1200, 100, track=2), tr("late", 1150, 20, 2)])
+
+        def transitions_stay(op, args, **kw):  # Resolve shifts the clips but not the transition
+            kept = {x["id"]: (x["start"], x["end"]) for x in f.items if x["type"] == "transition"}
+            r = f(op, args, **kw)
+            for x in f.items:
+                if x["id"] in kept:
+                    x["start"], x["end"] = kept[x["id"]]
+            return r
+        self.use(transitions_stay)
+        r = dispatch.run("ripple_trim", {"item_ids": ["a"], "tail_frames": 30, "confirm": True, "timeline": "T"})
+        self.assertEqual(r["_operation"]["status"], "failed", r)
+        self.assertIn("Cross Dissolve", " ".join(r["_operation"]["warnings"]))

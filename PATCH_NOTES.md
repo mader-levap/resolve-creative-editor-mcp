@@ -2,6 +2,7 @@
 
 ## 2026-11-23
 
+- Fixed: `edit__ripple_trim` ignored transitions on other tracks (ISSUES.md I-05). A transition at a clip's edge reaching into the removed frames was deleted by Resolve while the trim said `passed`. Such a transition now blocks the trim, and the check after the trim includes transitions.
 - Fixed: `edit__batch` dropped the warnings of steps that succeeded, such as the fades and grade warnings (ISSUES.md I-20), and said `passed` when a step couldn't be checked (I-18). Each step now shows its verification and warnings, the batch lists each warning once with its steps, and a batch with an unverified write is `unverified`.
 - Fixed: moving or trimming a clip dropped clip markers that weren't near the start of the source, and still reported `passed` (ISSUES.md I-23). Clip marker frames count from the source start, so markers are now copied at their own frames, hidden ones included, and the check after the edit compares markers. Needs the new bridge script.
 - Fixed: markers without a name were never added, and the tools blamed an existing marker (ISSUES.md I-19). Resolve 21.2 refuses them, so a name is now required: `edit__add_markers` and `legacy__add_marker` refuse an unnamed marker before sending it. Marker tools read their markers back. An unnamed clip marker is copied as `Marker` when a clip is moved or trimmed. Needs the new bridge script. Found: moving or trimming a clip drops its clip markers (I-23, not yet fixed).

@@ -1,6 +1,6 @@
 # Issues
 
-Found while testing `edit__add_transition`, 2026-11-22. This is the base for fixes. Fixed so far: I-01, I-02, I-03, I-04, I-10, I-13, I-14, I-15, I-16, I-17, I-18, I-19, I-20, I-21, I-23.
+Found while testing `edit__add_transition`, 2026-11-22. This is the base for fixes. Fixed so far: I-01, I-02, I-03, I-04, I-05, I-10, I-13, I-14, I-15, I-16, I-17, I-18, I-19, I-20, I-21, I-23.
 
 - Environment: free DaVinci Resolve 21.2.0.6, Windows 10, 60 fps timeline.
 - Code is named by file and function, with paths from the repo root.
@@ -20,7 +20,7 @@ How each item is known:
 | [I-02](#i-02) | ~~High~~ **Fixed** | An error inside `batch` loses the results and backup name | Live, fake |
 | [I-03](#i-03) | ~~High~~ **Fixed** | `batch` continues after a `partial` step | Live, fake |
 | [I-04](#i-04) | ~~High~~ **Fixed** | `add_transition` verifies only the length | Fake, live |
-| [I-05](#i-05) | Medium | `ripple_trim` ignores transitions on other tracks | Fake |
+| [I-05](#i-05) | ~~Medium~~ **Fixed** | `ripple_trim` ignores transitions on other tracks | Fake, live |
 | [I-06](#i-06) | Medium | `add_transition` has no preview or backup | Fake, code |
 | [I-07](#i-07) | Medium | Linked audio keeps a hard cut, without a warning | Live |
 | [I-08](#i-08) | Medium | Zero and negative durations aren't rejected | Fake |
@@ -40,7 +40,7 @@ How each item is known:
 | [I-22](#i-22) | Medium | The bridge can stop answering, cause unknown | Live, once |
 | [I-23](#i-23) | ~~High~~ **Fixed** | Moving or trimming a clip drops its clip markers, reported as `passed` | Live, fake |
 
-Order, one fix at a time, worst first: medium (I-05, I-06, I-07, I-08, I-22), then low. Re-rank after each fix.
+Order, one fix at a time, worst first: medium (I-06, I-07, I-08, I-22), then low. Re-rank after each fix.
 
 ## Issues
 
@@ -145,7 +145,7 @@ Any difference gives `partial` / `contradiction`, with a warning naming expected
 - Through MCP after a server restart, on a scratch timeline: a left-aligned 31-frame dissolve at the start of the second clip gave `success` / `passed`, `start` 01:00:04:29, `end` and `cut` 05:00. An audio crossfade with no `duration` gave `success` / `passed`, 30 frames (Resolve's choice), 04:45-05:15.
 
 <a id="i-05"></a>
-### I-05 `ripple_trim` ignores transitions on other tracks (medium)
+### I-05 `ripple_trim` ignores transitions on other tracks (medium, fixed)
 
 **Where:** `resolve_editor/tools/ripple.py` (`_plan`)
 
@@ -155,9 +155,14 @@ overlap check completely, although ripple delete shifts all tracks.
 **Repro:** item 1000-1100, trim 30, transition at 1080-1120. On V1 it is blocked; on A1 or V2 it previews as OK.
 What Resolve then does to that transition is untested.
 
-**Fix:** apply the removed-range overlap check to transitions on other tracks.
+**What Resolve does, live 2026-11-23:** usually the clips under a transition already overlap the removed frames and block the trim. The hole is a transition with no clip under part of it: a centred Cross Dissolve at the start of a V2 clip next to a gap reached 10 frames into the gap (290-310 with the clip at 300). Trimming a V1 clip 0-300 by 30 then gave `success` / `passed`, but **Resolve deleted that transition**; the check after the trim ignored transitions, so nothing noticed. A transition wholly after the trim moved back with its clips and kept its id.
 
-**Done when:** the A1 and V2 cases are blocked.
+**Fix:** in `_plan`, a transition on any other track (video or audio) that overlaps the removed frames `[new_end, old_end)` blocks the trim, naming its track and time. The same-track rule (touching the item) is unchanged. The check after each trim now includes transitions, so a transition that is lost or doesn't move as planned gives `failed`.
+
+**Verified 2026-11-23:**
+
+- `RippleTransitions` tests (`tests/test_ripple.py`): a transition at 1080-1120 on A1 and on V2 blocks a 30-frame trim of 1000-1100 (V1 stays blocked), transitions clear of the removed frames give `passed` and the later one moves back 30, and a transition left behind by the ripple gives `failed` naming it. Each part's test fails again when it is removed.
+- Live on scratch timelines, old code vs new: the edge-of-gap transition above went from `passed` with the transition deleted to `blocked` ("a transition on V2 at 01:00:04:50 overlaps the frames being removed"); a dissolve over the removed frames stays blocked; a dissolve after the trim gives `passed` on both, moved back 30.
 
 <a id="i-06"></a>
 ### I-06 `add_transition` has no preview or backup (medium)
@@ -622,7 +627,7 @@ bug until that is known.
 
 ## After fixing
 
-- From the repo root: `python -m unittest` (baseline: 112 tests, all pass) and `python tests/smoke_bridge.py`
+- From the repo root: `python -m unittest` (baseline: 115 tests, all pass) and `python tests/smoke_bridge.py`
   (needs `lupa`).
 - Restart the MCP server, and the bridge if the Lua changed, then repeat the affected live tests.
 - Update the transitions row in `README.md`, plus `AGENTS.md` and `PATCH_NOTES.md`.
