@@ -172,14 +172,14 @@ r = rpc(11, "tools/call", {"name": "append_clips",
 assert r["isError"] and "exclusive" in text(r), r
 r = rpc(6, "tools/call", {"name": "set_item_properties", "arguments": {"item_id": "x", "properties": {"Evil": 1}}})
 assert r["isError"] and "not allowed" in text(r), r
-r = rpc(8,"tools/call", {"name": "add_marker", "arguments": {"frame": 5}})
+r = rpc(8,"tools/call", {"name": "add_marker", "arguments": {"frame": 5, "name": "m"}})
 assert r["isError"] and "No current timeline" in text(r), r
 
 # A request pinned to a timeline runs there or not at all (ISSUES.md I-16). Real Lua, real call_bridge.
 os.environ.update(RESOLVE_BRIDGE_DIR=bridge_dir, RESOLVE_FUSION_PREFS=prefs)
 from resolve_editor import bridge  # noqa: E402  (after the environment above is set)
 
-MARKER = {"frame": 5}
+MARKER = {"frame": 5, "name": "m"}
 PIN = {"project": "demo", "name": "WORK"}
 
 
@@ -189,7 +189,17 @@ def reset(cur="OTHER", project="demo", names=("WORK", "OTHER"), ignore=None):
 
 reset()
 r = bridge.call_bridge("get_state", {})
-assert r["ok"] and r["result"]["pins"] is True, r
+assert r["ok"] and r["result"]["pins"] is True and r["result"]["named_markers"] is True, r
+# Resolve 21.2 refuses markers without a name: the bridge says so and writes none of them (ISSUES.md I-19)
+for op, args in (("add_marker", {"frame": 5}), ("add_marker", {"frame": 5, "name": " "}),
+                 ("add_markers", {"markers": [{"frame": 1, "name": "a"}, {"frame": 2}]})):
+    reset(cur="WORK")
+    r = bridge.call_bridge(op, args)
+    assert not r["ok"] and "needs a name" in r["error"] and world["wrote"] == [], (op, r, world)
+reset(cur="WORK")
+r = bridge.call_bridge("add_markers", {"markers": [{"frame": 1, "name": "a"}, {"frame": 2, "name": "b"}]})
+assert r["ok"] and r["result"]["added"] == 2 and world["wrote"] == [("marker", "WORK")] * 2, (r, world)
+reset()
 r = bridge.call_bridge("add_marker", MARKER)
 assert r["ok"] and world["wrote"] == [("marker", "OTHER")] and not r.get("switched_from"), (r, world)  # no pin
 reset()

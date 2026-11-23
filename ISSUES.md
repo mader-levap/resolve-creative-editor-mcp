@@ -1,6 +1,6 @@
 # Issues
 
-Found while testing `edit__add_transition`, 2026-11-22. This is the base for fixes. Fixed so far: I-01, I-02, I-03, I-04, I-10, I-13, I-14, I-15, I-16, I-17, I-21.
+Found while testing `edit__add_transition`, 2026-11-22. This is the base for fixes. Fixed so far: I-01, I-02, I-03, I-04, I-10, I-13, I-14, I-15, I-16, I-17, I-19, I-21.
 
 - Environment: free DaVinci Resolve 21.2.0.6, Windows 10, 60 fps timeline.
 - Code is named by file and function, with paths from the repo root.
@@ -34,13 +34,13 @@ How each item is known:
 | [I-16](#i-16) | ~~Critical~~ **Fixed** | Edits and backups can hit the wrong timeline | Live, fake |
 | [I-17](#i-17) | ~~High~~ **Fixed** | A confirm isn't tied to the previewed timeline | Live, fake |
 | [I-18](#i-18) | Medium | `batch` reports `passed` for unverified steps | Fake |
-| [I-19](#i-19) | Medium | Markers without a name are never added | Live |
+| [I-19](#i-19) | ~~Medium~~ **Fixed** | Markers without a name are never added | Live, fake |
 | [I-20](#i-20) | Medium | `batch` drops the warnings of successful steps | Fake |
 | [I-21](#i-21) | ~~High~~ **Fixed** | A long caption fails and takes the following ones with it | Live, fake |
 | [I-22](#i-22) | Medium | The bridge can stop answering, cause unknown | Live, once |
+| [I-23](#i-23) | High | Moving or trimming a clip drops its clip markers, reported as `passed` | Live |
 
-Order, one fix at a time, worst first: medium (I-19 first, as it now stops
-batches), then low. Re-rank after each fix.
+Order, one fix at a time, worst first: I-23, then medium, then low. Re-rank after each fix.
 
 ## Issues
 
@@ -444,7 +444,7 @@ back and returns `unverified`, reports `passed`.
 **Done when:** that batch reports `unverified`.
 
 <a id="i-19"></a>
-### I-19 Markers without a name are never added (medium)
+### I-19 Markers without a name are never added (medium, fixed)
 
 **Where:** `resolve_bridge.lua` (`add_marker`, `add_markers`), `resolve_editor/tools/markers.py` (`add_markers`)
 
@@ -455,10 +455,15 @@ returns `partial` with "a marker already exists at some of those frames", and `l
 **Repro, live:** on a scratch timeline at free frames, three unnamed markers through `add_markers` and one through
 `add_marker` were refused. Named ones were added.
 
-**Fix:** default to a non-empty name and correct the warning. Check whether `copy_settings` fails the same way for
-unnamed clip markers (not run).
+**Fix:** a name is required instead of invented (the user's choice). `edit__add_markers` refuses a marker without a non-blank name before sending anything (`blocked`, naming which), and the bridge's `add_marker` and `add_markers` raise "marker needs a name" for one, writing none; both schemas require `name`. `get_state` reports `named_markers`. `add_markers` and `add_audio_markers` now read the markers back with `list_markers` (frames taken before the call don't count) instead of trusting the bridge's count, and a refusal names the markers without claiming one cause.
 
-**Done when:** a marker without a name is added by both tools.
+Clip markers: Resolve 21.2 refuses an unnamed marker on a clip too (live probe with the test-only bridge op `scratch_clip_marker`, `_RCE_` timelines only). Markers made by hand get a name (`Marker 1`), so an unnamed one only exists if its name was cleared. For that case `copy_settings` copies it with the name `Marker` and `move_item` / `trim_item` warn; before, the whole move or trim would fail. That path can't be created by script, so it is tested with the fake only.
+
+**Verified 2026-11-23:**
+
+- `Markers` tests (`tests/test_markers.py`) and a `Replace` test: unnamed or blank markers blocked with nothing sent, named ones read back, refusals and a lying bridge count give `partial` naming the markers, audio markers read back, a batch with an unnamed marker stops without writing, renamed clip markers give a warning. The Lua smoke test checks the bridge refusals. Each part's tests fail again when it is removed.
+- Live on scratch timelines, new bridge and code: unnamed → `blocked`, nothing added; named → `success` / `passed`; a second marker on a taken frame → `partial` naming it; raw `add_marker` without a name → "marker needs a name".
+- Through MCP after a server restart: the same four results with `edit__add_markers` and `legacy__add_marker`.
 
 <a id="i-20"></a>
 ### I-20 `batch` drops the warnings of successful steps (medium)
@@ -531,6 +536,19 @@ it without gaps. `set_scratch_fps` (test-only, `_RCE_` timelines) sets the rate 
 **Next:** log the op before and after it runs and before the reply, so the next hang shows where it stopped. Then
 repeat the sequence on a bridge started by `reload_bridge`.
 
+<a id="i-23"></a>
+### I-23 Moving or trimming a clip drops its clip markers (high)
+
+**Where:** `resolve_bridge.lua` (`copy_settings`), `resolve_editor/tools/replace.py` (`_replace`, `_matches`)
+
+**Problem:** clip marker frames from `GetMarkers` seem to count from the start of the source media, not of the clip. `copy_settings` treats them as clip frames: it shifts them by `marker_shift` and copies only those from 0 to the clip's length, skipping the rest without reporting a failure. The check after a move or trim doesn't compare markers, so the result is still `success` / `passed`.
+
+**Repro, live 2026-11-23:** on a scratch timeline, a 300-frame clip from source frame 180 (video and linked audio). The user pressed M on it; Resolve stored `Marker 1` at frame 348 on both items. `edit__move_item` through MCP reported `success` / `passed`; both new items had no markers. A scripted clip marker at frame 15 survived an earlier move only because 15 < 300.
+
+**Fix:** first probe the frame basis live (markers at known source and clip frames, checked where they show). Then copy markers by that basis, with the trim shift in the same units, report any marker not copied as a failure, and compare markers in the check after the swap.
+
+**Done when:** a hand-made marker anywhere in the used part of the clip survives a move and a trim at the same source frame, and a lost marker gives `partial`.
+
 ## Live tests
 
 ### Setup
@@ -597,7 +615,7 @@ bug until that is known.
 
 ## After fixing
 
-- From the repo root: `python -m unittest` (baseline: 97 tests, all pass) and `python tests/smoke_bridge.py`
+- From the repo root: `python -m unittest` (baseline: 104 tests, all pass) and `python tests/smoke_bridge.py`
   (needs `lupa`).
 - Restart the MCP server, and the bridge if the Lua changed, then repeat the affected live tests.
 - Update the transitions row in `README.md`, plus `AGENTS.md` and `PATCH_NOTES.md`.

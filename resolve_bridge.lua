@@ -358,6 +358,7 @@ function OPS.get_state()
   return { resolve = resolve:GetVersionString(), page = resolve:GetCurrentPage(), project = p and p:GetName(),
            pins = true,  -- requests may name their timeline (see pin)
            caption_parts = true,  -- add_title_cards places a long card in parts (ISSUES.md I-21)
+           named_markers = true,  -- add_marker(s) refuse a marker without a name (ISSUES.md I-19)
            timeline = t and t:GetName(), timeline_fps = t and t:GetSetting("timelineFrameRate"),
            timeline_drop_frame = t and t:GetSetting("timelineDropFrameTimecode"),
            timeline_start_frame = t and t:GetStartFrame(), timeline_end_frame = t and t:GetEndFrame(),
@@ -680,8 +681,13 @@ function OPS.add_text_plus(a)
   return report
 end
 
+-- Resolve 21.2 refuses AddMarker with an empty name and gives no reason, so say it before trying (ISSUES.md I-19).
+local function named(name) return type(name) == "string" and name:match("%S") ~= nil end
+local NO_NAME = " needs a name: Resolve 21.2 refuses markers without one"
+
 function OPS.add_marker(a)
-  return { ok = tl():AddMarker(a.frame, a.color or "Blue", a.name or "", a.note or "", a.duration or 1, "") and true or false }
+  if not named(a.name) then error("marker" .. NO_NAME, 0) end
+  return { ok = tl():AddMarker(a.frame, a.color or "Blue", a.name, a.note or "", a.duration or 1, "") and true or false }
 end
 
 function OPS.list_markers() return tl():GetMarkers() or {} end
@@ -814,14 +820,20 @@ function OPS.copy_settings(a)
   local color = try(src, "GetClipColor")
   if type(color) == "string" and color ~= "" then mark("clip_color", try(dst, "SetClipColor", color)) end
   for _, f in ipairs(each(try(src, "GetFlagList"))) do mark("flag", try(dst, "AddFlag", f)) end
-  local shift, duration = a.marker_shift or 0, dst:GetDuration()
+  local shift, duration, renamed = a.marker_shift or 0, dst:GetDuration(), 0
   for frame, m in pairs(try(src, "GetMarkers") or {}) do
     local f = (tonumber(frame) or -1) + shift
     if type(m) == "table" and f >= 0 and f < duration then
-      mark("marker", try(dst, "AddMarker", f, m.color, m.name or "", m.note or "", m.duration or 1, m.customData or ""))
+      local name = m.name or ""
+      local ok = try(dst, "AddMarker", f, m.color, name, m.note or "", m.duration or 1, m.customData or "")
+      if not ok and not named(name) then  -- made by hand without a name: keep it, named (ISSUES.md I-19)
+        ok = try(dst, "AddMarker", f, m.color, "Marker", m.note or "", m.duration or 1, m.customData or "")
+        if ok then renamed = renamed + 1 end
+      end
+      mark("marker", ok)
     end
   end
-  return { copied = copied, failed = failed }
+  return { copied = copied, failed = failed, renamed_markers = renamed }
 end
 
 function OPS.link_items(a)
@@ -912,6 +924,9 @@ function OPS.normalize_audio(a)
 end
 
 function OPS.add_markers(a)
+  for i, m in ipairs(a.markers) do  -- all or none: check every name first
+    if not named(m.name) then error("marker " .. i .. NO_NAME, 0) end
+  end
   local t, n = tl(), 0
   for _, m in ipairs(a.markers) do
     if t:AddMarker(m.frame, m.color or "Blue", m.name or "", m.note or "", m.duration or 1, "") then n = n + 1 end
@@ -959,6 +974,15 @@ function OPS.delete_scratch(a)
     out.clip = pool():DeleteClips({ find_clip(a.clip) }) and true or false
   end
   return out
+end
+
+-- Test helper: add a marker to a clip on the current scratch timeline (_RCE_ only), with any name, even an empty one.
+-- Answers whether Resolve takes an unnamed clip marker (ISSUES.md I-19).
+function OPS.scratch_clip_marker(a)
+  if tl():GetName():sub(1, 5) ~= "_RCE_" then error("only on a scratch timeline (_RCE_...)", 0) end
+  local it = find_item(a.item_id)
+  local ok = it:AddMarker(a.frame or 0, a.color or "Blue", a.name or "", "", 1, "")
+  return { ok = ok and true or false, markers = it:GetMarkers() or {} }
 end
 
 -- Test helper: change the frame rate of an empty scratch timeline (names starting with _RCE_ only).

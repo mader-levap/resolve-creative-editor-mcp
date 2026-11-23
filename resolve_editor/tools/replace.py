@@ -61,6 +61,7 @@ def _replace(plan: list[dict[str, Any]], backup: bool = True) -> dict[str, Any]:
     snapshot = timeline.snapshot_timeline({"label": "before edit"}).get("snapshot") if backup else None
     staged: list[session.Item]
     staging, staged, done = {}, [], []
+    renamed = 0  # unnamed clip markers the bridge had to name to copy them (Resolve 21.2, ISSUES.md I-19)
 
     def stage_track(kind: str) -> int:
         if kind not in staging:
@@ -86,6 +87,7 @@ def _replace(plan: list[dict[str, Any]], backup: bool = True) -> dict[str, Any]:
                                   marker_shift=p["shift"])
             if report["failed"]:
                 raise RuntimeError(f"could not copy {', '.join(report['failed'])} to the replacement")
+            renamed += report.get("renamed_markers") or 0
             p["staged"] = s
     except Exception as exc:
         cleanup()
@@ -128,8 +130,10 @@ def _replace(plan: list[dict[str, Any]], backup: bool = True) -> dict[str, Any]:
     changes = [{"item": p["item"]["name"], "track": f"{p['item']['track_type'][0].upper()}{p['track']}",
                 "from": [session.to_tc(p["item"]["start"]), p["item"]["duration"]],
                 "to": [session.to_tc(p["record"]), p["last"] - p["first"]], "new_id": n["id"]} for p, n in done]
+    named = [f"{renamed} unnamed clip marker(s) were copied with the name Marker: Resolve 21.2 refuses markers "
+             "without a name"] if renamed else []
     return outcome.op("success" if not problems else "partial", not problems, {"replaced": changes},
-                      ["keyframes are not copied"] + problems, snapshot=snapshot)
+                      ["keyframes are not copied"] + named + problems, snapshot=snapshot)
 
 
 def _replace_tool(a: dict[str, Any], new_range: Callable[[session.Item], tuple[int, int, int, int]],

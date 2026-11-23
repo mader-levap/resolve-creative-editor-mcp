@@ -20,6 +20,16 @@ class Replace(Base):
         self.assertEqual(f.settings[moved[0]["id"]]["properties"], {"ZoomX": 1.5})
         self.assertEqual(f.tracks["video"], 1, "staging track removed")
 
+    def test_unnamed_clip_markers_are_kept_with_a_name_and_a_warning(self):
+        f = self.use(FakeResolve([item("a", 1000, 10, src=5)]))
+        f.renamed_markers = 2  # Resolve 21.2 refuses unnamed markers; the bridge copies them as "Marker" (I-19)
+        r = dispatch.run("move_item", {"item_id": "a", "record": 1050, "confirm": True, "timeline": "T"})
+        self.assertEqual(r["_operation"]["status"], "success", r)
+        self.assertIn("2 unnamed clip marker(s)", " ".join(r["_operation"]["warnings"]))
+        f = self.use(FakeResolve([item("a", 1000, 10, src=5)]))
+        r = dispatch.run("move_item", {"item_id": "a", "record": 1050, "confirm": True, "timeline": "T"})
+        self.assertNotIn("unnamed", " ".join(r["_operation"]["warnings"]))
+
     def test_backup_made_before_edit(self):
         f = self.use(FakeResolve([item("a", 1000, 10, src=5)]))
         r = dispatch.run("move_item", {"item_id": "a", "record": 1050, "confirm": True, "timeline": "T"})

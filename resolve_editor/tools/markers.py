@@ -8,16 +8,40 @@ from typing import Any
 
 from .. import media, outcome, session, timecode
 
+NO_NAME = "Resolve 21.2 refuses markers without one"
+
 
 def add_markers(a: dict[str, Any]) -> dict[str, Any]:
+    unnamed = [i for i, m in enumerate(a["markers"], 1) if not str(m.get("name") or "").strip()]
+    if unnamed:
+        return outcome.blocked(f"marker(s) {', '.join(map(str, unnamed))} have no name; {NO_NAME}. Nothing was added")
     _, _, state = session.clock()
     start = state["timeline_start_frame"]
-    markers = [{"frame": session.to_frame(m["at"]) - start, "name": m.get("name") or "", "note": m.get("note") or "",
+    markers = [{"frame": session.to_frame(m["at"]) - start, "name": m["name"], "note": m.get("note") or "",
                 "color": m.get("color") or "Blue", "duration": m.get("duration") or 1} for m in a["markers"]]
-    added = session.call("add_markers", markers=markers).get("added", 0)
-    return outcome.op("success" if added == len(markers) else "partial", added == len(markers),
-                      {"markers_added": added},
-                      [] if added == len(markers) else ["a marker already exists at some of those frames"])
+    return _place(markers, start)
+
+
+def _frames(listed: object) -> dict[int, Any]:
+    return {int(float(k)): v for k, v in (listed.items() if isinstance(listed, dict) else ())}
+
+
+def _place(markers: list[dict[str, Any]], start: int, warnings: Sequence[str] = ()) -> dict[str, Any]:
+    """Add timeline markers (frames from the timeline start) and read them back: the bridge's count isn't proof."""
+    before = _frames(session.call("list_markers"))
+    session.call("add_markers", markers=markers)
+    after = _frames(session.call("list_markers"))
+    missing, taken = [], set(before)
+    for m in markers:
+        got = after.get(m["frame"])
+        if m["frame"] in taken or not isinstance(got, dict) or got.get("name") != m["name"]:
+            missing.append(f"{m['name']} at {session.to_tc(start + m['frame'])}")
+        taken.add(m["frame"])
+    added = len(markers) - len(missing)
+    if missing:
+        warnings = [*warnings, f"not added: {', '.join(missing)}. Resolve refused them: a marker may already be at "
+                               "that frame, or the frame is outside the timeline"]
+    return outcome.op("partial" if missing else "success", not missing, {"markers_added": added}, warnings)
 
 
 def onsets(samples: Sequence[float], rate: int, hop: int = 512,
@@ -69,10 +93,10 @@ def add_audio_markers(a: dict[str, Any]) -> dict[str, Any]:
     found = found[:limit]
     if a.get("dry_run"):
         return outcome.op("planned", times=[[x["start"], x["end"]] for x in found], warnings=warnings)
-    fps, _, _ = session.clock()
+    fps, _, state = session.clock()
     offset = a.get("timeline_offset_frames") or 0
     markers = [{"frame": offset + timecode.seconds_to_frames(x["start"], fps), "name": name, "color": color,
                 "duration": max(1, timecode.seconds_to_frames(x["end"] - x["start"], fps))} for x in found]
-    added = session.call("add_markers", markers=markers).get("added", 0) if markers else 0
-    return outcome.op("success" if added == len(markers) else "partial", added == len(markers),
-                      {"markers_added": added}, warnings)
+    if not markers:
+        return outcome.op("success", True, {"markers_added": 0}, warnings)
+    return _place(markers, state["timeline_start_frame"], warnings)

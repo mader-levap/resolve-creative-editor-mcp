@@ -58,9 +58,10 @@ TOOLS = [
       {"item_id": S, "percentage": N, "confirm": CONFIRM, "timeline": TIMELINE}, ["item_id", "percentage"]),
     T("copy_grade", "Copy one clip's grade onto other clips.",
       {"from_id": S, "to_ids": IDS, "confirm": CONFIRM, "timeline": TIMELINE}, ["from_id", "to_ids"]),
-    T("add_markers", "Add several timeline markers at once.",
+    T("add_markers", "Add several timeline markers at once, read back. Every marker needs a name: Resolve 21.2 "
+      "refuses markers without one.",
       {"markers": {"type": "array", "items": {"type": "object", "properties": {
-          "at": WHEN, "name": S, "note": S, "color": S, "duration": I}, "required": ["at"]}}}, ["markers"]),
+          "at": WHEN, "name": S, "note": S, "color": S, "duration": I}, "required": ["at", "name"]}}}, ["markers"]),
     T("add_audio_markers", "Mark silences or musical onsets found in a file. dry_run only lists them. Measurements, "
       "not edit decisions. timeline_offset_frames is where the file starts relative to the timeline start.",
       {"path": S, "kind": {"type": "string", "enum": ["silence", "beats"]}, "timeline_offset_frames": I,

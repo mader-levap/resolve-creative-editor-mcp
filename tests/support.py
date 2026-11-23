@@ -30,6 +30,8 @@ class FakeResolve:
     def __init__(self, items, fail_on=None, details=None, fps=30):
         self.items, self.fail_on, self.calls, self.n, self.fps = items, dict(fail_on or {}), [], 0, fps
         self.tracks, self.timelines = {"video": 1, "audio": 1}, ["T"]
+        self.renamed_markers = 0  # unnamed clip markers copy_settings had to name (Resolve 21.2)
+        self.markers: dict[int, dict[str, Any]] = {}  # timeline markers by frame from the start, as Resolve keys them
         # captions: the inserted Text+ length, whether the bridge places long captions in parts, a part it refuses
         self.title_frames, self.caption_parts, self.refuse_part = 300, True, None
         self.timeline_fps = 30  # fps above is the clips' rate
@@ -85,7 +87,7 @@ class FakeResolve:
             x["duration"] -= args["frames"]
             r = {"start": x["start"], "end": x["end"]}
         elif op == "list_markers":
-            r = {}
+            r = {str(k): dict(v) for k, v in self.markers.items()}  # JSON keys are strings
         elif op == "append_clips":
             for c in args["clips"]:
                 self.n += 1
@@ -101,7 +103,8 @@ class FakeResolve:
             src, dst = self.settings[args["from_id"]], self.settings[args["to_id"]]
             for k in ("properties", "fades", "color", "enabled"):
                 dst[k] = json.loads(json.dumps(src[k]))
-            r = {"copied": ["grade"], "failed": []}
+            r = {"copied": ["grade"], "failed": [], "renamed_markers": self.renamed_markers}
+            self.renamed_markers = 0  # named now, so later copies keep the name
         elif op == "duplicate_timeline":
             self.timelines.append(args["name"])
             r = {"name": args["name"]}
@@ -110,7 +113,7 @@ class FakeResolve:
         elif op == "list_timelines":
             r = list(self.timelines)
         elif op == "add_markers":
-            r = {"added": len(args["markers"])}
+            r = {"added": self.add_markers(args["markers"])}
         elif op == "audio_modes":
             r = {"1": "EBU R128"}
         elif op == "add_transition":
@@ -122,6 +125,16 @@ class FakeResolve:
             r = self.title_cards(args)
         return {"ok": True, "result": r}
 
+
+    def add_markers(self, markers):
+        """Like Resolve 21.2: refuses a marker without a name, or on a frame that already has one."""
+        added = 0
+        for m in markers:
+            if m.get("name") and m["frame"] not in self.markers:
+                self.markers[m["frame"]] = {"name": m["name"], "color": m.get("color"), "note": m.get("note") or "",
+                                            "duration": m.get("duration") or 1}
+                added += 1
+        return added
 
     def transition(self, item_id, o):
         """Like Resolve 21.2 (live T2): left ends at the cut, right starts there, center puts an odd frame before it.
@@ -193,7 +206,7 @@ SAMPLE_ARGS: dict[str, dict[str, Any]] = {
     "normalize_audio": {"item_ids": ["a"]},
     "set_speed": {"item_id": "a", "percentage": 50},
     "copy_grade": {"from_id": "a", "to_ids": ["a"]},
-    "add_markers": {"markers": [{"at": 1001}]},
+    "add_markers": {"markers": [{"at": 1001, "name": "m"}]},
     "add_audio_markers": {"path": "a.mp4", "kind": "silence"},
     "add_captions": {"segments": [{"start": 0, "end": 1, "text": "Hi"}]},
     "export_srt": {"segments": [{"start": 0, "end": 1, "text": "Hi"}]},

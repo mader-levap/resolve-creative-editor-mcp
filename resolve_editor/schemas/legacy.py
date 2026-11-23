@@ -52,8 +52,9 @@ TOOLS = [
       {"item_ids": STRS, "text": S, "font": S, "style": S, "size": {"type": "number"}, "x": {"type": "number"},
        "y": {"type": "number"}, "inputs": {"type": "object"}}, ["item_ids"]),
     T("add_marker", "Add a timeline marker. frame is relative to the timeline start. Colors: Blue, Cyan, Green, "
-      "Yellow, Red, Pink, Purple, Fuchsia, Rose, Lavender, Sky, Mint, Lemon, Sand, Cocoa, Cream.",
-      {"frame": I, "color": S, "name": S, "note": S, "duration": I}, ["frame"]),
+      "Yellow, Red, Pink, Purple, Fuchsia, Rose, Lavender, Sky, Mint, Lemon, Sand, Cocoa, Cream. name is required: "
+      "Resolve 21.2 refuses markers without one.",
+      {"frame": I, "color": S, "name": S, "note": S, "duration": I}, ["frame", "name"]),
     T("list_markers", "All timeline markers keyed by frame."),
     T("delete_marker", "Delete the marker at a frame.", {"frame": I}, ["frame"]),
     T("goto_timecode", "Move the playhead, e.g. 01:00:05:00.", {"timecode": S}, ["timecode"]),
