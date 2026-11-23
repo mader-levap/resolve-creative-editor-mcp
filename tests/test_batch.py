@@ -44,7 +44,7 @@ class BatchPreview(Base):
 
 
 class BatchStop(Base):
-    """A batch goes on only after a step that succeeded (ISSUES.md I-03)."""
+    """A batch goes on only after a step that succeeded (docs/ISSUES.md I-03)."""
 
     NEXT = {"tool": "copy_grade", "args": SAMPLE_ARGS["copy_grade"]}
 
@@ -109,7 +109,7 @@ class BatchStop(Base):
 
 
 class BatchError(Base):
-    """An error inside a step stops the batch like a failed step, and nothing is lost (ISSUES.md I-02)."""
+    """An error inside a step stops the batch like a failed step, and nothing is lost (docs/ISSUES.md I-02)."""
 
     def setUp(self):
         self.audited: list[tuple[str, str]] = []
@@ -187,7 +187,7 @@ class BatchError(Base):
 
 
 class BatchReport(Base):
-    """A batch keeps every step's warnings (ISSUES.md I-20) and is only passed when every write was (I-18)."""
+    """A batch keeps every step's warnings (docs/ISSUES.md I-20) and is only passed when every write was (I-18)."""
 
     def batch(self, *ops):
         self.use(FakeResolve([item("a", 1000, 10, src=5), item("b", 1100, 10, src=5)]))

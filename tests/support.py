@@ -1,7 +1,7 @@
 """Fakes and sample data for the tests, which need no Resolve installation.
 
 Every test file imports this module before resolve_editor: it points the bridge folder at a temporary one, so no
-test can reach Resolve or write to the user's folder (ISSUES.md I-14).
+test can reach Resolve or write to the user's folder (docs/ISSUES.md I-14).
 These prove the logic (planning, refusals, rollback order, frame maths). They cannot prove that Resolve itself
 behaves the same way; see tests/live_resolve.py for the checks that need a real Resolve.
 """
@@ -115,7 +115,7 @@ class FakeResolve:
             self.copies.append(dict(args))
             for k in ("properties", "fades", "color", "enabled"):
                 dst[k] = json.loads(json.dumps(src[k]))
-            # clip markers count from the source start, so they keep their frame (live 2026-11-23, ISSUES.md I-23)
+            # clip markers count from the source start, so they keep their frame (live 2026-11-23, docs/ISSUES.md I-23)
             dst["markers"] = {k: dict(v) for k, v in src.get("markers", {}).items() if k != self.drop_marker}
             r = {"copied": ["grade"], "failed": [], "renamed_markers": self.renamed_markers}
             self.renamed_markers = 0  # named now, so later copies keep the name

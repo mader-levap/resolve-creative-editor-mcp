@@ -94,7 +94,7 @@ log("starting")
 local resolve = resolve or Resolve()
 if not resolve then error("no resolve object available to this script") end
 local sleep = bmd.wait or function(s) local t = os.clock() + s while os.clock() < t do end end
--- Where the copy before this one stopped, if it stopped inside a call (ISSUES.md I-22); set at start-up below.
+-- Where the copy before this one stopped, if it stopped inside a call (docs/ISSUES.md I-22); set at start-up below.
 local previous_stuck
 
 -- ---------- minimal JSON ----------
@@ -359,11 +359,11 @@ function OPS.get_state()
   local t = p and p:GetCurrentTimeline()
   return { resolve = resolve:GetVersionString(), page = resolve:GetCurrentPage(), project = p and p:GetName(),
            pins = true,  -- requests may name their timeline (see pin)
-           caption_parts = true,  -- add_title_cards places a long card in parts (ISSUES.md I-21)
-           named_markers = true,  -- add_marker(s) refuse a marker without a name (ISSUES.md I-19)
-           clip_markers_by_source = true,  -- copy_settings keeps clip markers at their source frames (ISSUES.md I-23)
-           stage_marker = true, previous_run_stuck = previous_stuck,  -- see the main loop (ISSUES.md I-22)
-           -- empty tracks have no items, so the summary needs the counts (ISSUES.md I-11)
+           caption_parts = true,  -- add_title_cards places a long card in parts (docs/ISSUES.md I-21)
+           named_markers = true,  -- add_marker(s) refuse a marker without a name (docs/ISSUES.md I-19)
+           clip_markers_by_source = true,  -- copy_settings keeps clip markers at their source frames (docs/ISSUES.md I-23)
+           stage_marker = true, previous_run_stuck = previous_stuck,  -- see the main loop (docs/ISSUES.md I-22)
+           -- empty tracks have no items, so the summary needs the counts (docs/ISSUES.md I-11)
            track_counts = t and { video = t:GetTrackCount("video"), audio = t:GetTrackCount("audio") },
            timeline = t and t:GetName(), timeline_fps = t and t:GetSetting("timelineFrameRate"),
            timeline_drop_frame = t and t:GetSetting("timelineDropFrameTimecode"),
@@ -687,7 +687,7 @@ function OPS.add_text_plus(a)
   return report
 end
 
--- Resolve 21.2 refuses AddMarker with an empty name and gives no reason, so say it before trying (ISSUES.md I-19).
+-- Resolve 21.2 refuses AddMarker with an empty name and gives no reason, so say it before trying (docs/ISSUES.md I-19).
 local function named(name) return type(name) == "string" and name:match("%S") ~= nil end
 local NO_NAME = " needs a name: Resolve 21.2 refuses markers without one"
 
@@ -826,7 +826,7 @@ function OPS.copy_settings(a)
   local color = try(src, "GetClipColor")
   if type(color) == "string" and color ~= "" then mark("clip_color", try(dst, "SetClipColor", color)) end
   for _, f in ipairs(each(try(src, "GetFlagList"))) do mark("flag", try(dst, "AddFlag", f)) end
-  -- Clip marker frames count from the start of the source media, for GetMarkers and AddMarker alike (live, ISSUES.md
+  -- Clip marker frames count from the start of the source media, for GetMarkers and AddMarker alike (live, docs/ISSUES.md
   -- I-23), so a rebuilt clip from the same source takes each one at the same frame. Markers outside the clip's used
   -- range are kept hidden, as Resolve does when trimming; none is skipped.
   local renamed = 0
@@ -835,7 +835,7 @@ function OPS.copy_settings(a)
     if type(m) == "table" and f then
       local name = m.name or ""
       local ok = try(dst, "AddMarker", f, m.color, name, m.note or "", m.duration or 1, m.customData or "")
-      if not ok and not named(name) then  -- made by hand without a name: keep it, named (ISSUES.md I-19)
+      if not ok and not named(name) then  -- made by hand without a name: keep it, named (docs/ISSUES.md I-19)
         ok = try(dst, "AddMarker", f, m.color, "Marker", m.note or "", m.duration or 1, m.customData or "")
         if ok then renamed = renamed + 1 end
       end
@@ -899,7 +899,7 @@ end
 
 function OPS.add_transition(a)
   local tr = find_item(a.item_id):AddTransition(a.options)
-  if not tr then  -- AddTransition gives no reason; name the request and the causes seen live (ISSUES.md I-09)
+  if not tr then  -- AddTransition gives no reason; name the request and the causes seen live (docs/ISSUES.md I-09)
     local o = a.options or {}
     error("Resolve refused the transition and gave no reason (" .. tostring(o.type) .. ", " .. tostring(o.category)
       .. ", " .. tostring(o.position) .. ", " .. tostring(o.alignment) .. ", " .. tostring(o.duration or "default")
@@ -993,8 +993,8 @@ function OPS.delete_scratch(a)
 end
 
 -- Test helper: add a marker to a clip on the current scratch timeline (_RCE_ only), with any name, even an empty one.
--- Answers whether Resolve takes an unnamed clip marker (ISSUES.md I-19).
--- Test helper: stall inside an op like a Resolve call that doesn't return (ISSUES.md I-22). Scratch timelines only.
+-- Answers whether Resolve takes an unnamed clip marker (docs/ISSUES.md I-19).
+-- Test helper: stall inside an op like a Resolve call that doesn't return (docs/ISSUES.md I-22). Scratch timelines only.
 function OPS.scratch_stall(a)
   if tl():GetName():sub(1, 5) ~= "_RCE_" then error("only on a scratch timeline (_RCE_...)", 0) end
   local seconds = math.min(math.max(tonumber(a.seconds) or 0, 0), 300)
@@ -1033,7 +1033,7 @@ local function same_rate(x, y) return tonumber(tostring(x):match("[%d%.]+")) == 
 -- Text+ titles can't be resized or moved by script, so each card lives on its own small timeline in a bin and
 -- that timeline is placed like a clip: exact frame, exact length, chosen track (upstream issue #74 route).
 -- A placement can't be longer than the inserted title (Preferences > Standard Generator Duration), so a longer
--- card is placed in parts, all from its one timeline (ISSUES.md I-21).
+-- card is placed in parts, all from its one timeline (docs/ISSUES.md I-21).
 function OPS.add_title_cards(a)
   local p, mp, target = proj(), pool(), tl()
   local fps = target:GetSetting("timelineFrameRate")
@@ -1115,7 +1115,7 @@ fu:SetData("claude_bridge_inst", me)  -- in-memory; a newer run overwrites it an
 local function req_id(raw) return raw and raw:match('"id"%s*:%s*"([^"]*)"') end
 -- The loop records each step in Fusion's in-memory data: "<run> <phase> <op> <time>". The loop is single-threaded,
 -- so a copy stuck inside a Resolve call leaves its last step there, and the copy that replaces it reports it
--- (ISSUES.md I-22). A stuck copy that wakes up later writes nothing once it isn't the current run.
+-- (docs/ISSUES.md I-22). A stuck copy that wakes up later writes nothing once it isn't the current run.
 local STAGE = "claude_bridge_stage"
 local function stage(phase, op)
   if fu:GetData("claude_bridge_inst") ~= me then return end
@@ -1168,7 +1168,7 @@ while fu:GetData("claude_bridge_inst") == me do
     if not good then out = { id = id, ok = false, error = tostring(out) } end
     out.switched_from = switched
     -- Replaced while stuck in the op (the user restarted the bridge): stay silent, as a late answer would overwrite
-    -- the newer copy's reply, and stop (ISSUES.md I-22).
+    -- the newer copy's reply, and stop (docs/ISSUES.md I-22).
     if fu:GetData("claude_bridge_inst") ~= me then break end
     stage("reply", name)
     reply(id, json.encode(out))

@@ -1,4 +1,4 @@
-"""No test file may use the user's bridge folder, also when it runs alone (ISSUES.md I-14)."""
+"""No test file may use the user's bridge folder, also when it runs alone (docs/ISSUES.md I-14)."""
 import os
 import subprocess
 import sys

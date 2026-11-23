@@ -8,7 +8,7 @@ from .. import session
 def analyze(items: list[session.Item], limit: int = 10, tc: Callable[[int], str] = str,
             counts: dict[str, int] | None = None) -> dict[str, Any]:
     """Pure timeline analysis: gaps, overlaps, transitions, reused source clips. With Resolve's track counts, every
-    track is listed, empty ones with 0 (ISSUES.md I-11)."""
+    track is listed, empty ones with 0 (docs/ISSUES.md I-11)."""
     tracks: dict[tuple[str, int], list[Any]]
     used: dict[str, list[int]]
     tracks, gaps, overlaps, used, transitions = {}, [], [], {}, 0

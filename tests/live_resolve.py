@@ -33,7 +33,8 @@ def status(r):
 
 
 def transitions(clip, start, name):
-    """A valid transition must land exactly where asked; refusals must be the ones seen live (ISSUES.md I-12, T3/T4)."""
+    """A valid transition must land exactly where asked; refusals must be the ones seen live
+    (docs/ISSUES.md I-12, T3/T4)."""
     pairs = {"valid": (1000, 30), "no spare": (1200, 300), "misspelled": (1400, 30)}  # record offset, first source
     r = dispatch.run("place_clips", {"clips": [c for at, src in pairs.values() for c in (
         {"clip": clip, "start_frame": src, "end_frame": src + 60, "record": start + at},
@@ -69,7 +70,7 @@ def transitions(clip, start, name):
 
 def captions(start, name):
     """Each caption covers its time exactly, in parts no longer than the inserted title, whatever Standard Generator
-    Duration is; when the saved preference can be read, the title length must match it (ISSUES.md I-24)."""
+    Duration is; when the saved preference can be read, the title length must match it (docs/ISSUES.md I-24)."""
     title = prefs.generator_frames(30)  # the scratch timeline is 30 fps
     long_end = 2.2 + (title / 30 + 2 if title else 6.8)  # longer than one title when the length is known
     segs: list[dict[str, Any]] = [{"start": 0.5, "end": 2.0, "text": "First caption"},

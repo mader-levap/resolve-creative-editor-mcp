@@ -27,7 +27,7 @@ def doctor(a: dict[str, Any] | None = None) -> dict[str, Any]:
               "ffprobe": bool(shutil.which("ffprobe") or os.environ.get("FFPROBE")), "faster_whisper": whisper,
               "bridge_folder": paths.DIR}
     generator = prefs.describe(prefs.generator_duration())
-    if generator:  # the longest a script can make a title (ISSUES.md I-24)
+    if generator:  # the longest a script can make a title (docs/ISSUES.md I-24)
         report["standard_generator_duration"] = f"{generator} ({prefs.NOTE})"
     hang = bridge.read_hang()  # read first: an answer below clears it
     if hang:
@@ -37,7 +37,7 @@ def doctor(a: dict[str, Any] | None = None) -> dict[str, Any]:
         report["bridge"] = "connected" if res.get("ok") else res.get("error")
         report["resolve"] = res.get("result")
         stuck = (res.get("result") or {}).get("previous_run_stuck")
-        if stuck:  # the bridge's own record of where the copy before it stopped (ISSUES.md I-22)
+        if stuck:  # the bridge's own record of where the copy before it stopped (docs/ISSUES.md I-22)
             report["previous_run_stuck"] = stuck
     except bridge.BridgeBusy:
         report["bridge"] = "busy: another client is using it (it is running)"

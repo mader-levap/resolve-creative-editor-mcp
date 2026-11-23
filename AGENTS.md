@@ -1,5 +1,22 @@
 # DaVinci Resolve for AI agents
 
+## Structure
+
+- `resolve_editor/`: the MCP server package (`dispatch.py` runs the `edit__` tools; `session.py`, `bridge.py`, `timeline.py` and the other modules are shared helpers).
+  - `tools/`: the `edit__` tools, one file per area (captions, clips, placement, ripple, ...).
+  - `schemas/`: tool definitions (names, arguments, descriptions) for the `edit__`, `legacy__` and `media__` tools.
+  - `servers/`: the MCP servers: `gateway.py` (the one clients connect to; runs `edit__` itself and forwards the rest), `legacy.py` (the `legacy__` bridge tools and the `media__` tools), `upstream.py` (where the upstream engine and legacy server are, and how to start them), `child.py` (one child server process over stdio).
+- `tests/`: unit tests with a fake Resolve (`support.py`), the Lua smoke test (`smoke_bridge.py`) and the by-hand live test (`live_resolve.py`).
+- `docs/`:
+  - `ISSUES.md` (known issues and live test results)
+  - `PATCH_NOTES.md`
+  - `MANUAL.md`
+  - `THIRD_PARTY_NOTICES.md`.
+- `patches/`: patches applied to the upstream engine at setup.
+- `vendor/` (not in git): the upstream engine, `davinci-resolve-mcp`, installed by `setup.ps1`/`setup.sh`.
+- `logs/` (not in git): setup logs.
+- Root files: `resolve_bridge.lua` (the bridge that runs inside Resolve), `unified_server.py` and `mcp_server.py` (server entry points), `setup.ps1`/`setup.sh` (install), `pyproject.toml` (ruff and mypy settings).
+
 ## Working rules
 
 - Prefer `edit__`; use `legacy__` only for what `edit__` can't do.
@@ -180,7 +197,7 @@ Bridge calls from all processes take turns through `bridge.lock` in the bridge f
 
 `reload_bridge` only works while the bridge is running. After Resolve starts, the user has to start the bridge once (console command or menu); no tool can do that.
 
-If a call says the bridge acknowledged an op and then stopped answering, or that it is still stuck (ISSUES.md I-22): the bridge is stuck inside a Resolve call. Ask the user to restart it (menu or console; this works while the old copy is stuck, no Resolve restart needed), then run `edit__doctor`: `previous_run_stuck` names the op and step it stopped in. The stuck op may have made its change, so read the timeline back before writing again. Report the `previous_run_stuck` details in ISSUES.md I-22.
+If a call says the bridge acknowledged an op and then stopped answering, or that it is still stuck (docs/ISSUES.md I-22): the bridge is stuck inside a Resolve call. Ask the user to restart it (menu or console; this works while the old copy is stuck, no Resolve restart needed), then run `edit__doctor`: `previous_run_stuck` names the op and step it stopped in. The stuck op may have made its change, so read the timeline back before writing again. Report the `previous_run_stuck` details in docs/ISSUES.md I-22.
 
 ### MCP server and tools
 

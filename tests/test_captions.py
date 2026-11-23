@@ -26,7 +26,7 @@ class Captions(Base):
         self.assertTrue(names[2].endswith(" caption 0003"), names)
 
     def test_long_caption_and_the_next_are_placed_at_any_rate(self):
-        """ISSUES.md I-21: a 12 s caption, then a 1 s one, with Resolve's default 5 s title."""
+        """docs/ISSUES.md I-21: a 12 s caption, then a 1 s one, with Resolve's default 5 s title."""
         segs = [{"start": 0, "end": 12, "text": "a long one"}, {"start": 12.5, "end": 13.5, "text": "next"}]
         for fps in (24, 30, 60):
             with self.subTest(fps=fps):

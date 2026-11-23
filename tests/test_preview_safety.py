@@ -12,7 +12,7 @@ from resolve_editor.schemas import edit as schema
 
 
 class PreviewSafety(Base):
-    """Without confirm=true (the boolean, at the top level) nothing may be changed (ISSUES.md I-01)."""
+    """Without confirm=true (the boolean, at the top level) nothing may be changed (docs/ISSUES.md I-01)."""
 
     def setUp(self):
         self.effects: list[tuple[str, object]]

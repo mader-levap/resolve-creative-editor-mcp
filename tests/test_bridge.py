@@ -43,7 +43,7 @@ class GrowingFile(io.RawIOBase):
 
 
 class BridgeReply(unittest.TestCase):
-    """Reading reply.csv while Resolve writes it, and replies of any size (ISSUES.md I-13)."""
+    """Reading reply.csv while Resolve writes it, and replies of any size (docs/ISSUES.md I-13)."""
 
     def setUp(self):
         folder = tempfile.TemporaryDirectory()

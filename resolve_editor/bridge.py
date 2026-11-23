@@ -34,7 +34,8 @@ RESTART = ("Ask the user to restart the bridge (Resolve: Workspace > Scripts > r
 
 
 def hang_file() -> str:
-    """Written when the bridge acked a request and never answered it, removed by the next answer (ISSUES.md I-22)."""
+    """Written when the bridge acked a request and never answered it, removed by the next answer
+    (docs/ISSUES.md I-22)."""
     return os.path.join(paths.DIR, "bridge_hang.json")
 
 
@@ -158,7 +159,7 @@ def _others_waiting(own: str) -> bool:
 @contextlib.contextmanager
 def _bridge_lock(wait: float) -> Iterator[None]:
     """One bridge call at a time across processes: every client shares request.lua and the reply slot
-    (ISSUES.md I-15). The OS drops the lock if the process dies.
+    (docs/ISSUES.md I-15). The OS drops the lock if the process dies.
 
     The OS doesn't queue waiters, so a client calling back to back (a long batch) would take the lock again before
     a waiter polling every 50 ms sees it free. Waiters leave a mark, and a client that has just let go steps aside
@@ -259,7 +260,7 @@ def _call(op: str, args: dict[str, Any], timeout: float, ack_timeout: float,
             time.sleep(0.05)
         if not acked:
             raise _not_running()
-        # Acked, then silence: the bridge's single loop is stuck inside a Resolve call (ISSUES.md I-22).
+        # Acked, then silence: the bridge's single loop is stuck inside a Resolve call (docs/ISSUES.md I-22).
         at = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(start))
         try:
             with open(hang_file(), "w", encoding="utf-8") as f:

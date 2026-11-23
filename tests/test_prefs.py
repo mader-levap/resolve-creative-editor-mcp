@@ -1,4 +1,4 @@
-"""Standard Generator Duration from Resolve's saved preferences (ISSUES.md I-24)."""
+"""Standard Generator Duration from Resolve's saved preferences (docs/ISSUES.md I-24)."""
 import os
 import tempfile
 from unittest import mock

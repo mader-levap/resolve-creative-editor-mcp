@@ -37,7 +37,7 @@ def invalidate() -> None:
 
 
 def drop_if_switched() -> None:
-    """Before a read: clear the cache if another project or timeline is current now (ISSUES.md I-17)."""
+    """Before a read: clear the cache if another project or timeline is current now (docs/ISSUES.md I-17)."""
     global _cached_for
     state = call("get_state")
     now = (state.get("project"), state.get("timeline"))

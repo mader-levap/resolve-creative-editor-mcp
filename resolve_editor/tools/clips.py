@@ -39,7 +39,7 @@ def set_fades(a: dict[str, Any]) -> dict[str, Any]:
 
 
 def expected_span(cut: int, alignment: str, frames: int) -> tuple[int, int]:
-    """Where Resolve 21.2 puts a transition (live T2, ISSUES.md): left ends at the cut, right starts there, center
+    """Where Resolve 21.2 puts a transition (live T2, docs/ISSUES.md): left ends at the cut, right starts there, center
     puts an odd frame before it."""
     if alignment == "left":
         return cut - frames, cut
@@ -57,7 +57,7 @@ def add_transition(a: dict[str, Any]) -> dict[str, Any]:
     options = {"type": a.get("type") or "Cross Dissolve", "category": a.get("category") or "simple",
                "position": a.get("position") or "end", "alignment": a.get("alignment") or "center"}
     duration = a.get("duration")
-    if duration is not None:  # 0 isn't "not given", and bool counts as int in Python (ISSUES.md I-08)
+    if duration is not None:  # 0 isn't "not given", and bool counts as int in Python (docs/ISSUES.md I-08)
         if isinstance(duration, bool) or not isinstance(duration, int) or duration <= 0:
             return outcome.blocked(f"duration must be a whole number of frames above 0, or left out for Resolve's "
                                    f"default (got {duration!r})")
@@ -68,7 +68,7 @@ def add_transition(a: dict[str, Any]) -> dict[str, Any]:
     cut = target["end"] if options["position"] == "end" else target["start"]
     audio, notes = _linked_audio(target, options["position"], cut, a.get("include_linked", True) is not False)
     audio_type = a.get("audio_type") or AUDIO_CROSSFADE
-    if not a.get("confirm"):  # nothing is written before the user approves (ISSUES.md I-06)
+    if not a.get("confirm"):  # nothing is written before the user approves (docs/ISSUES.md I-06)
         plan = _transition_plan(target, cut, options)
         if audio:
             span = {"span": plan["span"]} if "span" in plan else {}
@@ -91,7 +91,7 @@ def add_transition(a: dict[str, Any]) -> dict[str, Any]:
     frames = got.get("duration") or r.get("duration")
     start, end = got.get("start", r.get("start")), got.get("end", r.get("end"))
     rows: list[dict[str, Any]] = []
-    for x in audio:  # the linked audio gets a matching crossfade (ISSUES.md I-07)
+    for x in audio:  # the linked audio gets a matching crossfade (docs/ISSUES.md I-07)
         ao = {"type": audio_type, "category": "audio", "position": options["position"],
               "alignment": options["alignment"], "duration": options.get("duration") or frames}
         try:
@@ -116,8 +116,8 @@ def add_transition(a: dict[str, Any]) -> dict[str, Any]:
 
 AUDIO_CROSSFADE = "Cross Fade +3 dB"  # verified live in test T5a
 REFUSED = "Resolve refused the transition"  # resolve_bridge.lua, when AddTransition gives nil
-# Live T3 (ISSUES.md I-09): Resolve refuses when a side the alignment needs has no unused source frames at all; with a
-# few it shortens the transition instead. Left alignment was made even with none on either side.
+# Live T3 (docs/ISSUES.md I-09): Resolve refuses when a side the alignment needs has no unused source frames at all;
+# with a few it shortens the transition instead. Left alignment was made even with none on either side.
 NEEDS = {"center": ("after the outgoing clip", "before the incoming clip"), "right": ("after the outgoing clip",),
          "left": ()}
 
@@ -145,7 +145,7 @@ def _label(x: session.Item) -> str:
 
 def _linked_audio(target: session.Item, position: str, cut: int,
                   include: bool) -> tuple[list[session.Item], list[str]]:
-    """The linked audio items that get a crossfade, and warnings for those that don't (ISSUES.md I-07)."""
+    """The linked audio items that get a crossfade, and warnings for those that don't (docs/ISSUES.md I-07)."""
     if target["track_type"] != "video":
         return [], []
     details = session.as_list(session.call("item_details", item_ids=[target["id"]]))
@@ -205,7 +205,8 @@ def _spare_frames(target: session.Item, cut: int) -> dict[str, Any]:
 
 def _check_transition(tid: Any, target: session.Item, cut: int, options: dict[str, Any],
                       before: dict[str, tuple[Any, ...]]) -> tuple[list[str], list[str], dict[str, Any]]:
-    """Compare what Resolve made with the request (ISSUES.md I-04): what differs, what couldn't be read, the item."""
+    """Compare what Resolve made with the request (docs/ISSUES.md I-04): what differs, what couldn't be read, the
+    item."""
     differs: list[str] = []
     got: dict[str, Any] = next((dict(x) for x in session.items() if x["id"] == tid), {})
     if not got:

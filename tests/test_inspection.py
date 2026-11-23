@@ -29,7 +29,7 @@ class Inspection(Base):
 
 
 class EmptyTracks(Base):
-    """Tracks come from Resolve's counts, so an empty one shows with 0 (ISSUES.md I-11)."""
+    """Tracks come from Resolve's counts, so an empty one shows with 0 (docs/ISSUES.md I-11)."""
 
     def test_added_empty_tracks_show_with_zero(self):
         f = self.use(FakeResolve([item("a", 1000, 10), item("a2", 1000, 10, kind="audio")]))

@@ -1,4 +1,4 @@
-"""add_transition previews first (ISSUES.md I-06) and checks what Resolve made against the request (I-04)."""
+"""add_transition previews first (docs/ISSUES.md I-06) and checks what Resolve made against the request (I-04)."""
 from tests.support import READ_OPS, Base, FakeResolve, item
 
 from resolve_editor import dispatch, session
@@ -77,7 +77,7 @@ class TransitionReadBack(Base):
 
 
 class TransitionPreview(Base):
-    """Nothing is written without confirm=true, and a confirmed transition is backed up first (ISSUES.md I-06)."""
+    """Nothing is written without confirm=true, and a confirmed transition is backed up first (docs/ISSUES.md I-06)."""
 
     def setUp(self):
         self.f = self.use(timeline())
@@ -144,7 +144,7 @@ def linked(a2_end=CUT):
 
 
 class LinkedAudio(Base):
-    """A transition on a video clip also crossfades its linked audio, unless asked not to (ISSUES.md I-07)."""
+    """A transition on a video clip also crossfades its linked audio, unless asked not to (docs/ISSUES.md I-07)."""
 
     def run_on(self, f, **args):
         self.use(f)
@@ -226,7 +226,7 @@ class LinkedAudio(Base):
 
 
 class Duration(Base):
-    """A duration is a whole number of frames above 0, or left out for Resolve's default (ISSUES.md I-08)."""
+    """A duration is a whole number of frames above 0, or left out for Resolve's default (docs/ISSUES.md I-08)."""
 
     def test_bad_durations_are_blocked_before_anything_is_written(self):
         for bad in (0, -5, 2.5, "30", True):
@@ -256,7 +256,8 @@ class Duration(Base):
 
 
 class Refusal(Base):
-    """A refusal is a failed result naming the likely cause from checked spare frames (ISSUES.md I-09, live T3/T4)."""
+    """A refusal is a failed result naming the likely cause from checked spare frames
+    (docs/ISSUES.md I-09, live T3/T4)."""
 
     def refuse(self, media_frames=2275, **args):
         f = self.use(timeline())

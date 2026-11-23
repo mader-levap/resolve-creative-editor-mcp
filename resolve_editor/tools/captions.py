@@ -127,7 +127,7 @@ def _complete(cards: list[dict[str, Any]], placed: list[dict[str, Any]]) -> int:
 
 
 def _parts_note(cards: list[dict[str, Any]], fps: Fraction) -> list[str]:
-    """Which captions will be placed in parts, from Standard Generator Duration (ISSUES.md I-24)."""
+    """Which captions will be placed in parts, from Standard Generator Duration (docs/ISSUES.md I-24)."""
     length = prefs.generator_frames(fps)
     if not length:
         return []

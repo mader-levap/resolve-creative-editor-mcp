@@ -37,13 +37,13 @@ def batch(a: dict[str, Any]) -> dict[str, Any]:
         return outcome.op("failed", False, reason=f"no backup, so no step was run: {backup.get('reason')}",
                           results=[], not_run=[o["tool"] for o in ops], snapshot=snapshot)
     results: list[dict[str, Any]] = []
-    notes: dict[str, list[tuple[int, str]]] = {}  # each warning once, with the steps that gave it (ISSUES.md I-20)
+    notes: dict[str, list[tuple[int, str]]] = {}  # each warning once, with the steps that gave it (docs/ISSUES.md I-20)
     unverified = False
     for n, o in enumerate(ops, 1):
         args = dict(o.get("args") or {}, confirm=True, backup=False)
         try:
             r = run(o["tool"], args)
-        except Exception as exc:  # a refusal by Resolve, or a bug: stop like a failed step (ISSUES.md I-02)
+        except Exception as exc:  # a refusal by Resolve, or a bug: stop like a failed step (docs/ISSUES.md I-02)
             r = outcome.op("failed", False, reason=f"{type(exc).__name__}: {exc}",
                            warnings=["the step may have changed the timeline before the error; read it back"])
         step = r.get("_operation") or {}  # a read has none
@@ -55,7 +55,7 @@ def batch(a: dict[str, Any]) -> dict[str, Any]:
             row["warnings"] = list(step["warnings"])
         for w in step.get("warnings") or ():
             notes.setdefault(w, []).append((n, o["tool"]))
-        # a write that worked but couldn't be checked keeps the whole batch from passing (ISSUES.md I-18)
+        # a write that worked but couldn't be checked keeps the whole batch from passing (docs/ISSUES.md I-18)
         unverified |= status == "success" and step.get("verification") == "unverified"
         results.append(row)
         if status not in DONE:
@@ -91,7 +91,7 @@ READ_ONLY = {"doctor", "timeline_summary", "inspect_range", "find_media", "audit
 # Tools that change nothing until confirm=true. A batch preview calls only these, so add a tool here only if that holds.
 PREVIEWABLE = {"place_clips", "move_item", "trim_item", "ripple_trim", "normalize_audio", "set_speed", "copy_grade",
                "add_captions", "add_transition"}
-# Tools that take confirm=true. Their previews name the timeline, and a confirm must name it too (ISSUES.md I-17).
+# Tools that take confirm=true. Their previews name the timeline, and a confirm must name it too (docs/ISSUES.md I-17).
 CONFIRMABLE = PREVIEWABLE | {"batch"}
 # Reads that may follow a switch by hand, so they check the current timeline before using cached reads.
 TIMELINE_READS = {"timeline_summary", "inspect_range", "find_media"}
@@ -99,7 +99,7 @@ TIMELINE_READS = {"timeline_summary", "inspect_range", "find_media"}
 
 def run(name: str, args: dict[str, Any]) -> dict[str, Any]:
     """Entry point of every edit__ tool. Resolve acts on the current timeline, so a call that writes is pinned to
-    the one that was current when it started, batch steps included (ISSUES.md I-16)."""
+    the one that was current when it started, batch steps included (docs/ISSUES.md I-16)."""
     if "confirm" in args:
         args = {**args, "confirm": args["confirm"] is True}  # "false", "no" and 1 are truthy but are not approval
     if session.pin is None and name in TIMELINE_READS:

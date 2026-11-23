@@ -2,6 +2,8 @@
 
 This is a fork of https://github.com/Anujpal-15th/resolve-creative-editor-mcp by Anujpal-15th.
 
+See `docs/MANUAL.md` for usage tips.
+
 ## What does it do?
 
 Edit video in **DaVinci Resolve** by talking to Claude. It works on your real project: it places and trims clips, moves them without losing their grade, adds transitions, fades, captions and markers, sets audio levels, checks your render, and shows you a preview before anything destructive.
@@ -23,8 +25,7 @@ Blackmagic limits outside control of Resolve to Studio. On free, the server dete
 
 ## What you need
 
-- [DaVinci Resolve](https://www.blackmagicdesign.com/products/davinciresolve) 21.1 or newer (transitions, fades,
-  speed and normalization need 21.1)
+- [DaVinci Resolve](https://www.blackmagicdesign.com/products/davinciresolve) 21.1 or newer (transitions, fades, speed and normalization need 21.1)
 - [Python 3.10 or newer](https://www.python.org/downloads/), available as `python`
 - [Git](https://git-scm.com/downloads)
 - [FFmpeg](https://ffmpeg.org/download.html) on your PATH (for `media__`, audio markers and file QC)
@@ -133,7 +134,7 @@ Claude makes a backup copy of the timeline before every move or trim, and asks b
 | Speed | `edit__set_speed` | Native call live-tested | Upstream-tested |
 | Grade | `edit__copy_grade`, `legacy__set_grade`, `legacy__set_lut` | Grade copy live-tested inside move | Not tested |
 | Markers | `edit__add_markers`, `edit__add_audio_markers` | Live-tested | Not tested |
-| Captions | `edit__add_captions` (exact length Text+ cards) | Live-tested | Not tested |
+| Captions | `edit__add_captions` (exact length Text+ cards; long text on lines one under another, or one after another) | Live-tested | Not tested |
 | Subtitles | `edit__export_srt`, then File > Import > Subtitle | SRT file tested; import is manual | Same |
 | Export | `edit__export_timeline` | OTIO live-tested; others not | Not tested |
 | Render | `legacy__queue_render`, `legacy__start_render` (needs confirm) | Live-tested earlier | Not tested |
@@ -239,4 +240,4 @@ python tests/live_resolve.py
 
 ## Credits and license
 
-MIT licensed, see [LICENSE](LICENSE). The upstream engine is [samuelgursky/davinci-resolve-mcp](https://github.com/samuelgursky/davinci-resolve-mcp) (MIT), downloaded by setup at a pinned commit and left unmodified. The result-envelope design, the nested-timeline title route and the Resolve 21.1 API notes come from that project. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Optional `faster-whisper` is MIT; FFmpeg is LGPL/GPL and is used as a separate program, not bundled. DaVinci Resolve is a trademark of Blackmagic Design; this project is not affiliated with them.
+MIT licensed, see [LICENSE](LICENSE). The upstream engine is [samuelgursky/davinci-resolve-mcp](https://github.com/samuelgursky/davinci-resolve-mcp) (MIT), downloaded by setup at a pinned commit and left unmodified. The result-envelope design, the nested-timeline title route and the Resolve 21.1 API notes come from that project. See [docs/THIRD_PARTY_NOTICES.md](docs/THIRD_PARTY_NOTICES.md). Optional `faster-whisper` is MIT; FFmpeg is LGPL/GPL and is used as a separate program, not bundled. DaVinci Resolve is a trademark of Blackmagic Design; this project is not affiliated with them.

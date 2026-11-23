@@ -50,7 +50,7 @@ class TimelineFake(FakeResolve):
 
 
 class TimelinePin(Base):
-    """A writing call stays on the timeline it started on, whoever switches meanwhile (ISSUES.md I-16)."""
+    """A writing call stays on the timeline it started on, whoever switches meanwhile (docs/ISSUES.md I-16)."""
 
     PLACE = {"tool": "place_clips", "args": SAMPLE_ARGS["place_clips"]}
     MARK = {"tool": "add_markers", "args": SAMPLE_ARGS["add_markers"]}
@@ -196,7 +196,7 @@ class TimelinePin(Base):
 
 
 class ConfirmNamesTimeline(Base):
-    """A confirm applies only to the timeline its preview was for (ISSUES.md I-17)."""
+    """A confirm applies only to the timeline its preview was for (docs/ISSUES.md I-17)."""
 
     CONFIRMABLE = sorted(dispatch.PREVIEWABLE | {"batch"})
 

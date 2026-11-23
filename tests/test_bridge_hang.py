@@ -1,4 +1,4 @@
-"""A bridge that acks a request and then stops answering (ISSUES.md I-22)."""
+"""A bridge that acks a request and then stops answering (docs/ISSUES.md I-22)."""
 import json
 import os
 import tempfile

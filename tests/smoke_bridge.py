@@ -29,11 +29,11 @@ local folder = {GetClipList=function() return {clip} end, GetSubFolderList=funct
 local made = {}
 local placed = {GetUniqueId=function() return "item1" end, GetName=function() return "placed" end,
   GetStart=function() return 0 end, GetEnd=function() return 10 end, GetDuration=function() return 10 end,
-  -- clip markers count from the source start (live, ISSUES.md I-23); 21.2 refuses an empty name (I-19)
+  -- clip markers count from the source start (live, docs/ISSUES.md I-23); 21.2 refuses an empty name (I-19)
   GetMarkers=function() return {[348]={name="Marker 1", color="Blue"}, [5]={name="early", color="Red"},
     [2000]={name="", color="Green"}} end,
   AddMarker=function(self, f, color, name) if name == "" then return false end; clip_marker(f, name); return true end,
-  AddTransition=function() return nil end}  -- Resolve gives no reason (live T3/T4, ISSUES.md I-09)
+  AddTransition=function() return nil end}  -- Resolve gives no reason (live T3/T4, docs/ISSUES.md I-09)
 local function timeline(name)
   if not made[name] then
     local tool = {SetInput=function() end}
@@ -183,7 +183,7 @@ assert r["isError"] and "not allowed" in text(r), r
 r = rpc(8,"tools/call", {"name": "add_marker", "arguments": {"frame": 5, "name": "m"}})
 assert r["isError"] and "No current timeline" in text(r), r
 
-# A request pinned to a timeline runs there or not at all (ISSUES.md I-16). Real Lua, real call_bridge.
+# A request pinned to a timeline runs there or not at all (docs/ISSUES.md I-16). Real Lua, real call_bridge.
 os.environ.update(RESOLVE_BRIDGE_DIR=bridge_dir, RESOLVE_FUSION_PREFS=prefs)
 from resolve_editor import bridge  # noqa: E402  (after the environment above is set)
 
@@ -198,12 +198,12 @@ def reset(cur="OTHER", project="demo", names=("WORK", "OTHER"), ignore=None):
 reset()
 r = bridge.call_bridge("get_state", {})
 assert r["ok"] and r["result"]["pins"] is True and r["result"]["named_markers"] is True, r
-# The new copy names where the one before it stopped, and records its own stages (ISSUES.md I-22)
+# The new copy names where the one before it stopped, and records its own stages (docs/ISSUES.md I-22)
 assert r["result"]["stage_marker"] is True, r
 assert r["result"]["track_counts"] == {"video": 1, "audio": 1}, r  # empty tracks show in the summary (I-11)
 assert r["result"]["previous_run_stuck"] == {"op": "get_state", "phase": "op", "at": 1795900318}, r
 assert data["claude_bridge_stage"].split()[1:3] == ["idle", "-"], data["claude_bridge_stage"]
-# Resolve 21.2 refuses markers without a name: the bridge says so and writes none of them (ISSUES.md I-19)
+# Resolve 21.2 refuses markers without a name: the bridge says so and writes none of them (docs/ISSUES.md I-19)
 for op, args in (("add_marker", {"frame": 5}), ("add_marker", {"frame": 5, "name": " "}),
                  ("add_markers", {"markers": [{"frame": 1, "name": "a"}, {"frame": 2}]})):
     reset(cur="WORK")
@@ -268,7 +268,7 @@ assert sorted(clip_marks) == [(5, "early"), (348, "Marker 1"), (2000, "Marker")]
 r = bridge.call_bridge("get_state", {})
 assert r["ok"] and r["result"]["clip_markers_by_source"] is True, r
 
-# A refused transition names what was asked and the causes seen live, without picking one (ISSUES.md I-09)
+# A refused transition names what was asked and the causes seen live, without picking one (docs/ISSUES.md I-09)
 r = bridge.call_bridge("add_transition", {"item_id": "item1", "options": {
     "type": "Cross Disolve", "category": "simple", "position": "end", "alignment": "center", "duration": 30}})
 assert not r["ok"] and r["error"].startswith("Resolve refused the transition"), r

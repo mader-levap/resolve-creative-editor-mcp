@@ -101,7 +101,7 @@ class Replace(Base):
 
 
 class ClipMarkers(Base):
-    """Clip markers count from the source start and must survive a rebuild at the same frame (ISSUES.md I-23)."""
+    """Clip markers count from the source start and must survive a rebuild at the same frame (docs/ISSUES.md I-23)."""
 
     # A clip from source 180-480: one in the middle, one near each end, one hidden past the out-point.
     MARKERS = {"348": {"name": "Marker 1", "color": "Blue"}, "190": {"name": "near in", "color": "Red"},

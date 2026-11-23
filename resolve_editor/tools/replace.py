@@ -57,8 +57,8 @@ def _matches(old: dict[str, Any], new: dict[str, Any]) -> list[str]:
 
 
 def _lost_markers(old: object, new: object) -> list[str]:
-    """Clip markers count from the source start, so each must be on the new item at the same frame (ISSUES.md I-23).
-    An unnamed one may come back named Marker (I-19)."""
+    """Clip markers count from the source start, so each must be on the new item at the same frame
+    (docs/ISSUES.md I-23). An unnamed one may come back named Marker (I-19)."""
     def by_frame(markers: object) -> dict[int, Any]:
         return {int(float(k)): v for k, v in (markers.items() if isinstance(markers, dict) else ())}
     after, lost = by_frame(new), []
@@ -75,7 +75,7 @@ def _replace(plan: list[dict[str, Any]], backup: bool = True) -> dict[str, Any]:
     snapshot = timeline.snapshot_timeline({"label": "before edit"}).get("snapshot") if backup else None
     staged: list[session.Item]
     staging, staged, done = {}, [], []
-    renamed = 0  # unnamed clip markers the bridge had to name to copy them (Resolve 21.2, ISSUES.md I-19)
+    renamed = 0  # unnamed clip markers the bridge had to name to copy them (Resolve 21.2, docs/ISSUES.md I-19)
 
     def stage_track(kind: str) -> int:
         if kind not in staging:

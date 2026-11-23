@@ -56,7 +56,7 @@ def tr(id, start, dur, track=1, kind="video"):
 
 
 class RippleTransitions(Base):
-    """A ripple delete shifts every track, so transitions anywhere count (ISSUES.md I-05)."""
+    """A ripple delete shifts every track, so transitions anywhere count (docs/ISSUES.md I-05)."""
 
     def test_a_transition_over_the_removed_frames_blocks_on_any_track(self):
         for track, kind, label in ((1, "audio", "A1"), (2, "video", "V2"), (1, "video", "V1")):

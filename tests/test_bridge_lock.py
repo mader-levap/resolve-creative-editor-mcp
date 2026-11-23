@@ -1,4 +1,4 @@
-"""Several processes sharing one bridge (ISSUES.md I-15)."""
+"""Several processes sharing one bridge (docs/ISSUES.md I-15)."""
 import json
 import os
 import re

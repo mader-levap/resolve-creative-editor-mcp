@@ -1,4 +1,4 @@
-"""Markers need a name and are read back (ISSUES.md I-19)."""
+"""Markers need a name and are read back (docs/ISSUES.md I-19)."""
 from unittest import mock
 
 from tests.support import Base, FakeResolve, item

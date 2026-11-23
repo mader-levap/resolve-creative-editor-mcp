@@ -1,4 +1,4 @@
-"""Resolve's saved user preferences, read only. The scripting API doesn't expose them (ISSUES.md I-24)."""
+"""Resolve's saved user preferences, read only. The scripting API doesn't expose them (docs/ISSUES.md I-24)."""
 import os
 import xml.etree.ElementTree as ET
 from fractions import Fraction

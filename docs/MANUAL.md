@@ -1,0 +1,1 @@
+[TODO: in future we will make short manual about how to use it, how to most effectively command AI etc ]
