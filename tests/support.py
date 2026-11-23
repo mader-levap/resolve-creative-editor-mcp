@@ -114,8 +114,7 @@ class FakeResolve:
         elif op == "audio_modes":
             r = {"1": "EBU R128"}
         elif op == "add_transition":
-            o = args["options"]
-            r = {"id": "tr", "name": o["type"], "start": 1005, "end": 1015, "duration": o.get("duration", 10)}
+            r = self.transition(args["item_id"], args["options"])
         elif op in ("set_speed", "copy_grade", "normalize_audio", "set_enabled", "set_item_properties",
                     "export_timeline"):
             r = {"ok": True}
@@ -123,6 +122,30 @@ class FakeResolve:
             r = self.title_cards(args)
         return {"ok": True, "result": r}
 
+
+    def transition(self, item_id, o):
+        """Like Resolve 21.2 (live T2): left ends at the cut, right starts there, center puts an odd frame before it.
+        self.misbehave changes what Resolve makes: type, category, alignment, duration, track, track_type, shift
+        (frames), move_clip (id), no_props, lost (not on the timeline)."""
+        bad = getattr(self, "misbehave", {})
+        target = next(x for x in self.items if x["id"] == item_id)
+        cut = target["end"] if o.get("position", "end") == "end" else target["start"]
+        d = bad.get("duration", o.get("duration") or 10)
+        start = {"left": cut - d, "right": cut}.get(o.get("alignment", "center"), cut - (d + 1) // 2)
+        start += bad.get("shift", 0)
+        self.n += 1
+        tr = item(f"tr{self.n}", start, d, name=bad.get("type", o["type"]), track=bad.get("track", target["track"]),
+                  kind=bad.get("track_type", target["track_type"]), type="transition")
+        if not bad.get("lost"):
+            self.items.append(tr)
+        props = {"TransitionType": bad.get("type", o["type"]), "TransitionCategory": bad.get("category", o["category"]),
+                 "TransitionAlignment": bad.get("alignment", o["alignment"]), "TransitionDuration": d}
+        self.settings[tr["id"]] = {"properties": {} if bad.get("no_props") else props}
+        if bad.get("move_clip"):
+            moved = next(x for x in self.items if x["id"] == bad["move_clip"])
+            moved["start"] += 1
+            moved["end"] += 1
+        return {"id": tr["id"], "name": tr["name"], "start": tr["start"], "end": tr["end"], "duration": d}
 
     def title_cards(self, args):
         """Like resolve_bridge.lua: one timeline per card, placed in parts no longer than the inserted title."""

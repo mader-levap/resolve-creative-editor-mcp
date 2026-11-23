@@ -1,6 +1,6 @@
 # Issues
 
-Found while testing `edit__add_transition`, 2026-11-22. This is the base for fixes. Fixed so far: I-01, I-02, I-03, I-13, I-14, I-15, I-16, I-17, I-21.
+Found while testing `edit__add_transition`, 2026-11-22. This is the base for fixes. Fixed so far: I-01, I-02, I-03, I-04, I-10, I-13, I-14, I-15, I-16, I-17, I-21.
 
 - Environment: free DaVinci Resolve 21.2.0.6, Windows 10, 60 fps timeline.
 - Code is named by file and function, with paths from the repo root.
@@ -19,13 +19,13 @@ How each item is known:
 | [I-01](#i-01) | ~~Critical~~ **Fixed** | `batch` preview makes real changes | Fake, live |
 | [I-02](#i-02) | ~~High~~ **Fixed** | An error inside `batch` loses the results and backup name | Live, fake |
 | [I-03](#i-03) | ~~High~~ **Fixed** | `batch` continues after a `partial` step | Live, fake |
-| [I-04](#i-04) | High | `add_transition` verifies only the length | Fake |
+| [I-04](#i-04) | ~~High~~ **Fixed** | `add_transition` verifies only the length | Fake, live |
 | [I-05](#i-05) | Medium | `ripple_trim` ignores transitions on other tracks | Fake |
 | [I-06](#i-06) | Medium | `add_transition` has no preview or backup | Fake, code |
 | [I-07](#i-07) | Medium | Linked audio keeps a hard cut, without a warning | Live |
 | [I-08](#i-08) | Medium | Zero and negative durations aren't rejected | Fake |
 | [I-09](#i-09) | Low | Every refusal blames spare source frames | Code |
-| [I-10](#i-10) | Low | `at` in the transition result is ambiguous | Live |
+| [I-10](#i-10) | ~~Low~~ **Fixed** | `at` in the transition result is ambiguous | Live |
 | [I-11](#i-11) | Low | `timeline_summary` hides empty tracks | Live, fake |
 | [I-12](#i-12) | Low | The live transition test accepts a refusal as a pass | Code |
 | [I-13](#i-13) | ~~Critical~~ **Fixed** | Bridge replies fail when half-written or over 65 KB | Live, fake |
@@ -39,7 +39,7 @@ How each item is known:
 | [I-21](#i-21) | ~~High~~ **Fixed** | A long caption fails and takes the following ones with it | Live, fake |
 | [I-22](#i-22) | Medium | The bridge can stop answering, cause unknown | Live, once |
 
-Order, one fix at a time, worst first: I-04, then medium (I-19 first, as it now stops
+Order, one fix at a time, worst first: medium (I-19 first, as it now stops
 batches), then low. Re-rank after each fix.
 
 ## Issues
@@ -117,7 +117,7 @@ step's changes and warnings, `not_run` and the backup. Nothing is rolled back.
   with a read in the middle ran to its end. Both backups were correct.
 
 <a id="i-04"></a>
-### I-04 `add_transition` verifies only the length (high)
+### I-04 `add_transition` verifies only the length (high, fixed)
 
 **Where:** `resolve_editor/tools/clips.py` (`add_transition`)
 
@@ -127,12 +127,22 @@ step's changes and warnings, `not_run` and the backup. Nothing is rolled back.
 **Repro:** request Cross Dissolve at the end of an item at frame 1000; the fake returns `Wipe` at frame 1. The
 result is `success` / `passed`.
 
-**Fix:** re-read the timeline and check that the transition exists on the item's track, at the span implied by
-position, alignment and length, and that neighbouring clips didn't change. Resolve documents read-only
-`TransitionType` and `TransitionCategory`, and `TransitionAlignment`, through `GetProperty`; try those. Report
-`unverified` for anything that can't be checked.
+**Fix:** before the write, `add_transition` finds the target clip (or is `blocked`) and records every clip on the timeline. After it, it reads the timeline back and compares:
 
-**Done when:** a wrong type, track or span gives `partial` / `contradiction`.
+- The transition, by its id: it must exist as a `transition` on the target's track type and track.
+- Its length: the requested `duration`, if one was given.
+- Its span: `clips.expected_span`, from the cut (the target's end for `position` end, its start for `start`), the alignment and the length (the actual one when no `duration` was given). The rule was measured live (T2): left `[cut − d, cut]`, center `[cut − ceil(d/2), cut + floor(d/2)]`, right `[cut, cut + d]`.
+- Its type, category and alignment: from `item_details`, whose `GetProperty()` on a transition returns `TransitionType`, `TransitionCategory`, `TransitionAlignment` and `TransitionDuration` on 21.2. No bridge change was needed.
+- Every clip: unchanged.
+
+Any difference gives `partial` / `contradiction`, with a warning naming expected and actual. A property that can't be read gives `success` / `unverified`, with a warning naming it.
+
+**Verified 2026-11-23:**
+
+- `TransitionReadBack` tests (`tests/test_transition.py`); `FakeResolve` now makes a transition item by the T2 rule and can misbehave. Correct transitions pass for every position, alignment and odd/even length, with and without `duration`, on video and audio. A wrong type, category, alignment, track, track type, span or length, a moved clip, or a transition not found give `contradiction`; unreadable properties give `unverified`; an unknown item is blocked before writing. They failed before the fix (except the audio pass, a guard), and each check's test fails again when that check is removed.
+- Live T2 (see "Live tests"): 12 cases all matched the rule, with all four properties as requested and no clip changed.
+- Live, old code: a centred 31-frame dissolve and a 30-frame audio crossfade gave `passed` with only `at`. New code: both `success` / `passed`, with `start` 01:00:04:44 / 04:45, `end` 05:15 and `cut` 05:00. Contradictions can't be provoked in real Resolve, so they are covered by the fake.
+- Through MCP after a server restart, on a scratch timeline: a left-aligned 31-frame dissolve at the start of the second clip gave `success` / `passed`, `start` 01:00:04:29, `end` and `cut` 05:00. An audio crossfade with no `duration` gave `success` / `passed`, 30 frames (Resolve's choice), 04:45-05:15.
 
 <a id="i-05"></a>
 ### I-05 `ripple_trim` ignores transitions on other tracks (medium)
@@ -207,13 +217,13 @@ checking them.
 **Done when:** the message doesn't point to one unverified cause. T3 and T4 will show the real behaviour.
 
 <a id="i-10"></a>
-### I-10 `at` in the transition result is ambiguous (low)
+### I-10 `at` in the transition result is ambiguous (low, fixed)
 
 **Where:** `resolve_editor/tools/clips.py` (`add_transition`)
 
 **Problem:** `at` is where the transition starts (01:00:04:30 in T1) and is easily read as the cut (01:00:05:00).
 
-**Fix:** return `start`, `end` and `cut`.
+**Fix:** return `start`, `end` and `cut`. Done with I-04: the result has all three as timecodes and no `at` (tested in `TransitionReadBack`, seen live).
 
 **Done when:** all three are in the result.
 
@@ -539,7 +549,7 @@ Both have plenty of spare frames on each side.
 | Test | What | Status | Related |
 |---|---|---|---|
 | T1 | Centered 60-frame Cross Dissolve | **Pass** | I-07, I-10 |
-| T2 | Left/right alignment, start/end position | Not run | I-04 |
+| T2 | Left/right alignment, start/end position | **Pass** (span rule recorded) | I-04 |
 | T3 | Cut without spare frames | Not run | I-09 |
 | T4 | Misspelled name, zero length, longer than the clip | Not run | I-04, I-08, I-09 |
 | T5a | Audio `Cross Fade +3 dB` | **Read-back pass**; not listened to or restart-tested | I-07 |
@@ -556,6 +566,13 @@ Both have plenty of spare frames on each side.
 - `timeline_summary` counted 1 transition, with no false gaps or overlaps.
 - Exported frames: 04:29 only A, 04:45 mostly A, 05:00 even mix, 05:15 mostly B, 05:30 only B.
 - Not checked: playback and final render.
+
+### T2 Alignment and position: pass
+
+- 2026-11-23, one scratch timeline per case, set up as above (cut at +300). Cross Dissolve, `position` end on A and start on B, `alignment` left, center and right, `duration` 30 and 31: 12 cases.
+- Span relative to the cut, the same for both positions: left `-d..0`, center `-ceil(d/2)..+floor(d/2)` (30: -15..15, 31: -16..15), right `0..+d`.
+- `GetProperty()` on each transition gave the requested `TransitionType`, `TransitionCategory`, `TransitionAlignment` and `TransitionDuration`. All clips kept position and source start.
+- Not checked: exported frames, playback.
 
 ### T5a Audio crossfade: read-back pass
 
@@ -580,7 +597,7 @@ bug until that is known.
 
 ## After fixing
 
-- From the repo root: `python -m unittest` (baseline: 91 tests, all pass) and `python tests/smoke_bridge.py`
+- From the repo root: `python -m unittest` (baseline: 97 tests, all pass) and `python tests/smoke_bridge.py`
   (needs `lupa`).
 - Restart the MCP server, and the bridge if the Lua changed, then repeat the affected live tests.
 - Update the transitions row in `README.md`, plus `AGENTS.md` and `PATCH_NOTES.md`.

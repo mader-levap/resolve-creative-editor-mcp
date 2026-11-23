@@ -127,7 +127,7 @@ Claude makes a backup copy of the timeline before every move or trim, and asks b
 | Move, trim | `edit__move_item`, `edit__trim_item` (keeps grade, transform, audio level, fades, colour, flags, markers, link) | Live-tested | Not tested |
 | Disable | `edit__set_enabled` | Live-tested | Not tested |
 | Fades | `edit__set_fades` | Live-tested, but **only saved on clips with a hand-dragged fade** (see below) | Not tested |
-| Transitions | `edit__add_transition` | Native call live-tested (Cross Dissolve) | Upstream-tested |
+| Transitions | `edit__add_transition` | Native call live-tested (Cross Dissolve, audio crossfade, every alignment and position); read back for track, span, type and unchanged clips | Upstream-tested |
 | Audio level, pan | `edit__set_audio` | Live-tested (volume) | Not tested |
 | Loudness | `edit__normalize_audio` | Modes read live; normalization **not run** | Upstream-tested |
 | Speed | `edit__set_speed` | Native call live-tested | Upstream-tested |
