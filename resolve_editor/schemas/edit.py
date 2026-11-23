@@ -84,6 +84,8 @@ TOOLS = [
                                    "the caption's bottom edge sits"},
        "anchor": {"type": "string", "enum": ["bottom", "center"], "description": "bottom (default): extra lines grow "
                   "upward from y; center: the text block is centred on y"},
+       "folder": {"type": "string", "description": "top-level bin for the caption timelines (default: Captions "
+                  "(Resolve Creative Editor)); a scratch run passes its own _RCE_ bin"},
        "dry_run": B, "confirm": CONFIRM, "timeline": TIMELINE, **LINES}),
     T("list_captions", "Captions on the current timeline (from add_captions), in time order: n, text, in/out, "
       "frames, track and the ids of its parts. Filter by text (case-insensitive), a time range or track_index. Use "

@@ -151,7 +151,8 @@ def add_captions(a: dict[str, Any]) -> dict[str, Any]:
     cards = caption_cards(segments, fps, base, state["timeline"], time.strftime("%m%d-%H%M%S"))
     preview = [{"at": session.to_tc(c["record_frame"]), "frames": c["frames"], "text": c["text"]} for c in cards]
     if a.get("dry_run") or not a.get("confirm") or not cards:
-        return outcome.preview({"captions": preview[: a.get("limit") or 20], "count": len(cards), "bin": CAPTION_BIN},
+        return outcome.preview({"captions": preview[: a.get("limit") or 20], "count": len(cards),
+                                "bin": a.get("folder") or CAPTION_BIN},
                                ["each caption is a small timeline in the bin; edit its text there",
                                 "a caption longer than Resolve's inserted title is placed in parts sharing its text"]
                                + _parts_note(cards, fps))

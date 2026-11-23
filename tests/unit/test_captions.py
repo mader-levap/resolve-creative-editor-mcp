@@ -2,6 +2,7 @@
 from tests.support import Base, FakeResolve
 
 from resolve_editor import dispatch
+from resolve_editor.schemas import edit as schema
 from resolve_editor.tools import captions
 
 
@@ -149,7 +150,6 @@ class Lines(Base):
             dispatch.run("add_captions", {"segments": seg, "max_lines": 0})
 
     def test_schema_offers_the_options(self):
-        from resolve_editor.schemas import edit as schema
         for name in ("add_captions", "export_srt"):
             props = next(t for t in schema.TOOLS if t["name"] == name)["inputSchema"]["properties"]
             self.assertEqual(props["line_split"]["enum"], ["stack", "sequence"])
@@ -174,12 +174,33 @@ class Anchor(Base):
     def test_center_sends_no_anchor(self):
         self.assertNotIn("inputs", self.place(anchor="center"))
 
+
+class Folder(Base):
+    """Captions go to the shared captions bin unless folder names another, e.g. a scratch _RCE_ bin."""
+
+    def run_both(self, **extra):
+        f = self.use(FakeResolve([]))
+        a = {"segments": [{"start": 0, "end": 2, "text": "hi"}], "track_index": 2, **extra}
+        preview = dispatch.run("add_captions", a)
+        dispatch.run("add_captions", {**a, "confirm": True, "timeline": "T"})
+        return preview["plan"]["bin"], f.title_args["folder"]
+
+    def test_default_bin(self):
+        self.assertEqual(self.run_both(), (captions.CAPTION_BIN, captions.CAPTION_BIN))
+
+    def test_preview_names_the_bin_that_is_used(self):
+        self.assertEqual(self.run_both(folder="_RCE_X"), ("_RCE_X", "_RCE_X"))
+
+    def test_schema_offers_folder(self):
+        props = next(t for t in schema.TOOLS if t["name"] == "add_captions")["inputSchema"]["properties"]
+        self.assertIn("folder", props)
+
     def test_unknown_anchor_is_refused(self):
         self.use(FakeResolve([]))
         with self.assertRaisesRegex(ValueError, "anchor must be bottom or center"):
             dispatch.run("add_captions", {"segments": [{"start": 0, "end": 2, "text": "hi"}], "anchor": "top"})
 
     def test_schema_offers_anchor(self):
-        from resolve_editor.schemas import edit as schema
+
         props = next(t for t in schema.TOOLS if t["name"] == "add_captions")["inputSchema"]["properties"]
         self.assertEqual(props["anchor"]["enum"], ["bottom", "center"])
