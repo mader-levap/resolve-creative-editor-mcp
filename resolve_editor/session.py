@@ -26,11 +26,13 @@ class _ItemKeys(TypedDict):
 
 
 class Item(_ItemKeys, total=False):
+    """A timeline item as list_timeline_items returns it, with the keys that are sometimes missing."""
     source_start: int  # left offset into the source; missing when Resolve can't report it
     type: str  # e.g. video, audio, transition; missing when Resolve can't report it
 
 
 def invalidate() -> None:
+    """Forget every cached read; done after any write and whenever the timeline may have changed."""
     global _cached_for
     _cache.clear()
     _cached_for = None
@@ -48,6 +50,8 @@ def drop_if_switched() -> None:
 
 
 def call(op: str, **args: Any) -> Any:
+    """Run one bridge op and return its result; raises RuntimeError when the bridge answers not-ok. During a write
+    the op is pinned to that write's timeline, and a timeline Resolve had switched to is noted in `switched`."""
     pinned: dict[str, Any] = {"timeline": pin} if pin and op != "set_current_timeline" else {}
     res = bridge.call_bridge(op, args, **pinned)
     if res.get("switched_from"):
@@ -68,14 +72,17 @@ def _cached(key: str, fetch: Callable[[], Any], ttl: float = 3.0) -> Any:
 
 
 def as_list(value: object) -> list[Any]:
+    """`value` if it is a list, else [] (an empty Lua table may come back as {}, a failed read as None)."""
     return value if isinstance(value, list) else []
 
 
 def get_state() -> dict[str, Any]:
+    """Resolve, project and timeline state (legacy__get_state), cached for 3 s."""
     return _cached("state", lambda: call("get_state"))
 
 
 def clock() -> tuple[Fraction, bool, dict[str, Any]]:
+    """(fps as an exact Fraction, drop frame, state) of the current timeline; raises when there is none."""
     state = get_state()
     if not state.get("timeline"):
         raise RuntimeError("no current timeline")
@@ -84,11 +91,13 @@ def clock() -> tuple[Fraction, bool, dict[str, Any]]:
 
 
 def items() -> list[Item]:
+    """Every video and audio item of the current timeline, transitions included, cached for 3 s."""
     return _cached("items", lambda: as_list(call("list_timeline_items", track_type="video")) +
                    as_list(call("list_timeline_items", track_type="audio")))
 
 
 def media_pool() -> list[dict[str, Any]]:
+    """Every Media Pool clip (list_media), cached for 10 s."""
     return _cached("media", lambda: as_list(call("list_media")), ttl=10.0)
 
 
@@ -103,5 +112,6 @@ def to_frame(value: object) -> int:
 
 
 def to_tc(frame: int) -> str:
+    """Timecode of an absolute timeline frame, at the current timeline's rate."""
     fps, drop, _ = clock()
     return timecode.frame_to_tc(frame, fps, drop)

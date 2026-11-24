@@ -24,6 +24,7 @@ def generator_duration() -> dict[str, float] | None:
 
 
 def generator_frames(fps: Fraction | float) -> int | None:
+    """Standard Generator Duration in frames at `fps`, or None when the preference can't be read."""
     d = generator_duration()
     if not d:
         return None
@@ -31,6 +32,7 @@ def generator_frames(fps: Fraction | float) -> int | None:
 
 
 def describe(d: dict[str, float] | None) -> str | None:
+    """Standard Generator Duration as text ("5 s", "120 frames"), or None."""
     if not d:
         return None
     return f"{int(d['frames'])} frames" if "frames" in d else f"{d['seconds']:g} s"

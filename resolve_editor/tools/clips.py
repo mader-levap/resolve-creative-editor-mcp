@@ -5,6 +5,7 @@ from .. import outcome, session, timecode, timeline
 
 
 def set_enabled(a: dict[str, Any]) -> dict[str, Any]:
+    """edit__set_enabled: enable or disable items and read them back; reversible, unlike deleting."""
     r = session.call("set_enabled", item_ids=a["item_ids"], enabled=bool(a["enabled"]))
     got = [d.get("enabled") for d in session.as_list(session.call("item_details", item_ids=a["item_ids"]))]
     ok = all(e == bool(a["enabled"]) for e in got)
@@ -18,6 +19,7 @@ FADES_NOT_SAVED = ("Resolve bug (seen on free 21.2, Text+ titles): fades set by 
 
 
 def set_fades(a: dict[str, Any]) -> dict[str, Any]:
+    """edit__set_fades: fade lengths in frames; an end left out keeps its length (see FADES_NOT_SAVED)."""
     fade_in, fade_out = a.get("fade_in"), a.get("fade_out")
     if fade_in is None and fade_out is None:
         return outcome.blocked("give fade_in and/or fade_out")
@@ -62,6 +64,8 @@ def _clips() -> dict[str, tuple[Any, ...]]:
 
 
 def add_transition(a: dict[str, Any]) -> dict[str, Any]:
+    """edit__add_transition: preview, then a native transition at a clip's start or end, and a matching
+    crossfade on linked audio at the same cut; the result is checked against the expected span."""
     options = {"type": a.get("type") or "Cross Dissolve", "category": a.get("category") or "simple",
                "position": a.get("position") or "end", "alignment": a.get("alignment") or "center"}
     duration = a.get("duration")
@@ -237,6 +241,7 @@ def _check_transition(tid: Any, target: session.Item, cut: int, options: dict[st
 
 
 def set_speed(a: dict[str, Any]) -> dict[str, Any]:
+    """edit__set_speed: preview, then set clip speed in percent (0 freezes); the clip keeps its length."""
     if not a.get("confirm"):
         return outcome.preview({"item": a["item_id"], "percentage": a["percentage"]},
                                ["the clip keeps its timeline length, so it shows more or less of the source"])
@@ -248,6 +253,7 @@ def set_speed(a: dict[str, Any]) -> dict[str, Any]:
 
 
 def copy_grade(a: dict[str, Any]) -> dict[str, Any]:
+    """edit__copy_grade: preview, then copy one clip's grade onto others; grades can't be read back."""
     if not a.get("confirm"):
         return outcome.preview({"from": a["from_id"], "to": a["to_ids"]}, ["replaces the grade on the target clips"])
     ok = session.call("copy_grade", from_id=a["from_id"], to_ids=a["to_ids"]).get("ok")

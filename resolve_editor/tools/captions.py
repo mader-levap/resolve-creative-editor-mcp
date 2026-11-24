@@ -142,6 +142,8 @@ def _parts_note(cards: list[dict[str, Any]], fps: Fraction) -> list[str]:
 
 
 def add_captions(a: dict[str, Any]) -> dict[str, Any]:
+    """edit__add_captions: preview, then Text+ captions from segments or a transcription, one small timeline
+    each, on a new track or the one given."""
     anchor = a.get("anchor") or "bottom"
     if anchor not in ANCHORS:
         raise ValueError(f"anchor must be bottom or center, not {anchor!r}")
@@ -186,12 +188,14 @@ def _stamp(seconds: float) -> str:
 
 
 def to_srt(segments: list[dict[str, Any]]) -> str:
+    """SubRip text of the segments, numbered from 1; segments without text are left out."""
     rows = [s for s in segments if s["text"].strip()]
     return "".join(f"{i}\n{_stamp(s['start'])} --> {_stamp(s['end'])}\n{s['text'].strip()}\n\n"
                    for i, s in enumerate(rows, 1))
 
 
 def export_srt(a: dict[str, Any]) -> dict[str, Any]:
+    """edit__export_srt: write segments, or a transcription, to a new .srt file (never overwrites one)."""
     output = paths.new_output(a, ".srt")
     with open(output, "w", encoding="utf-8") as f:
         f.write(to_srt(_segments(a)))
@@ -240,6 +244,8 @@ def _row(c: dict[str, Any]) -> dict[str, Any]:
 
 
 def list_captions(a: dict[str, Any]) -> dict[str, Any]:
+    """edit__list_captions: captions placed by add_captions, in time order, filtered by text, time range or
+    track."""
     rows = _captions()
     if a.get("text"):
         rows = [c for c in rows if a["text"].lower() in c["text"].lower()]

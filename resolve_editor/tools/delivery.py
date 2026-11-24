@@ -7,6 +7,7 @@ from .. import media, outcome, paths, session
 
 
 def export_timeline(a: dict[str, Any]) -> dict[str, Any]:
+    """edit__export_timeline: export the current timeline (OTIO, FCPXML, EDL, AAF, DRT) to a new file."""
     suffix = {"OTIO": ".otio", "FCPXML": ".fcpxml", "EDL": ".edl", "AAF": ".aaf", "DRT": ".drt"}[a["format"]]
     output = paths.new_output(a, suffix)
     ok = session.call("export_timeline", path=output, format=a["format"]).get("ok") and os.path.exists(output)
@@ -14,6 +15,8 @@ def export_timeline(a: dict[str, Any]) -> dict[str, Any]:
 
 
 def parse_qc(log: str) -> dict[str, Any]:
+    """Read FFmpeg's text log of the QC filters: the last loudness values reported, and at most 20 of each
+    kind of black, frozen and silent segment."""
     def last(pattern: str) -> float | None:
         hits = re.findall(pattern, log)
         return float(hits[-1]) if hits else None
@@ -26,6 +29,7 @@ def parse_qc(log: str) -> dict[str, Any]:
 
 
 def qc_file(a: dict[str, Any]) -> dict[str, Any]:
+    """edit__qc_file: loudness, true peak, and black, frozen and silent parts of a rendered file, via FFmpeg."""
     ffmpeg = media.binary("ffmpeg", "FFMPEG")
     proc = media.run_command([ffmpeg, "-nostdin", "-hide_banner", "-i", media.media_path(a["path"]),
                               "-vf", "blackdetect=d=0.5:pix_th=0.10,freezedetect=n=-60dB:d=2",

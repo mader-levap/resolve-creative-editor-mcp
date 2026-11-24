@@ -97,6 +97,8 @@ def _trim_one(p: session.Item, n: int, filler: dict[str, Any] | None, items: dic
 
 
 def ripple_trim(a: dict[str, Any]) -> dict[str, Any]:
+    """edit__ripple_trim: preview, then shorten clip ends in place and pull everything after them earlier,
+    on every track."""
     n = a.get("tail_frames") or 0
     if n <= 0:
         return outcome.blocked("tail_frames must be a positive number of frames (this tool only shortens)")

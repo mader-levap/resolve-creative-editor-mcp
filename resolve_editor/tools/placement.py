@@ -5,6 +5,8 @@ from .. import outcome, session, timeline
 
 
 def place_clips(a: dict[str, Any]) -> dict[str, Any]:
+    """edit__place_clips: preview, then place Media Pool clips at exact frames and tracks; refuses to
+    overwrite, also between the clips of one call."""
     warnings: list[str]
     plan, warnings = [], []
     planned: list[tuple[str, int, int, int, int, str]] = []  # kind, track, start, end, n, name of earlier clips

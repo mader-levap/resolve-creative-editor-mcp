@@ -5,6 +5,7 @@ from .. import outcome, session
 
 
 def set_audio(a: dict[str, Any]) -> dict[str, Any]:
+    """edit__set_audio: set clip volume (dB) and/or pan and read them back; partial if an item didn't take them."""
     props = {}
     if a.get("volume_db") is not None:
         props["AudioVolume"] = float(a["volume_db"])
@@ -24,6 +25,8 @@ def set_audio(a: dict[str, Any]) -> dict[str, Any]:
 
 
 def normalize_audio(a: dict[str, Any]) -> dict[str, Any]:
+    """edit__normalize_audio: preview, then normalize with one of Resolve's loudness modes; the gain can't
+    be verified by script."""
     modes = [v for k, v in (session.call("audio_modes") or {}).items() if k != "__flags"]
     mode = a.get("mode") or "EBU R128"
     if mode not in modes:

@@ -19,6 +19,8 @@ def parse_fps(value: object) -> Fraction:
 
 
 def frame_to_tc(frame: int, fps: Fraction | float, drop: bool = False) -> str:
+    """Timecode of a frame counted from 00:00:00:00 (Resolve's absolute timeline frames, not frames from the
+    timeline start); SMPTE drop frame with ; before the frames when `drop`."""
     base = round(float(fps))
     frame = int(frame)
     if drop:  # SMPTE drop frame: skip 2 (or 4) frame numbers each minute except every tenth
@@ -32,6 +34,7 @@ def frame_to_tc(frame: int, fps: Fraction | float, drop: bool = False) -> str:
 
 
 def tc_to_frame(tc: str, fps: Fraction | float, drop: bool = False) -> int:
+    """Frame of a timecode (`:`, `;` or `.` between the parts), counted from 00:00:00:00 like frame_to_tc."""
     parts = [int(x) for x in re.split(r"[:;.]", tc.strip())]
     if len(parts) != 4:
         raise ValueError(f"timecode must look like 01:00:12:05, got {tc!r}")
@@ -45,4 +48,5 @@ def tc_to_frame(tc: str, fps: Fraction | float, drop: bool = False) -> int:
 
 
 def seconds_to_frames(seconds: float, fps: Fraction | float) -> int:
+    """Frames in `seconds` at `fps`, rounded; exact for decimal seconds (Fraction of the decimal text)."""
     return round(Fraction(str(seconds)) * fps)

@@ -10,6 +10,8 @@ from . import stdio
 
 
 def run_tool(name: str, args: dict[str, Any]) -> dict[str, Any]:
+    """Run one legacy tool: a media tool here, the rest as a bridge op (export_frame returns the frame as a PNG).
+    Errors come back as isError results."""
     if name in media.HANDLERS:
         return stdio.media_result(name, args)
     if name not in {t["name"] for t in schema.TOOLS}:
@@ -31,6 +33,7 @@ def run_tool(name: str, args: dict[str, Any]) -> dict[str, Any]:
 
 
 def handle(msg: dict[str, Any]) -> dict[str, Any]:
+    """Answer one JSON-RPC request; raises LookupError for an unknown method."""
     m, p = msg.get("method"), msg.get("params") or {}
     if m == "initialize":
         return {"protocolVersion": p.get("protocolVersion", "2025-03-26"), "capabilities": {"tools": {}},
@@ -45,6 +48,7 @@ def handle(msg: dict[str, Any]) -> dict[str, Any]:
 
 
 def main() -> None:
+    """Serve MCP over stdio until stdin ends."""
     stdio.use_utf8()
     for line in sys.stdin:
         if not line.strip():

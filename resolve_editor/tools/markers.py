@@ -13,6 +13,7 @@ NO_NAME = "Resolve 21.2 refuses markers without one"
 
 
 def add_markers(a: dict[str, Any]) -> dict[str, Any]:
+    """edit__add_markers: timeline markers at frames or timecodes, read back; refused if one has no name."""
     unnamed = [i for i, m in enumerate(a["markers"], 1) if not str(m.get("name") or "").strip()]
     if unnamed:
         return outcome.blocked(f"marker(s) {', '.join(map(str, unnamed))} have no name; {NO_NAME}. Nothing was added")
@@ -74,6 +75,8 @@ def _beats(path: str) -> list[float]:
 
 
 def add_audio_markers(a: dict[str, Any]) -> dict[str, Any]:
+    """edit__add_audio_markers: markers at the silences or beats found in a file; dry_run only lists
+    the times."""
     if a["kind"] == "beats":
         found = [{"start": t, "end": t} for t in _beats(a["path"])]
         name, color = "beat", a.get("color") or "Cyan"

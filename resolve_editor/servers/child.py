@@ -12,6 +12,7 @@ from .. import __version__
 
 
 class Child:
+    """One child MCP server process, spoken to over its stdin and stdout."""
     def __init__(self, label: str, command: list[str], cwd: pathlib.Path):
         self.label = label
         self.command = command
@@ -25,6 +26,7 @@ class Child:
         self.tools: list[dict[str, Any]] = []
 
     def start(self, protocol_version: str) -> None:
+        """Start the process (if not running), do the MCP handshake and load its tool list."""
         if self.proc and self.proc.poll() is None:
             return
         self.proc = subprocess.Popen(
@@ -59,6 +61,8 @@ class Child:
                 self.responses.put(response)
 
     def request(self, method: str, params: dict[str, Any], timeout: float = 180.0) -> dict[str, Any]:
+        """Send one request and wait for its reply; one at a time. Raises when the process isn't running or
+        TimeoutError after `timeout`; a reply that comes after its timeout is discarded later."""
         if not self.proc or self.proc.poll() is not None:
             raise RuntimeError(f"{self.label} MCP process is not running")
         with self.lock:
@@ -78,11 +82,13 @@ class Child:
                     return response
 
     def notify(self, method: str, params: dict[str, Any]) -> None:
+        """Send a notification (no reply expected); does nothing when the process isn't running."""
         if self.proc and self.proc.poll() is None and self.proc.stdin:
             self.proc.stdin.write(json.dumps({"jsonrpc": "2.0", "method": method, "params": params}) + "\n")
             self.proc.stdin.flush()
 
     def close(self) -> None:
+        """Stop the process (terminate, then kill after 3 s) and close its pipes; harmless when already closed."""
         if not self.proc:
             return
         if self.proc.poll() is None:

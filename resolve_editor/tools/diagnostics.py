@@ -10,6 +10,7 @@ from .. import audit, bridge, paths, prefs
 
 
 def audit_log(a: dict[str, Any]) -> dict[str, Any]:
+    """edit__audit_log: the last `limit` (default 20) audit log entries; a corrupt line is shown as unreadable."""
     try:
         with open(audit.AUDIT, encoding="utf-8") as f:
             rows = f.readlines()
@@ -26,6 +27,8 @@ def _entry(line: str) -> Any:
 
 
 def doctor(a: dict[str, Any] | None = None) -> dict[str, Any]:
+    """edit__doctor: what is installed, Standard Generator Duration, and whether the bridge answers (and where a
+    stuck one stopped). Never raises on a bridge problem: the report says it."""
     whisper = importlib.util.find_spec("faster_whisper") is not None
     report = {"python": sys.version.split()[0], "ffmpeg": bool(shutil.which("ffmpeg") or os.environ.get("FFMPEG")),
               "ffprobe": bool(shutil.which("ffprobe") or os.environ.get("FFPROBE")), "faster_whisper": whisper,

@@ -40,6 +40,7 @@ def hang_file() -> str:
 
 
 def read_hang() -> dict[str, Any] | None:
+    """The record of the last hang (op, time, request id), or None when there is none or it can't be read."""
     try:
         with open(hang_file(), encoding="utf-8") as f:
             got = json.load(f)
@@ -114,6 +115,7 @@ def ensure_token_png() -> None:
 
 
 def lua_long_string(s: str) -> str:
+    """`s` as a Lua long string literal ([[...]], [=[...]=], ...), with enough = signs that `s` can't close it."""
     n = 0
     while "]" + "=" * n + "]" in s:
         n += 1

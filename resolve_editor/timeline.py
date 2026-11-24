@@ -7,6 +7,8 @@ from . import outcome, session
 
 
 def snapshot_timeline(a: dict[str, Any]) -> dict[str, Any]:
+    """Duplicate the current timeline as a timestamped backup and make the original current again;
+    raises if Resolve doesn't go back to it."""
     current = session.get_state()["timeline"]
     if not current:
         return outcome.blocked("no current timeline")
@@ -35,6 +37,7 @@ def markers_by_frame(listed: object) -> dict[int, Any]:
 
 
 def find_clip(ref: str) -> dict[str, Any]:
+    """The one Media Pool clip with this id, else with this exact name; raises unless exactly one matches."""
     hits = ([m for m in session.media_pool() if m.get("id") == ref]
             or [m for m in session.media_pool() if m.get("name") == ref])
     if len(hits) != 1:
@@ -44,6 +47,8 @@ def find_clip(ref: str) -> dict[str, Any]:
 
 def collides(kind: str, track: int, start: int, end: int,
              ignore: Collection[str] = ()) -> session.Item | None:
+    """The first item on that track overlapping [start, end) (end exclusive), not counting transitions or the
+    ids in `ignore`; None when the frames are free."""
     for x in session.items():
         if (x["track_type"] == kind and x["track"] == track and x["id"] not in ignore
                 and x.get("type") != "transition" and x["start"] < end and start < x["end"]):
@@ -53,6 +58,8 @@ def collides(kind: str, track: int, start: int, end: int,
 
 def append_one(media_id: str, kind: str, first: int, last: int, record: int,
                track: int) -> session.Item:
+    """Place frames [first, last) of a Media Pool clip at `record` on a track and return the new item; raises
+    if it didn't land there (Resolve may refuse an append without an error)."""
     session.call("append_clips", clips=[{"clip": media_id, "start_frame": first, "end_frame": last,
                                          "record_frame": record, "track_index": track,
                                          "media_type": 1 if kind == "video" else 2}])

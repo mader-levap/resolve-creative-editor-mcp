@@ -70,6 +70,7 @@ def _with_confirm(tool: dict[str, Any]) -> dict[str, Any]:
 
 
 class Gateway:
+    """The server clients connect to: routes tools by name prefix (resolve__, legacy__, media__, edit__)."""
     def __init__(self) -> None:
         self.resolve: child_process.Child | None = None
         self.legacy: child_process.Child | None = None
@@ -113,6 +114,7 @@ class Gateway:
             return "offline"
 
     def start(self, protocol: str) -> None:
+        """Start the child servers once, and work out which resolve__ tools to offer."""
         if self.started:
             return
         self.protocol = protocol
@@ -123,6 +125,7 @@ class Gateway:
         self.started = True
 
     def tools_list(self) -> dict[str, Any]:
+        """Every tool, prefixed by backend, and the route table for tools/call; rebuilt on each call."""
         tools: list[dict[str, Any]] = []
         self.tool_routes.clear()
         for tool in (self.resolve.tools if self.resolve else []):
@@ -152,6 +155,8 @@ class Gateway:
         return {"tools": tools}
 
     def handle(self, msg: dict[str, Any]) -> dict[str, Any] | None:
+        """Answer one JSON-RPC message. None: send nothing (a notification). A result holding `_rpc_error` is sent
+        as that JSON-RPC error; LookupError means the method is unknown."""
         method = msg.get("method")
         params = msg.get("params") or {}
         if method == "initialize":
@@ -180,6 +185,8 @@ class Gateway:
         raise LookupError(method)
 
     def _call_tool(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Run one tool on its backend: media__ and edit__ in this process, the rest forwarded to the child.
+        Guarded legacy__ tools need confirm=true, which isn't forwarded; legacy writes clear the read cache."""
         name = params.get("name", "")
         args = params.get("arguments") or {}
         route = self.tool_routes.get(name)
@@ -223,6 +230,7 @@ class Gateway:
         return response.get("result", {})
 
     def close(self) -> None:
+        """Stop both child servers."""
         if self.resolve:
             self.resolve.close()
         if self.legacy:
@@ -230,6 +238,7 @@ class Gateway:
 
 
 def main() -> None:
+    """Serve MCP over stdio until stdin ends; --doctor prints the diagnostics instead."""
     stdio.use_utf8()
     if "--doctor" in sys.argv:
         py = engine.upstream_python()

@@ -12,6 +12,7 @@ from . import paths
 
 
 def media_path(value: object) -> str:
+    """The absolute path of an existing file (~ expanded); raises ValueError or FileNotFoundError."""
     if not isinstance(value, str) or not value.strip():
         raise ValueError("path must be a non-empty string")
     path = os.path.abspath(os.path.expanduser(value))
@@ -21,6 +22,7 @@ def media_path(value: object) -> str:
 
 
 def binary(name: str, env_name: str) -> str:
+    """The FFmpeg tool to run: the environment variable if set, else `name` on PATH; raises if neither."""
     candidate = os.environ.get(env_name) or shutil.which(name)
     if not candidate:
         raise RuntimeError(f"{name} was not found. Install FFmpeg and ensure {name} is on PATH, or set {env_name}.")
@@ -149,6 +151,7 @@ HANDLERS = {"probe_media": _probe_media, "extract_audio": _extract_audio, "detec
 
 
 def run_media_tool(name: str, args: dict[str, Any]) -> dict[str, Any]:
+    """Run a media__ tool on the file in args['path']; raises for a missing file or an unknown tool."""
     source = media_path(args.get("path"))
     if name not in HANDLERS:
         raise ValueError(f"unsupported media tool: {name}")

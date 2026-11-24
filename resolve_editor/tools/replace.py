@@ -25,6 +25,7 @@ def _replace_tool(a: dict[str, Any], new_range: Callable[[session.Item], tuple[i
 
 
 def move_item(a: dict[str, Any]) -> dict[str, Any]:
+    """edit__move_item: preview, then move a clip (and its linked items) by rebuilding it at the new place."""
     target = session.to_frame(a["record"])
     root = next((x for x in session.items() if x["id"] == a["item_id"]), None)
     if not root:
@@ -37,6 +38,7 @@ def move_item(a: dict[str, Any]) -> dict[str, Any]:
 
 
 def trim_item(a: dict[str, Any]) -> dict[str, Any]:
+    """edit__trim_item: preview, then trim frames off either end of a clip by rebuilding it."""
     head, tail = a.get("head_frames") or 0, a.get("tail_frames") or 0
     if not head and not tail:
         return outcome.blocked("give head_frames and/or tail_frames")

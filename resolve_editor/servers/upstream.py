@@ -14,6 +14,7 @@ PINNED_COMMIT = "8f9e488a1be0d1bd8be418cc4243b695781061cd"
 
 
 def upstream_python() -> pathlib.Path:
+    """The upstream engine's Python: RESOLVE_MCP_PYTHON if set, else the venv in the engine's folder."""
     override = os.environ.get("RESOLVE_MCP_PYTHON")
     if override:
         return pathlib.Path(override).resolve()
@@ -33,6 +34,8 @@ def _command_from_env(name: str, default: list[str]) -> list[str]:
 
 
 def make_children() -> tuple[child.Child | None, child.Child]:
+    """(upstream, legacy) child servers, not started. upstream is None when the engine isn't installed
+    and RESOLVE_MCP_COMMAND isn't set."""
     legacy_cmd = _command_from_env("LEGACY_MCP_COMMAND", [sys.executable, str(LEGACY_SERVER)])
     legacy = child.Child("legacy bridge", legacy_cmd, ROOT)
     upstream_override = os.environ.get("RESOLVE_MCP_COMMAND")

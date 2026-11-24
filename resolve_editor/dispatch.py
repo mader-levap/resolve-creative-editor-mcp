@@ -21,6 +21,8 @@ DONE = ("success", "planned")  # a batch goes on only after these
 
 
 def batch(a: dict[str, Any]) -> dict[str, Any]:
+    """edit__batch: preview every step, or with confirm=true make one backup and run the steps in order, stopping
+    after the first that isn't success or planned."""
     ops = a["operations"]
     unknown = [o.get("tool") for o in ops if o.get("tool") not in HANDLERS or o.get("tool") == "batch"]
     if unknown:

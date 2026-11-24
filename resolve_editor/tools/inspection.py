@@ -42,6 +42,8 @@ def analyze(items: list[session.Item], limit: int = 10, tc: Callable[[int], str]
 
 
 def timeline_summary(a: dict[str, Any]) -> dict[str, Any]:
+    """edit__timeline_summary: per-track counts, gaps, overlaps, transitions and reused clips of the
+    current timeline."""
     _, _, state = session.clock()
     counts = state.get("track_counts")
     report = analyze(session.items(), a.get("limit") or 10, session.to_tc, counts)
@@ -58,6 +60,8 @@ DEFAULTS = {"Pan": 0, "Tilt": 0, "ZoomX": 1, "ZoomY": 1, "RotationAngle": 0, "Op
 
 
 def inspect_range(a: dict[str, Any]) -> dict[str, Any]:
+    """edit__inspect_range: items overlapping [start, end); details=true adds settings that differ from
+    the defaults."""
     start, end = session.to_frame(a["start"]), session.to_frame(a["end"])
     hits = [x for x in session.items() if x["start"] < end and start < x["end"]]
     rows: list[dict[str, Any]] = [
@@ -82,6 +86,7 @@ def inspect_range(a: dict[str, Any]) -> dict[str, Any]:
 
 
 def find_media(a: dict[str, Any]) -> dict[str, Any]:
+    """edit__find_media: Media Pool clips whose name contains `query` (case ignored), up to `limit`."""
     query, limit = (a.get("query") or "").lower(), a.get("limit") or 20
     hits = [m for m in session.media_pool() if query in (m.get("name") or "").lower()]
     return {"count": len(hits), "media": [{k: m.get(k) for k in ("id", "name", "frames", "fps", "type")}
