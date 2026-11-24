@@ -1,6 +1,4 @@
 """One child MCP server process, spoken to over stdio."""
-from __future__ import annotations
-
 import json
 import os
 import pathlib
@@ -9,6 +7,8 @@ import subprocess
 import threading
 import time
 from typing import Any
+
+from .. import __version__
 
 
 class Child:
@@ -37,7 +37,7 @@ class Child:
         result = self.request("initialize", {
             "protocolVersion": protocol_version,
             "capabilities": {},
-            "clientInfo": {"name": "resolve-creative-editor-gateway", "version": "1.0.0"},
+            "clientInfo": {"name": "resolve-creative-editor-gateway", "version": __version__},
         })
         if "error" in result:
             raise RuntimeError(f"{self.label} initialize failed: {result['error']}")

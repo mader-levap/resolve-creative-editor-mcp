@@ -7,7 +7,7 @@ from resolve_editor import dispatch
 class Props(FakeResolve):
     """Keeps what set_item_properties sets, so read-back sees it; refuse: properties Resolve ignores."""
 
-    refuse: set[str] = set()
+    refuse: frozenset[str] = frozenset()
 
     def __call__(self, op, args, **kw):
         if op == "set_item_properties":

@@ -1,6 +1,4 @@
 """Where the upstream engine and the legacy server are, and the child processes to start for them."""
-from __future__ import annotations
-
 import json
 import os
 import pathlib

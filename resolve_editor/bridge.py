@@ -216,10 +216,8 @@ def call_bridge(op: str, args: dict[str, Any], timeout: float = 120, ack_timeout
 
 
 def _clear_hang() -> None:
-    try:
+    with contextlib.suppress(OSError):
         os.remove(hang_file())
-    except OSError:
-        pass
 
 
 def _call(op: str, args: dict[str, Any], timeout: float, ack_timeout: float,
@@ -262,16 +260,11 @@ def _call(op: str, args: dict[str, Any], timeout: float, ack_timeout: float,
             raise _not_running()
         # Acked, then silence: the bridge's single loop is stuck inside a Resolve call (docs/ISSUES.md I-22).
         at = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(start))
-        try:
-            with open(hang_file(), "w", encoding="utf-8") as f:
-                json.dump({"op": op, "at": at, "request": rid}, f)
-        except OSError:
-            pass
+        with contextlib.suppress(OSError), open(hang_file(), "w", encoding="utf-8") as f:
+            json.dump({"op": op, "at": at, "request": rid}, f)
         raise TimeoutError(f"The bridge acknowledged {op} at {at} and then stopped answering for {timeout:g} s: it is "
                            f"probably stuck inside a Resolve call. If {op} changes anything, it may have been made. "
                            + RESTART)
     finally:
-        try:
+        with contextlib.suppress(OSError):
             os.remove(req_path)
-        except OSError:
-            pass

@@ -6,14 +6,12 @@ Tool namespaces:
   media__*   -> original FFmpeg/transcription/contact-sheet tools (run in this process)
   edit__*    -> verified high-level editing tools built on the bridge (run in this process)
 """
-from __future__ import annotations
-
 import json
 import os
 import sys
 from typing import Any
 
-from .. import audit, dispatch, media, session
+from .. import __version__, audit, dispatch, media, session
 from ..schemas import edit as edit_schema
 from ..schemas import legacy as legacy_schema
 from ..tools import diagnostics
@@ -95,10 +93,12 @@ class Gateway:
         """all = every resolve__ tool; offline = only those that work without scripting. Never launches Resolve."""
         forced = next((a.split("=", 1)[1] for a in sys.argv if a.startswith("--upstream-tools=")),
                       os.environ.get("RCE_UPSTREAM_TOOLS", "auto"))
-        if forced in {"all", "offline"} or not self.resolve:
-            return forced if self.resolve else "offline"
+        resolve = self.resolve
+        if forced in {"all", "offline"} or not resolve:
+            return forced if resolve else "offline"
+
         def ask(action: str) -> dict[str, Any]:
-            return self.resolve.request(  # type: ignore[union-attr]  # only called after the check above
+            return resolve.request(
                 "tools/call", {"name": "resolve_control", "arguments": {"action": action}}, timeout=30.0
             ).get("result", {})
         try:
@@ -163,7 +163,7 @@ class Gateway:
             return {"protocolVersion": (upstream or {}).get("protocolVersion", requested),
                     "capabilities": caps,
                     "instructions": INSTRUCTIONS,
-                    "serverInfo": {"name": "resolve-creative-editor", "version": "1.0.0"}}
+                    "serverInfo": {"name": "resolve-creative-editor", "version": __version__}}
         if method == "notifications/initialized":
             # child_process.Child servers receive their own initialized notification during startup.
             return None

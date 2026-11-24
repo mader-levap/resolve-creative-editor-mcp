@@ -4,6 +4,7 @@ import math
 import statistics
 import subprocess
 from collections.abc import Sequence
+from itertools import pairwise
 from typing import Any
 
 from .. import media, outcome, session, timecode, timeline
@@ -47,7 +48,7 @@ def onsets(samples: Sequence[float], rate: int, hop: int = 512,
     for i in range(0, len(samples) - hop, hop):
         chunk = samples[i:i + hop]
         energy.append(math.log(sum(x * x for x in chunk) / hop + 1e-4))  # floor about -40 dB ignores hiss
-    flux = [max(0.0, b - a) for a, b in zip(energy, energy[1:], strict=False)]
+    flux = [max(0.0, b - a) for a, b in pairwise(energy)]
     if len(flux) < 8:
         return []
     window, last, out = max(8, int(rate / hop)), -min_gap, []

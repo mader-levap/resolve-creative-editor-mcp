@@ -4,7 +4,7 @@ import json
 import sys
 from typing import Any
 
-from .. import bridge, media
+from .. import __version__, bridge, media
 from ..schemas import legacy as schema
 from . import stdio
 
@@ -34,7 +34,7 @@ def handle(msg: dict[str, Any]) -> dict[str, Any]:
     m, p = msg.get("method"), msg.get("params") or {}
     if m == "initialize":
         return {"protocolVersion": p.get("protocolVersion", "2025-03-26"), "capabilities": {"tools": {}},
-                "serverInfo": {"name": "davinci-resolve", "version": "0.2.0"}}
+                "serverInfo": {"name": "davinci-resolve", "version": __version__}}
     if m == "tools/list":
         return {"tools": schema.TOOLS}
     if m == "tools/call":

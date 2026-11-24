@@ -38,6 +38,14 @@ def set_fades(a: dict[str, Any]) -> dict[str, Any]:
                       warnings=[FADES_NOT_SAVED])
 
 
+AUDIO_CROSSFADE = "Cross Fade +3 dB"  # verified live in test T5a
+REFUSED = "Resolve refused the transition"  # resolve_bridge.lua, when AddTransition gives nil
+# Live T3 (docs/ISSUES.md I-09): Resolve refuses when a side the alignment needs has no unused source frames at all;
+# with a few it shortens the transition instead. Left alignment was made even with none on either side.
+NEEDS = {"center": ("after the outgoing clip", "before the incoming clip"), "right": ("after the outgoing clip",),
+         "left": ()}
+
+
 def expected_span(cut: int, alignment: str, frames: int) -> tuple[int, int]:
     """Where Resolve 21.2 puts a transition (live T2, docs/ISSUES.md): left ends at the cut, right starts there, center
     puts an odd frame before it."""
@@ -113,14 +121,6 @@ def add_transition(a: dict[str, Any]) -> dict[str, Any]:
     return outcome.op("partial" if differs else "success", ok, {"transition": r.get("name"), "frames": frames},
                       warnings, transition_id=r.get("id"), cut=_tc(cut), start=_tc(start), end=_tc(end),
                       snapshot=snapshot, **({"linked": rows} if rows else {}))
-
-
-AUDIO_CROSSFADE = "Cross Fade +3 dB"  # verified live in test T5a
-REFUSED = "Resolve refused the transition"  # resolve_bridge.lua, when AddTransition gives nil
-# Live T3 (docs/ISSUES.md I-09): Resolve refuses when a side the alignment needs has no unused source frames at all;
-# with a few it shortens the transition instead. Left alignment was made even with none on either side.
-NEEDS = {"center": ("after the outgoing clip", "before the incoming clip"), "right": ("after the outgoing clip",),
-         "left": ()}
 
 
 def _likely_cause(spare: dict[str, Any], alignment: str) -> str:

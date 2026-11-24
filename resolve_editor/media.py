@@ -1,5 +1,6 @@
 """Local media analysis with FFmpeg and faster-whisper. Source files are only read."""
 import base64
+import hashlib
 import json
 import os
 import re
@@ -86,19 +87,18 @@ def _detect_silence(source: str, args: dict[str, Any]) -> dict[str, Any]:
 
 
 def _transcribe_audio(source: str, args: dict[str, Any]) -> dict[str, Any]:
-    import hashlib
     model_size = args.get("model") or "base"
     language = args.get("language") or ""
     digest = hashlib.sha256()
     with open(source, "rb") as media_file:
         for chunk in iter(lambda: media_file.read(8 * 1024 * 1024), b""):
             digest.update(chunk)
-    cache_key = hashlib.sha256(f"{digest.hexdigest()}|{model_size}|{language}".encode("utf-8")).hexdigest()
+    cache_key = hashlib.sha256(f"{digest.hexdigest()}|{model_size}|{language}".encode()).hexdigest()
     cache_dir = os.path.join(paths.DIR, "transcripts")
     os.makedirs(cache_dir, exist_ok=True)
     cache_path = os.path.join(cache_dir, cache_key + ".json")
     if os.path.isfile(cache_path):
-        with open(cache_path, "r", encoding="utf-8") as cached_file:
+        with open(cache_path, encoding="utf-8") as cached_file:
             cached = json.load(cached_file)
         cached["cache_hit"] = True
         cached["path"] = source  # the same content may be another file than the one it was made from (I-26)

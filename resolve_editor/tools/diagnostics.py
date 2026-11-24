@@ -1,4 +1,5 @@
 """The doctor and the audit log reader."""
+import importlib.util
 import json
 import os
 import shutil
@@ -25,11 +26,7 @@ def _entry(line: str) -> Any:
 
 
 def doctor(a: dict[str, Any] | None = None) -> dict[str, Any]:
-    try:
-        import importlib.util
-        whisper = importlib.util.find_spec("faster_whisper") is not None
-    except Exception:
-        whisper = False
+    whisper = importlib.util.find_spec("faster_whisper") is not None
     report = {"python": sys.version.split()[0], "ffmpeg": bool(shutil.which("ffmpeg") or os.environ.get("FFMPEG")),
               "ffprobe": bool(shutil.which("ffprobe") or os.environ.get("FFPROBE")), "faster_whisper": whisper,
               "bridge_folder": paths.DIR}

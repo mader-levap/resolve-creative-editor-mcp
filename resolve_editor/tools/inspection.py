@@ -1,5 +1,6 @@
 """Read-only inspection of the timeline and the Media Pool."""
 from collections.abc import Callable
+from itertools import pairwise
 from typing import Any
 
 from .. import session, timeline
@@ -24,7 +25,7 @@ def analyze(items: list[session.Item], limit: int = 10, tc: Callable[[int], str]
             used.setdefault(it["name"], []).append(it["start"])
     for (kind, track), row in sorted(tracks.items()):
         row.sort(key=lambda x: x["start"])
-        for a, b in zip(row, row[1:], strict=False):
+        for a, b in pairwise(row):
             where = f"{'V' if kind == 'video' else 'A'}{track}"
             if b["start"] > a["end"]:
                 gaps.append({"track": where, "at": tc(a["end"]), "frames": b["start"] - a["end"]})

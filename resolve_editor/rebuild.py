@@ -1,6 +1,7 @@
 """Rebuilding clips with their settings: scripts can't move or trim a clip, so tools place a copy and swap it in.
 
 Used by move_item, trim_item (tools/replace.py) and shift_captions (tools/captions.py)."""
+import contextlib
 from collections.abc import Callable, Collection
 from typing import Any
 
@@ -93,10 +94,8 @@ def run(steps: list[dict[str, Any]], backup: bool = True) -> dict[str, Any]:
         for kind, track in staging.items():
             if kind in held:
                 continue
-            try:
+            with contextlib.suppress(RuntimeError):
                 session.call("delete_empty_track", track_type=kind, track=track)
-            except RuntimeError:
-                pass
         session.invalidate()
 
     try:

@@ -2,6 +2,7 @@
 import re
 import time
 from fractions import Fraction
+from itertools import pairwise
 from typing import Any
 
 from .. import media, outcome, paths, prefs, rebuild, session, timecode, timeline
@@ -81,7 +82,7 @@ def split_segments(segments: list[dict[str, Any]], max_chars: int = 42, line_spl
             out.append({"start": round(t, 3), "end": round(end, 3), "text": x})
             t = end
     out.sort(key=lambda x: x["start"])
-    for a, b in zip(out, out[1:], strict=False):
+    for a, b in pairwise(out):
         a["end"] = min(a["end"], b["start"])
     return [x for x in out if x["end"] > x["start"]]
 
@@ -286,8 +287,9 @@ def shift_captions(a: dict[str, Any]) -> dict[str, Any]:
             if hit:
                 other = by_id.get(hit["id"])
                 what = f"caption {other['n']} (\"{other['text']}\")" if other else hit["name"]
-                hint = "; use following=true to move the later captions too" if other and not following and \
-                    other["start"] > target["start"] else "; use a smaller shift or move that one first"
+                hint = ("; use following=true to move the later captions too"
+                        if other and not following and other["start"] > target["start"]
+                        else "; use a smaller shift or move that one first")
                 return outcome.blocked(f"caption {c['n']} (\"{c['text']}\") would land on {what} at "
                                        f"{session.to_tc(hit['start'])}{hint}")
     plan: list[dict[str, Any]] = []
