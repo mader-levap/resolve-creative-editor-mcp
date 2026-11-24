@@ -20,14 +20,14 @@ def _preview_step(op: dict[str, Any]) -> dict[str, Any]:
 DONE = ("success", "planned")  # a batch goes on only after these
 
 
-def batch(a: dict[str, Any]) -> dict[str, Any]:
+def batch(args: dict[str, Any]) -> dict[str, Any]:
     """edit__batch: preview every step, or with confirm=true make one backup and run the steps in order, stopping
     after the first that isn't success or planned."""
-    ops = a["operations"]
+    ops = args["operations"]
     unknown = [o.get("tool") for o in ops if o.get("tool") not in HANDLERS or o.get("tool") == "batch"]
     if unknown:
         return outcome.blocked(f"unknown or nested tools: {unknown}")
-    if not a.get("confirm"):
+    if not args.get("confirm"):
         rows = [_preview_step(o) for o in ops]
         unchecked = sum("not_run" in r for r in rows)
         return outcome.preview(rows, [f"{unchecked} step(s) have no preview and were not checked"] if unchecked else [])
@@ -43,9 +43,9 @@ def batch(a: dict[str, Any]) -> dict[str, Any]:
     notes: dict[str, list[tuple[int, str]]] = {}  # each warning once, with the steps that gave it (docs/ISSUES.md I-20)
     unverified = False
     for n, o in enumerate(ops, 1):
-        args = dict(o.get("args") or {}, confirm=True, backup=False)
+        step_args = dict(o.get("args") or {}, confirm=True, backup=False)
         try:
-            r = run(o["tool"], args)
+            r = run(o["tool"], step_args)
         except Exception as exc:  # a refusal by Resolve, or a bug: stop like a failed step (docs/ISSUES.md I-02)
             r = outcome.op("failed", False, reason=f"{type(exc).__name__}: {exc}",
                            warnings=["the step may have changed the timeline before the error; read it back"])
@@ -68,7 +68,8 @@ def batch(a: dict[str, Any]) -> dict[str, Any]:
     ok = all(r["status"] in DONE for r in results)  # the loop only breaks after a step that isn't
     why = {} if ok else {"reason": f"stopped at step {len(results)} of {len(ops)} ({row['tool']}: {row['status']}); "
                                    f"{len(not_run)} not run. Read the timeline back, don't repeat the whole batch"}
-    return outcome.op("success" if ok else "partial", (None if unverified else True) if ok else False,
+    verified = None if ok and unverified else ok  # every step done, but a write couldn't be checked: unverified
+    return outcome.op("success" if ok else "partial", verified,
                       {"steps_done": len(results)}, [_step_note(w, where) for w, where in notes.items()],
                       results=results, not_run=not_run, snapshot=snapshot, **why)
 

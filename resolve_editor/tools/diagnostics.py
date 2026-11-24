@@ -9,14 +9,14 @@ from typing import Any
 from .. import audit, bridge, paths, prefs
 
 
-def audit_log(a: dict[str, Any]) -> dict[str, Any]:
+def audit_log(args: dict[str, Any]) -> dict[str, Any]:
     """edit__audit_log: the last `limit` (default 20) audit log entries; a corrupt line is shown as unreadable."""
     try:
         with open(audit.AUDIT, encoding="utf-8") as f:
             rows = f.readlines()
     except OSError:
         return {"entries": []}
-    return {"entries": [_entry(x) for x in rows[-(a.get("limit") or 20):]]}
+    return {"entries": [_entry(x) for x in rows[-(args.get("limit") or 20):]]}
 
 
 def _entry(line: str) -> Any:
@@ -26,7 +26,7 @@ def _entry(line: str) -> Any:
         return {"unreadable": line.rstrip("\n")}
 
 
-def doctor(a: dict[str, Any] | None = None) -> dict[str, Any]:
+def doctor(args: dict[str, Any] | None = None) -> dict[str, Any]:
     """edit__doctor: what is installed, Standard Generator Duration, and whether the bridge answers (and where a
     stuck one stopped). Never raises on a bridge problem: the report says it."""
     whisper = importlib.util.find_spec("faster_whisper") is not None

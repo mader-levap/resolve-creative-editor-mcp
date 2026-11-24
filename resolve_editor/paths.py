@@ -17,9 +17,9 @@ def media_output(source: str, suffix: str) -> str:
     return os.path.join(DIR, f"{stem}_{uuid.uuid4().hex[:8]}{suffix}")
 
 
-def new_output(a: dict[str, Any], suffix: str) -> str:
+def new_output(args: dict[str, Any], suffix: str) -> str:
     """The tool's `output` path, or a timestamped one in the bridge folder; refuses an existing file."""
-    output = a.get("output") or os.path.join(DIR, f"export_{time.strftime('%Y%m%d-%H%M%S')}{suffix}")
+    output = args.get("output") or os.path.join(DIR, f"export_{time.strftime('%Y%m%d-%H%M%S')}{suffix}")
     if os.path.exists(output):
         raise FileExistsError(f"refusing to overwrite {output}")
     return output

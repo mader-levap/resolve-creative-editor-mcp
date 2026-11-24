@@ -4,11 +4,11 @@ from typing import Any
 from .. import outcome, session, timecode, timeline
 
 
-def set_enabled(a: dict[str, Any]) -> dict[str, Any]:
+def set_enabled(args: dict[str, Any]) -> dict[str, Any]:
     """edit__set_enabled: enable or disable items and read them back; reversible, unlike deleting."""
-    r = session.call("set_enabled", item_ids=a["item_ids"], enabled=bool(a["enabled"]))
-    got = [d.get("enabled") for d in session.as_list(session.call("item_details", item_ids=a["item_ids"]))]
-    ok = all(e == bool(a["enabled"]) for e in got)
+    r = session.call("set_enabled", item_ids=args["item_ids"], enabled=bool(args["enabled"]))
+    got = [d.get("enabled") for d in session.as_list(session.call("item_details", item_ids=args["item_ids"]))]
+    ok = all(e == bool(args["enabled"]) for e in got)
     return outcome.op("success" if ok else "partial", ok, {"items_changed": r.get("changed")})
 
 
@@ -18,18 +18,18 @@ FADES_NOT_SAVED = ("Resolve bug (seen on free 21.2, Text+ titles): fades set by 
                    "two apart, so ask the user to drag a fade on each clip first unless they already have.")
 
 
-def set_fades(a: dict[str, Any]) -> dict[str, Any]:
+def set_fades(args: dict[str, Any]) -> dict[str, Any]:
     """edit__set_fades: fade lengths in frames; an end left out keeps its length (see FADES_NOT_SAVED)."""
-    fade_in, fade_out = a.get("fade_in"), a.get("fade_out")
+    fade_in, fade_out = args.get("fade_in"), args.get("fade_out")
     if fade_in is None and fade_out is None:
         return outcome.blocked("give fade_in and/or fade_out")
     # Resolve's SetFades sets both ends, so keep the current length of whichever end was not given.
     current = {}
     if fade_in is None or fade_out is None:
         current = {d["id"]: d.get("fades") or {}
-                   for d in session.as_list(session.call("item_details", item_ids=a["item_ids"]))}
+                   for d in session.as_list(session.call("item_details", item_ids=args["item_ids"]))}
     results = []
-    for i in a["item_ids"]:
+    for i in args["item_ids"]:
         now = current.get(i, {})
         want_in = int(now.get("FadeIn") or 0) if fade_in is None else fade_in
         want_out = int(now.get("FadeOut") or 0) if fade_out is None else fade_out
@@ -63,34 +63,34 @@ def _clips() -> dict[str, tuple[Any, ...]]:
             for x in session.items() if x.get("type") != "transition"}
 
 
-def add_transition(a: dict[str, Any]) -> dict[str, Any]:
+def add_transition(args: dict[str, Any]) -> dict[str, Any]:
     """edit__add_transition: preview, then a native transition at a clip's start or end, and a matching
     crossfade on linked audio at the same cut; the result is checked against the expected span."""
-    options = {"type": a.get("type") or "Cross Dissolve", "category": a.get("category") or "simple",
-               "position": a.get("position") or "end", "alignment": a.get("alignment") or "center"}
-    duration = a.get("duration")
+    options = {"type": args.get("type") or "Cross Dissolve", "category": args.get("category") or "simple",
+               "position": args.get("position") or "end", "alignment": args.get("alignment") or "center"}
+    duration = args.get("duration")
     if duration is not None:  # 0 isn't "not given", and bool counts as int in Python (docs/ISSUES.md I-08)
         if isinstance(duration, bool) or not isinstance(duration, int) or duration <= 0:
             return outcome.blocked(f"duration must be a whole number of frames above 0, or left out for Resolve's "
                                    f"default (got {duration!r})")
         options["duration"] = duration
-    target = next((x for x in session.items() if x["id"] == a["item_id"]), None)
+    target = next((x for x in session.items() if x["id"] == args["item_id"]), None)
     if target is None or target.get("type") == "transition":
-        return outcome.blocked(f"no clip with id {a['item_id']} on the current timeline")
+        return outcome.blocked(f"no clip with id {args['item_id']} on the current timeline")
     cut = target["end"] if options["position"] == "end" else target["start"]
-    audio, notes = _linked_audio(target, options["position"], cut, a.get("include_linked", True) is not False)
-    audio_type = a.get("audio_type") or AUDIO_CROSSFADE
-    if not a.get("confirm"):  # nothing is written before the user approves (docs/ISSUES.md I-06)
+    audio, notes = _linked_audio(target, options["position"], cut, args.get("include_linked", True) is not False)
+    audio_type = args.get("audio_type") or AUDIO_CROSSFADE
+    if not args.get("confirm"):  # nothing is written before the user approves (docs/ISSUES.md I-06)
         plan = _transition_plan(target, cut, options)
         if audio:
             span = {"span": plan["span"]} if "span" in plan else {}
             plan["linked"] = [{"track": timeline.item_label(x), "type": audio_type, **span} for x in audio]
         return outcome.preview(plan, ["a backup timeline is made first", *notes])
     snapshot = (timeline.snapshot_timeline({"label": "before transition"}).get("snapshot")
-                if a.get("backup", True) else None)
+                if args.get("backup", True) else None)
     before = _clips()
     try:
-        r = session.call("add_transition", item_id=a["item_id"], options=options)
+        r = session.call("add_transition", item_id=args["item_id"], options=options)
     except RuntimeError as exc:
         if REFUSED not in str(exc):
             raise
@@ -240,22 +240,23 @@ def _check_transition(tid: Any, target: session.Item, cut: int, options: dict[st
     return differs, unchecked, got
 
 
-def set_speed(a: dict[str, Any]) -> dict[str, Any]:
+def set_speed(args: dict[str, Any]) -> dict[str, Any]:
     """edit__set_speed: preview, then set clip speed in percent (0 freezes); the clip keeps its length."""
-    if not a.get("confirm"):
-        return outcome.preview({"item": a["item_id"], "percentage": a["percentage"]},
+    if not args.get("confirm"):
+        return outcome.preview({"item": args["item_id"], "percentage": args["percentage"]},
                                ["the clip keeps its timeline length, so it shows more or less of the source"])
-    r = session.call("set_speed", item_id=a["item_id"], percentage=float(a["percentage"]))
+    r = session.call("set_speed", item_id=args["item_id"], percentage=float(args["percentage"]))
     session.invalidate()
     got = (r.get("speed") or {}).get("Percentage")
-    ok = got is not None and abs(float(got) - float(a["percentage"])) < 0.01
+    ok = got is not None and abs(float(got) - float(args["percentage"])) < 0.01
     return outcome.op("success" if ok else "failed", ok, {"speed": got})
 
 
-def copy_grade(a: dict[str, Any]) -> dict[str, Any]:
+def copy_grade(args: dict[str, Any]) -> dict[str, Any]:
     """edit__copy_grade: preview, then copy one clip's grade onto others; grades can't be read back."""
-    if not a.get("confirm"):
-        return outcome.preview({"from": a["from_id"], "to": a["to_ids"]}, ["replaces the grade on the target clips"])
-    ok = session.call("copy_grade", from_id=a["from_id"], to_ids=a["to_ids"]).get("ok")
-    return outcome.op("success" if ok else "failed", None, {"clips_graded": len(a["to_ids"]) if ok else 0},
+    if not args.get("confirm"):
+        return outcome.preview({"from": args["from_id"], "to": args["to_ids"]},
+                               ["replaces the grade on the target clips"])
+    ok = session.call("copy_grade", from_id=args["from_id"], to_ids=args["to_ids"]).get("ok")
+    return outcome.op("success" if ok else "failed", None, {"clips_graded": len(args["to_ids"]) if ok else 0},
                       ["grades can't be read back by script; check the Color page"])

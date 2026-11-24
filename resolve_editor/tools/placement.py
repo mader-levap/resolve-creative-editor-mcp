@@ -4,13 +4,13 @@ from typing import Any
 from .. import outcome, session, timeline
 
 
-def place_clips(a: dict[str, Any]) -> dict[str, Any]:
+def place_clips(args: dict[str, Any]) -> dict[str, Any]:
     """edit__place_clips: preview, then place Media Pool clips at exact frames and tracks; refuses to
     overwrite, also between the clips of one call."""
     warnings: list[str]
     plan, warnings = [], []
     planned: list[tuple[str, int, int, int, int, str]] = []  # kind, track, start, end, n, name of earlier clips
-    for n, spec in enumerate(a["clips"], 1):
+    for n, spec in enumerate(args["clips"], 1):
         clip = timeline.find_clip(spec["clip"])
         first = spec.get("start_frame") or 0
         frames = int(float(clip.get("frames") or 0))  # 0 when unknown: then only the bridge can check
@@ -39,7 +39,7 @@ def place_clips(a: dict[str, Any]) -> dict[str, Any]:
         plan.append({"clip": clip["id"], "name": clip["name"], "start_frame": first, "end_frame": last,
                      "record_frame": record, "track_index": track, "media_type": spec.get("media_type"),
                      "at": session.to_tc(record), "frames": last - first})
-    if not a.get("confirm"):
+    if not args.get("confirm"):
         return outcome.preview(plan, warnings)
     session.call("append_clips", clips=[{k: p[k] for k in ("clip", "start_frame", "end_frame", "record_frame",
                                                             "track_index", "media_type") if p[k] is not None}

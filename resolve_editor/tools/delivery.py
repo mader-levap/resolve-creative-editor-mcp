@@ -6,11 +6,11 @@ from typing import Any
 from .. import media, outcome, paths, session
 
 
-def export_timeline(a: dict[str, Any]) -> dict[str, Any]:
+def export_timeline(args: dict[str, Any]) -> dict[str, Any]:
     """edit__export_timeline: export the current timeline (OTIO, FCPXML, EDL, AAF, DRT) to a new file."""
-    suffix = {"OTIO": ".otio", "FCPXML": ".fcpxml", "EDL": ".edl", "AAF": ".aaf", "DRT": ".drt"}[a["format"]]
-    output = paths.new_output(a, suffix)
-    ok = session.call("export_timeline", path=output, format=a["format"]).get("ok") and os.path.exists(output)
+    suffix = {"OTIO": ".otio", "FCPXML": ".fcpxml", "EDL": ".edl", "AAF": ".aaf", "DRT": ".drt"}[args["format"]]
+    output = paths.new_output(args, suffix)
+    ok = session.call("export_timeline", path=output, format=args["format"]).get("ok") and os.path.exists(output)
     return outcome.op("success" if ok else "failed", ok, {"file_written": output if ok else None})
 
 
@@ -28,10 +28,10 @@ def parse_qc(log: str) -> dict[str, Any]:
             "frozen_at_seconds": freeze[:20], "silence_at_seconds": silence[:20]}
 
 
-def qc_file(a: dict[str, Any]) -> dict[str, Any]:
+def qc_file(args: dict[str, Any]) -> dict[str, Any]:
     """edit__qc_file: loudness, true peak, and black, frozen and silent parts of a rendered file, via FFmpeg."""
     ffmpeg = media.binary("ffmpeg", "FFMPEG")
-    proc = media.run_command([ffmpeg, "-nostdin", "-hide_banner", "-i", media.media_path(a["path"]),
+    proc = media.run_command([ffmpeg, "-nostdin", "-hide_banner", "-i", media.media_path(args["path"]),
                               "-vf", "blackdetect=d=0.5:pix_th=0.10,freezedetect=n=-60dB:d=2",
                               "-af", "ebur128=peak=true,silencedetect=n=-50dB:d=1", "-f", "null", "-"], 3600)
     report = parse_qc(proc.stderr)

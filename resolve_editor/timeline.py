@@ -6,13 +6,13 @@ from typing import Any
 from . import outcome, session
 
 
-def snapshot_timeline(a: dict[str, Any]) -> dict[str, Any]:
+def snapshot_timeline(args: dict[str, Any]) -> dict[str, Any]:
     """Duplicate the current timeline as a timestamped backup and make the original current again;
     raises if Resolve doesn't go back to it."""
     current = session.get_state()["timeline"]
     if not current:
         return outcome.blocked("no current timeline")
-    name = f"{current} {a.get('label') or 'backup'} {time.strftime('%Y%m%d-%H%M%S')}"
+    name = f"{current} {args.get('label') or 'backup'} {time.strftime('%Y%m%d-%H%M%S')}"
     session.call("duplicate_timeline", name=name)  # Resolve makes the copy current
     session.call("set_current_timeline", name=current)  # the bridge retries until Resolve stays on it
     session.invalidate()

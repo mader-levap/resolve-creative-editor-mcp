@@ -12,15 +12,15 @@ from .. import media, outcome, session, timecode, timeline
 NO_NAME = "Resolve 21.2 refuses markers without one"
 
 
-def add_markers(a: dict[str, Any]) -> dict[str, Any]:
+def add_markers(args: dict[str, Any]) -> dict[str, Any]:
     """edit__add_markers: timeline markers at frames or timecodes, read back; refused if one has no name."""
-    unnamed = [i for i, m in enumerate(a["markers"], 1) if not str(m.get("name") or "").strip()]
+    unnamed = [i for i, m in enumerate(args["markers"], 1) if not str(m.get("name") or "").strip()]
     if unnamed:
         return outcome.blocked(f"marker(s) {', '.join(map(str, unnamed))} have no name; {NO_NAME}. Nothing was added")
     _, _, state = session.clock()
     start = state["timeline_start_frame"]
     markers = [{"frame": session.to_frame(m["at"]) - start, "name": m["name"], "note": m.get("note") or "",
-                "color": m.get("color") or "Blue", "duration": m.get("duration") or 1} for m in a["markers"]]
+                "color": m.get("color") or "Blue", "duration": m.get("duration") or 1} for m in args["markers"]]
     return _place(markers, start)
 
 
@@ -74,27 +74,27 @@ def _beats(path: str) -> list[float]:
     return onsets([x / 32768 for x in samples], rate)
 
 
-def add_audio_markers(a: dict[str, Any]) -> dict[str, Any]:
+def add_audio_markers(args: dict[str, Any]) -> dict[str, Any]:
     """edit__add_audio_markers: markers at the silences or beats found in a file; dry_run only lists
     the times."""
-    if a["kind"] == "beats":
-        found = [{"start": t, "end": t} for t in _beats(a["path"])]
-        name, color = "beat", a.get("color") or "Cyan"
+    if args["kind"] == "beats":
+        found = [{"start": t, "end": t} for t in _beats(args["path"])]
+        name, color = "beat", args.get("color") or "Cyan"
     else:
-        args = {"path": a["path"]}
-        args.update({k: a[k] for k in ("noise_db", "min_duration") if k in a})
-        result = media.run_media_tool("detect_silence", args)
-        length = float(media.run_media_tool("probe_media", {"path": a["path"]}).get("duration") or 0)
+        silence = {"path": args["path"]}
+        silence.update({k: args[k] for k in ("noise_db", "min_duration") if k in args})
+        result = media.run_media_tool("detect_silence", silence)
+        length = float(media.run_media_tool("probe_media", {"path": args["path"]}).get("duration") or 0)
         found = [{"start": x["start"], "end": x["end"] if x["end"] is not None else length}
                  for x in result["silence_intervals"]]
-        name, color = "silence", a.get("color") or "Yellow"
-    limit = a.get("max_markers") or 200
+        name, color = "silence", args.get("color") or "Yellow"
+    limit = args.get("max_markers") or 200
     warnings = [f"found {len(found)}, kept the first {limit}"] if len(found) > limit else []
     found = found[:limit]
-    if a.get("dry_run"):
+    if args.get("dry_run"):
         return outcome.op("planned", times=[[x["start"], x["end"]] for x in found], warnings=warnings)
     fps, _, state = session.clock()
-    offset = a.get("timeline_offset_frames") or 0
+    offset = args.get("timeline_offset_frames") or 0
     markers = [{"frame": offset + timecode.seconds_to_frames(x["start"], fps), "name": name, "color": color,
                 "duration": max(1, timecode.seconds_to_frames(x["end"] - x["start"], fps))} for x in found]
     if not markers:

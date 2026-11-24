@@ -83,7 +83,12 @@ def _trim_one(p: session.Item, n: int, filler: dict[str, Any] | None, items: dic
     after = _positions()
     wrong = []
     for i, (s, e) in before.items():
-        want = (s, new_end) if i == p["id"] else (s - n, e - n) if s >= old_end else (s, e)
+        if i == p["id"]:  # the trimmed item: same start, earlier end
+            want = (s, new_end)
+        elif s >= old_end:  # after it: pulled back by the trimmed frames
+            want = (s - n, e - n)
+        else:  # before it: unchanged
+            want = (s, e)
         if after.get(i) != want:
             wrong.append(f"{items.get(i, {}).get('name', i)} at {session.to_tc(s)}: "
                          f"expected {session.to_tc(want[0])}, "
@@ -96,14 +101,14 @@ def _trim_one(p: session.Item, n: int, filler: dict[str, Any] | None, items: dic
     return None
 
 
-def ripple_trim(a: dict[str, Any]) -> dict[str, Any]:
+def ripple_trim(args: dict[str, Any]) -> dict[str, Any]:
     """edit__ripple_trim: preview, then shorten clip ends in place and pull everything after them earlier,
     on every track."""
-    n = a.get("tail_frames") or 0
+    n = args.get("tail_frames") or 0
     if n <= 0:
         return outcome.blocked("tail_frames must be a positive number of frames (this tool only shortens)")
     items = {x["id"]: x for x in session.items()}
-    ids = list(dict.fromkeys(a["item_ids"]))
+    ids = list(dict.fromkeys(args["item_ids"]))
     missing = [i for i in ids if i not in items]
     if missing:
         return outcome.blocked(f"timeline item not found: {missing}")
@@ -124,12 +129,12 @@ def ripple_trim(a: dict[str, Any]) -> dict[str, Any]:
     markers = session.call("list_markers") or {}
     if any(state["timeline_start_frame"] + int(float(f)) >= first_cut for f in markers):
         warnings.append("timeline ruler markers after the first trim may not move with the clips")
-    if not a.get("confirm"):
+    if not args.get("confirm"):
         return outcome.preview({"trim": rows, "frames_each": n, "other_clips_moved_back": moved,
                                 "timeline_ends": session.to_tc(ends)}, warnings)
 
     snapshot = (timeline.snapshot_timeline({"label": "before ripple trim"}).get("snapshot")
-                if a.get("backup", True) else None)
+                if args.get("backup", True) else None)
     filler = _filler_source(n, prefer=snapshot, exclude={state["timeline"]})
     done: list[str] = []
     for p in sorted(plan, key=lambda x: x["start"], reverse=True):  # later first, so earlier positions don't change
