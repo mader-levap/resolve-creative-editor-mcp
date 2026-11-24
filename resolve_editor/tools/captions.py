@@ -4,8 +4,7 @@ import time
 from fractions import Fraction
 from typing import Any
 
-from .. import media, outcome, paths, prefs, session, timecode, timeline
-from . import replace
+from .. import media, outcome, paths, prefs, rebuild, session, timecode, timeline
 
 CAPTION_BIN = "Captions (Resolve Creative Editor)"
 # Text+ inputs per anchor. VerticalTopCenterBottom 1 puts the block's bottom at y, so extra lines grow upward
@@ -256,7 +255,7 @@ def list_captions(a: dict[str, Any]) -> dict[str, Any]:
 
 def shift_captions(a: dict[str, Any]) -> dict[str, Any]:
     """Move a caption (all its parts) by a signed time and, unless following=false, every later caption on its track.
-    Clips can't be moved by script, so each part is rebuilt with its settings (replace.py), all in one go."""
+    Clips can't be moved by script, so each part is rebuilt with its settings (rebuild.py), all in one go."""
     if (a.get("seconds") is None) == (a.get("frames") is None):
         return outcome.blocked("give the shift as seconds or frames (signed: negative is earlier), not both")
     fps, _, state = session.clock()
@@ -294,9 +293,9 @@ def shift_captions(a: dict[str, Any]) -> dict[str, Any]:
     plan: list[dict[str, Any]] = []
     for c in moved:
         for x in c["parts"]:
-            part = replace._plan_replace(x["id"], False, lambda it: (it["source_start"],
-                                         it["source_start"] + it["duration"], it["start"] + shift, it["track"]),
-                                         moving=ids)
+            part = rebuild.plan(x["id"], False, lambda it: (it["source_start"],
+                                it["source_start"] + it["duration"], it["start"] + shift, it["track"]),
+                                moving=ids)
             if isinstance(part, str):
                 return outcome.blocked(part)
             plan += part
@@ -306,7 +305,7 @@ def shift_captions(a: dict[str, Any]) -> dict[str, Any]:
         return outcome.preview({"captions": rows_out, "shift_frames": shift, "following": following},
                                ["each part is rebuilt with its settings (keyframes are not copied)",
                                 "a backup timeline is made first"])
-    result = replace._replace(plan, a.get("backup", True))
+    result = rebuild.run(plan, a.get("backup", True))
     result["captions"] = rows_out
     if result["_operation"]["status"] == "success":  # read back: every caption at its new start, all parts there
         after = {(c["name"], c["start"]): len(c["parts"]) for c in _captions(with_text=False)}

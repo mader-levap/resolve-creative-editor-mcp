@@ -11,16 +11,7 @@ from . import stdio
 
 def run_tool(name: str, args: dict[str, Any]) -> dict[str, Any]:
     if name in media.HANDLERS:
-        try:
-            result = media.run_media_tool(name, args)
-            if name == "make_contact_sheet":
-                return {"content": [{"type": "image", "data": result["image"], "mimeType": result["mimeType"]},
-                                    {"type": "text", "text": json.dumps({k: v for k, v in result.items()
-                                                                         if k not in {"image", "mimeType"}},
-                                                                        indent=2)}]}
-            return {"content": [{"type": "text", "text": json.dumps(result, indent=2)}]}
-        except Exception as e:
-            return {"content": [{"type": "text", "text": str(e)}], "isError": True}
+        return stdio.media_result(name, args)
     if name not in {t["name"] for t in schema.TOOLS}:
         return {"content": [{"type": "text", "text": f"unknown tool {name}"}], "isError": True}
     try:

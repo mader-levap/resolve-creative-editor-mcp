@@ -1,7 +1,6 @@
 """Timeline export and checks of rendered files."""
 import os
 import re
-import subprocess
 from typing import Any
 
 from .. import media, outcome, paths, session
@@ -28,12 +27,9 @@ def parse_qc(log: str) -> dict[str, Any]:
 
 def qc_file(a: dict[str, Any]) -> dict[str, Any]:
     ffmpeg = media.binary("ffmpeg", "FFMPEG")
-    proc = subprocess.run([ffmpeg, "-nostdin", "-hide_banner", "-i", media.media_path(a["path"]),
-                           "-vf", "blackdetect=d=0.5:pix_th=0.10,freezedetect=n=-60dB:d=2",
-                           "-af", "ebur128=peak=true,silencedetect=n=-50dB:d=1", "-f", "null", "-"],
-                          capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=3600)
-    if proc.returncode:
-        raise RuntimeError(proc.stderr[-2000:])
+    proc = media.run_command([ffmpeg, "-nostdin", "-hide_banner", "-i", media.media_path(a["path"]),
+                              "-vf", "blackdetect=d=0.5:pix_th=0.10,freezedetect=n=-60dB:d=2",
+                              "-af", "ebur128=peak=true,silencedetect=n=-50dB:d=1", "-f", "null", "-"], 3600)
     report = parse_qc(proc.stderr)
     notes = []
     if report["true_peak_dbfs"] is not None and report["true_peak_dbfs"] > -1:

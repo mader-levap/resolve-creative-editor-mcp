@@ -43,11 +43,11 @@ def _plan(items: dict[str, session.Item], ids: list[str],
                         return outcome.blocked(f"{where} has a transition touching it; remove it in Resolve first")
                 # the ripple shifts every track (docs/ISSUES.md I-05)
                 elif x["start"] < it["end"] and x["end"] > new_end:
-                    return outcome.blocked(f"{where}: a transition on {x['track_type'][0].upper()}{x['track']} at "
+                    return outcome.blocked(f"{where}: a transition on {timeline.item_label(x)} at "
                                            f"{session.to_tc(x['start'])} overlaps the frames being removed; "
                                            "remove it in Resolve first")
             elif x["start"] < it["end"] and x["end"] > new_end:
-                return outcome.blocked(f"{where}: {x['name']} on {x['track_type'][0].upper()}{x['track']} "
+                return outcome.blocked(f"{where}: {x['name']} on {timeline.item_label(x)} "
                                        f"at {session.to_tc(x['start'])} overlaps the frames being removed")
         plan.append(it)
     return plan

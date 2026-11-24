@@ -2,7 +2,7 @@
 
 ## Structure
 
-- `resolve_editor/`: the MCP server package (`dispatch.py` runs the `edit__` tools; `session.py`, `bridge.py`, `timeline.py` and the other modules are shared helpers).
+- `resolve_editor/`: the MCP server package (`dispatch.py` runs the `edit__` tools; `session.py`, `bridge.py`, `timeline.py`, `rebuild.py` (moving and trimming a clip by rebuilding it with its settings) and the other modules are shared helpers).
   - `tools/`: the `edit__` tools, one file per area (captions, clips, placement, ripple, ...).
   - `schemas/`: tool definitions (names, arguments, descriptions) for the `edit__`, `legacy__` and `media__` tools.
   - `servers/`: the MCP servers: `gateway.py` (the one clients connect to; runs `edit__` itself and forwards the rest), `legacy.py` (the `legacy__` bridge tools and the `media__` tools), `upstream.py` (where the upstream engine and legacy server are, and how to start them), `child.py` (one child server process over stdio), `stdio.py` (what both stdio servers share: UTF-8 stdio).

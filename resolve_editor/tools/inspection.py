@@ -2,7 +2,7 @@
 from collections.abc import Callable
 from typing import Any
 
-from .. import session
+from .. import session, timeline
 
 
 def analyze(items: list[session.Item], limit: int = 10, tc: Callable[[int], str] = str,
@@ -60,7 +60,7 @@ def inspect_range(a: dict[str, Any]) -> dict[str, Any]:
     start, end = session.to_frame(a["start"]), session.to_frame(a["end"])
     hits = [x for x in session.items() if x["start"] < end and start < x["end"]]
     rows: list[dict[str, Any]] = [
-        {"id": x["id"], "name": x["name"], "track": f"{x['track_type'][0].upper()}{x['track']}",
+        {"id": x["id"], "name": x["name"], "track": timeline.track_label(x["track_type"], x["track"]),
          "type": x.get("type"), "in": session.to_tc(x["start"]), "out": session.to_tc(x["end"]),
          "frames": x["duration"], "source_start": x.get("source_start")}
         for x in sorted(hits, key=lambda x: (x["start"], x["track_type"]))]

@@ -6,7 +6,7 @@ import subprocess
 from collections.abc import Sequence
 from typing import Any
 
-from .. import media, outcome, session, timecode
+from .. import media, outcome, session, timecode, timeline
 
 NO_NAME = "Resolve 21.2 refuses markers without one"
 
@@ -22,15 +22,11 @@ def add_markers(a: dict[str, Any]) -> dict[str, Any]:
     return _place(markers, start)
 
 
-def _frames(listed: object) -> dict[int, Any]:
-    return {int(float(k)): v for k, v in (listed.items() if isinstance(listed, dict) else ())}
-
-
 def _place(markers: list[dict[str, Any]], start: int, warnings: Sequence[str] = ()) -> dict[str, Any]:
     """Add timeline markers (frames from the timeline start) and read them back: the bridge's count isn't proof."""
-    before = _frames(session.call("list_markers"))
+    before = timeline.markers_by_frame(session.call("list_markers"))
     session.call("add_markers", markers=markers)
-    after = _frames(session.call("list_markers"))
+    after = timeline.markers_by_frame(session.call("list_markers"))
     missing, taken = [], set(before)
     for m in markers:
         got = after.get(m["frame"])

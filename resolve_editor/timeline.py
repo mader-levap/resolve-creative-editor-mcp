@@ -19,6 +19,21 @@ def snapshot_timeline(a: dict[str, Any]) -> dict[str, Any]:
     return outcome.op("success", True, {"created_timeline": name}, snapshot=name)
 
 
+def track_label(kind: str, track: int) -> str:
+    """How Resolve names a track: V2, A1."""
+    return f"{kind[0].upper()}{track}"
+
+
+def item_label(it: session.Item) -> str:
+    """The track an item is on: V2, A1."""
+    return track_label(it["track_type"], it["track"])
+
+
+def markers_by_frame(listed: object) -> dict[int, Any]:
+    """Markers as the bridge lists them (JSON object keyed by frame strings), keyed by int frame."""
+    return {int(float(k)): v for k, v in (listed.items() if isinstance(listed, dict) else ())}
+
+
 def find_clip(ref: str) -> dict[str, Any]:
     hits = ([m for m in session.media_pool() if m.get("id") == ref]
             or [m for m in session.media_pool() if m.get("name") == ref])

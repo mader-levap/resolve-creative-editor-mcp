@@ -71,20 +71,6 @@ def _with_confirm(tool: dict[str, Any]) -> dict[str, Any]:
     return {**tool, "inputSchema": schema}
 
 
-def _run_media_tool(name: str, args: dict[str, Any]) -> dict[str, Any]:
-    try:
-        result = media.run_media_tool(name, args)
-        if name == "make_contact_sheet":
-            return {"content": [
-                {"type": "image", "data": result["image"], "mimeType": result["mimeType"]},
-                {"type": "text",
-                 "text": json.dumps({k:v for k,v in result.items() if k not in {"image","mimeType"}}, indent=2)}
-            ]}
-        return {"content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False, indent=2)}]}
-    except Exception as exc:
-        return {"isError": True, "content": [{"type": "text", "text": f"{type(exc).__name__}: {exc}"}]}
-
-
 class Gateway:
     def __init__(self) -> None:
         self.resolve: child_process.Child | None = None
@@ -205,7 +191,7 @@ class Gateway:
             return {"isError": True, "content": [{"type": "text", "text": f"Unknown tool: {name}"}]}
         backend, original = route
         if backend == "media":
-            return _run_media_tool(original, args)
+            return stdio.media_result(original, args)
         if backend == "edit":
             return _run_edit_tool(original, args)
         if backend == "legacy" and original in GUARDED_LEGACY:

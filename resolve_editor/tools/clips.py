@@ -72,7 +72,7 @@ def add_transition(a: dict[str, Any]) -> dict[str, Any]:
         plan = _transition_plan(target, cut, options)
         if audio:
             span = {"span": plan["span"]} if "span" in plan else {}
-            plan["linked"] = [{"track": _label(x), "type": audio_type, **span} for x in audio]
+            plan["linked"] = [{"track": timeline.item_label(x), "type": audio_type, **span} for x in audio]
         return outcome.preview(plan, ["a backup timeline is made first", *notes])
     snapshot = (timeline.snapshot_timeline({"label": "before transition"}).get("snapshot")
                 if a.get("backup", True) else None)
@@ -92,20 +92,21 @@ def add_transition(a: dict[str, Any]) -> dict[str, Any]:
     start, end = got.get("start", r.get("start")), got.get("end", r.get("end"))
     rows: list[dict[str, Any]] = []
     for x in audio:  # the linked audio gets a matching crossfade (docs/ISSUES.md I-07)
+        label = timeline.item_label(x)
         ao = {"type": audio_type, "category": "audio", "position": options["position"],
               "alignment": options["alignment"], "duration": options.get("duration") or frames}
         try:
             ar = session.call("add_transition", item_id=x["id"], options=ao)
         except Exception as exc:  # the video transition stays: say so, and how to undo it
-            differs.append(f"audio crossfade on {_label(x)} refused ({exc}); the video transition {r.get('id')} "
+            differs.append(f"audio crossfade on {label} refused ({exc}); the video transition {r.get('id')} "
                            f"stays: remove it with legacy__delete_items or restore {snapshot or 'a backup'}")
-            rows.append({"track": _label(x), "error": str(exc)})
+            rows.append({"track": label, "error": str(exc)})
             continue
         session.invalidate()
         d, u, g = _check_transition(ar.get("id"), x, cut, ao, before)
-        differs += [f"audio crossfade on {_label(x)}: {w}" for w in d]
-        unchecked += [f"{k} (audio crossfade on {_label(x)})" for k in u]
-        rows.append({"track": _label(x), "transition_id": ar.get("id"), "start": _tc(g.get("start", ar.get("start"))),
+        differs += [f"audio crossfade on {label}: {w}" for w in d]
+        unchecked += [f"{k} (audio crossfade on {label})" for k in u]
+        rows.append({"track": label, "transition_id": ar.get("id"), "start": _tc(g.get("start", ar.get("start"))),
                      "end": _tc(g.get("end", ar.get("end")))})
     ok = None if not differs and unchecked else not differs
     warnings = differs + ([f"could not read back the transition's {', '.join(unchecked)}"] if unchecked else []) + notes
@@ -139,10 +140,6 @@ def _tc(frame: Any) -> str | None:
     return None if frame is None else session.to_tc(frame)
 
 
-def _label(x: session.Item) -> str:
-    return f"{x['track_type'][0].upper()}{x['track']}"
-
-
 def _linked_audio(target: session.Item, position: str, cut: int,
                   include: bool) -> tuple[list[session.Item], list[str]]:
     """The linked audio items that get a crossfade, and warnings for those that don't (docs/ISSUES.md I-07)."""
@@ -155,10 +152,10 @@ def _linked_audio(target: session.Item, position: str, cut: int,
     for x in (items[i] for i in ids if i in items and items[i]["track_type"] == "audio"):
         own = x["end"] if position == "end" else x["start"]
         if own != cut:
-            notes.append(f"linked audio on {_label(x)} {'ends' if position == 'end' else 'starts'} at "
+            notes.append(f"linked audio on {timeline.item_label(x)} {'ends' if position == 'end' else 'starts'} at "
                          f"{session.to_tc(own)}, not at the cut ({session.to_tc(cut)}): no crossfade added there")
         elif not include:
-            notes.append(f"linked audio on {_label(x)} keeps a hard cut at {session.to_tc(cut)}; "
+            notes.append(f"linked audio on {timeline.item_label(x)} keeps a hard cut at {session.to_tc(cut)}; "
                          "include_linked=true adds a crossfade")
         else:
             planned.append(x)
@@ -166,7 +163,7 @@ def _linked_audio(target: session.Item, position: str, cut: int,
 
 
 def _transition_plan(target: session.Item, cut: int, options: dict[str, Any]) -> dict[str, Any]:
-    plan: dict[str, Any] = {"clip": target["name"], "track": _label(target),
+    plan: dict[str, Any] = {"clip": target["name"], "track": timeline.item_label(target),
                             "position": options["position"], "cut": session.to_tc(cut), "type": options["type"],
                             "alignment": options["alignment"],
                             "frames": options.get("duration") or "Resolve's default (Preferences)"}

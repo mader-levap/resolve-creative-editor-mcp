@@ -26,7 +26,8 @@ def binary(name: str, env_name: str) -> str:
     return candidate
 
 
-def _run_media_command(cmd: list[str], timeout: float = 300) -> subprocess.CompletedProcess[str]:
+def run_command(cmd: list[str], timeout: float = 300) -> subprocess.CompletedProcess[str]:
+    """Run FFmpeg or ffprobe; on failure raise RuntimeError with the end of its error output."""
     proc = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout)
     if proc.returncode != 0:
         detail = (proc.stderr or proc.stdout or "unknown FFmpeg error")[-4000:]
@@ -36,7 +37,7 @@ def _run_media_command(cmd: list[str], timeout: float = 300) -> subprocess.Compl
 
 def _probe_media(source: str, args: dict[str, Any]) -> dict[str, Any]:
     ffprobe = binary("ffprobe", "FFPROBE")
-    proc = _run_media_command([ffprobe, "-v", "error", "-show_format", "-show_streams", "-of", "json", source], 60)
+    proc = run_command([ffprobe, "-v", "error", "-show_format", "-show_streams", "-of", "json", source], 60)
     info = json.loads(proc.stdout)
     fmt = info.get("format", {})
     streams = []
@@ -59,8 +60,8 @@ def _extract_audio(source: str, args: dict[str, Any]) -> dict[str, Any]:
     if rate not in (16000, 24000, 44100, 48000):
         raise ValueError("sample_rate must be 16000, 24000, 44100 or 48000")
     output = paths.media_output(source, ".wav")
-    _run_media_command([ffmpeg, "-nostdin", "-y", "-i", source, "-map", "0:a:0",
-                        "-vn", "-ac", "2", "-ar", str(rate), "-c:a", "pcm_s16le", output], 600)
+    run_command([ffmpeg, "-nostdin", "-y", "-i", source, "-map", "0:a:0",
+                 "-vn", "-ac", "2", "-ar", str(rate), "-c:a", "pcm_s16le", output], 600)
     return {"source": source, "audio_path": output, "sample_rate": rate, "channels": 2,
             "note": "This is an extracted, playable WAV file; it has not been subjectively auditioned."}
 
@@ -71,11 +72,8 @@ def _detect_silence(source: str, args: dict[str, Any]) -> dict[str, Any]:
     duration = float(args.get("min_duration", 0.35))
     if not -90 <= noise <= 0 or not 0.05 <= duration <= 10:
         raise ValueError("noise_db must be -90..0 and min_duration must be 0.05..10 seconds")
-    proc = subprocess.run([ffmpeg, "-nostdin", "-hide_banner", "-i", source,
-                           "-af", f"silencedetect=noise={noise}dB:d={duration}", "-f", "null", "-"],
-                          capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=600)
-    if proc.returncode != 0:
-        raise RuntimeError((proc.stderr or "FFmpeg silence detection failed")[-4000:])
+    proc = run_command([ffmpeg, "-nostdin", "-hide_banner", "-i", source,
+                        "-af", f"silencedetect=noise={noise}dB:d={duration}", "-f", "null", "-"], 600)
     log = proc.stderr or ""
     starts = [float(x) for x in re.findall(r"silence_start: ([0-9.]+)", log)]
     ends = [float(x) for x in re.findall(r"silence_end: ([0-9.]+)", log)]
@@ -138,8 +136,8 @@ def _make_contact_sheet(source: str, args: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("interval_seconds must be 0.5..60 and columns must be 1..8")
     output = paths.media_output(source, ".jpg")
     vf = f"fps=1/{interval},scale=320:-1,tile={columns}x4"
-    _run_media_command([ffmpeg, "-nostdin", "-y", "-i", source, "-vf", vf,
-                        "-frames:v", "1", "-q:v", "3", output], 600)
+    run_command([ffmpeg, "-nostdin", "-y", "-i", source, "-vf", vf,
+                 "-frames:v", "1", "-q:v", "3", output], 600)
     with open(output, "rb") as f:
         encoded = base64.b64encode(f.read()).decode("ascii")
     return {"path": output, "image": encoded, "mimeType": "image/jpeg",

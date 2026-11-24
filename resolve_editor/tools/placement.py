@@ -21,16 +21,17 @@ def place_clips(a: dict[str, Any]) -> dict[str, Any]:
                                    f"(0-{frames or '?'})")
         kinds = {1: ["video"], 2: ["audio"]}.get(spec.get("media_type"), ["video", "audio"])
         for kind in kinds:
+            label = timeline.track_label(kind, track)
             hit = timeline.collides(kind, track, record, record + last - first)
             if hit:
-                return outcome.blocked(f"{clip['name']} would overwrite {hit['name']} on {kind[0].upper()}{track} "
+                return outcome.blocked(f"{clip['name']} would overwrite {hit['name']} on {label} "
                                        f"at {session.to_tc(hit['start'])}")
             # Resolve places a clip that overlaps an earlier one of the same call shifted and shortened (I-27)
             other = next((p for p in planned if p[:2] == (kind, track) and record < p[3]
                           and p[2] < record + last - first), None)
             if other:
                 return outcome.blocked(f"clip {n} ({clip['name']}) would overlap clip {other[4]} ({other[5]}) on "
-                                       f"{kind[0].upper()}{track} at {session.to_tc(record)}; clips of one call "
+                                       f"{label} at {session.to_tc(record)}; clips of one call "
                                        "can't overlap")
         planned += [(kind, track, record, record + last - first, n, clip["name"]) for kind in kinds]
         plan.append({"clip": clip["id"], "name": clip["name"], "start_frame": first, "end_frame": last,
