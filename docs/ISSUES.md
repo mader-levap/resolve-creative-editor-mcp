@@ -1,6 +1,6 @@
 # Issues
 
-Found while testing `edit__add_transition`, 2026-11-22. This is the base for fixes. Fixed so far: I-01, I-02, I-03, I-04, I-05, I-06, I-07, I-08, I-09, I-10, I-11, I-12, I-13, I-14, I-15, I-16, I-17, I-18, I-19, I-20, I-21, I-23, I-24, I-27, I-29.
+Found while testing `edit__add_transition`, 2026-11-22. This is the base for fixes. Fixed so far: I-01, I-02, I-03, I-04, I-05, I-06, I-07, I-08, I-09, I-10, I-11, I-12, I-13, I-14, I-15, I-16, I-17, I-18, I-19, I-20, I-21, I-23, I-24, I-27, I-28, I-29.
 
 - Environment: free DaVinci Resolve 21.2.0.6, Windows 10, 60 fps timeline.
 - Code is named by file and function, with paths from the repo root.
@@ -43,10 +43,10 @@ How each item is known:
 | [I-25](#i-25) | **Decided**: keep parts | A long caption is several clips; it could be one | Live probe |
 | [I-26](#i-26) | Low | A cached transcript names the file it was first made from | Fake |
 | [I-27](#i-27) | ~~Medium~~ **Fixed** | `place_clips` passes clips of one call that overlap each other | Live, fake |
-| [I-28](#i-28) | Low | `place_clips` passes a source range past the clip's end | Live, fake |
+| [I-28](#i-28) | ~~Low~~ **Fixed** | `place_clips` passes a source range past the clip's end | Live, fake |
 | [I-29](#i-29) | ~~Medium~~ **Fixed** | When a move can't rebuild the original either, the error doesn't say where the clip is | Fake |
 
-Order, one fix at a time, worst first: I-28, I-26; I-22 waits for the next sighting, which will now name where it stopped. Re-rank after each fix.
+Order, one fix at a time, worst first: I-26; I-22 waits for the next sighting, which will now name where it stopped. Re-rank after each fix.
 
 ## Issues
 
@@ -660,7 +660,7 @@ it without gaps. `set_scratch_fps` (test-only, `_RCE_` timelines) sets the rate 
 - Live: the full `tests/live/live_resolve.py` run, 63 passed. "I-27: clips of one call overlapping each other are refused" passes and nothing is placed at +600. The only failure is the I-28 check.
 
 <a id="i-28"></a>
-### I-28 `place_clips` passes a source range past the clip's end (low)
+### I-28 `place_clips` passes a source range past the clip's end (low, fixed)
 
 **Where:** `resolve_editor/tools/placement.py` (`place_clips`)
 
@@ -668,9 +668,17 @@ it without gaps. `set_scratch_fps` (test-only, `_RCE_` timelines) sets the rate 
 
 **Live 2026-11-24:** source 300-420 of the 360-frame test clip. Preview: passed. Confirm: `RuntimeError: clips[1] exclusive end_frame exceeds source duration (360 frames)` from the bridge's own check in `append_clips`; nothing was placed. So no harm is done, but the approved preview was wrong and the error comes after the user's confirm.
 
-**Found** by `tests/unit/test_timeline_steps.py` `test_a_source_range_past_the_clip_is_refused` (marked `expectedFailure`). The live check "I-28: ..." fails until it is fixed.
+**Found** by `tests/unit/test_timeline_steps.py` `test_a_source_range_past_the_clip_is_refused`, and by the live check "I-28: ...".
 
-**Likely fix:** block when `last` is greater than the clip's `frames`, worded like `_plan_replace` ("outside the clip").
+**Fix:** the preview checks the range against the clip's length, like `_plan_replace`. A negative `start_frame`, or an `end_frame` past the clip's length, is `blocked`: "source range 250-400 is outside the clip (0-300)". `end_frame` is exclusive, so ending exactly at the clip's length passes. When the Media Pool gives no length, the bridge's own check is still the only one. The schema text says the range must be inside the clip.
+
+**Verified 2026-11-24:**
+
+- `tests/unit/test_timeline_steps.py` `PlaceClips`:
+  - an end past the clip and a negative start are refused (both failed before the fix);
+  - an end at the last frame passes, and so does a clip of unknown length.
+  Each of four breaks is caught: no end check, `>=` for `>`, no negative-start check, no guard for an unknown length.
+- Live: the full `tests/live/live_resolve.py` run, 68 of 68, with "I-28: a source range past the clip's end is refused" passing and nothing placed.
 
 <a id="i-29"></a>
 ### I-29 When a move can't rebuild the original either, the error doesn't say where the clip is (medium, fixed)

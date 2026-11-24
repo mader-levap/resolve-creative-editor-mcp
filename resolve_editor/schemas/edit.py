@@ -25,8 +25,8 @@ TOOLS = [
     T("snapshot_timeline", "Duplicate the current timeline as a timestamped backup and stay on the original.",
       {"label": S}),
     T("place_clips", "Put media-pool clips on the timeline at exact frames. Source range is [start_frame, end_frame) "
-      "in the clip's own frames. Refuses anything that would overwrite existing items or another clip of the "
-      "same call.",
+      "in the clip's own frames, inside the clip. Refuses anything that would overwrite existing items or another "
+      "clip of the same call.",
       {"clips": {"type": "array", "items": {"type": "object", "properties": {
           "clip": S, "start_frame": I, "end_frame": I, "record": WHEN, "track_index": I,
           "media_type": {"type": "integer", "enum": [1, 2], "description": "1 video only, 2 audio only"}},

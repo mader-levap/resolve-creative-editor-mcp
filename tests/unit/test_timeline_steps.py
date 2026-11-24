@@ -1,6 +1,4 @@
 """Shared timeline steps and the refusals around them: backups, appends that don't land, placing clips."""
-import unittest
-
 from tests.support import Base, FakeResolve, item, sample_items
 
 from resolve_editor import dispatch
@@ -179,14 +177,39 @@ class PlaceClips(Base):
         self.assertIn("on V1", r["reason"])
         self.assertNotIn("A1", r["reason"])
 
-    @unittest.expectedFailure  # docs/ISSUES.md I-28
     def test_a_source_range_past_the_clip_is_refused(self):
         f = self.use(FakeResolve(sample_items()))  # the media pool clip is 300 frames
         r = dispatch.run("place_clips", {"clips": [{"clip": "c1", "start_frame": 250, "end_frame": 400,
                                                     "record": 1200}]})
         self.assertEqual(r["_operation"]["status"], "blocked", r)
         self.assertIn("outside the clip", r["reason"])
+        self.assertIn("0-300", r["reason"])
         self.assertNotIn("append_clips", f.calls)
+
+    def test_a_range_ending_at_the_clips_last_frame_passes(self):  # end_frame is exclusive
+        self.use(FakeResolve(sample_items()))
+        r = dispatch.run("place_clips", {"clips": [{"clip": "c1", "start_frame": 200, "end_frame": 300,
+                                                    "record": 1200}]})
+        self.assertEqual(r["_operation"]["status"], "preview", r)
+
+    def test_a_negative_start_is_refused(self):
+        self.use(FakeResolve(sample_items()))
+        r = dispatch.run("place_clips", {"clips": [{"clip": "c1", "start_frame": -10, "end_frame": 20,
+                                                    "record": 1200}]})
+        self.assertEqual(r["_operation"]["status"], "blocked", r)
+        self.assertIn("outside the clip", r["reason"])
+
+    def test_a_clip_of_unknown_length_is_left_to_the_bridge(self):
+        class NoLength(FakeResolve):
+            def __call__(self, op, args, **kw):
+                r = super().__call__(op, args, **kw)
+                if op == "list_media":
+                    r["result"][0]["frames"] = ""
+                return r
+        self.use(NoLength(sample_items()))
+        r = dispatch.run("place_clips", {"clips": [{"clip": "c1", "start_frame": 0, "end_frame": 5000,
+                                                    "record": 1200}]})
+        self.assertEqual(r["_operation"]["status"], "preview", r)
 
 
 class RippleFiller(Base):

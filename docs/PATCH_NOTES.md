@@ -9,6 +9,7 @@
 - Added: tests for what had none. Unit: the move/trim rollback when a setting isn't copied or the swap fails after one linked item, the transcription cache, every confirm guard of the gateway, `set_audio` pan, `normalize_audio`, `inspect_range` details, `export_timeline`, `audit_log`, `doctor`, and the error branches of backups, appends, `place_clips`, `ripple_trim` and `list_captions`. `tests/unit/test_media_ffmpeg.py` runs the media tools, `qc_file` and beat detection on a generated clip (skipped without FFmpeg). Live: a `ripple` area, plus `set_speed`, `copy_grade`, `normalize_audio`, `snapshot_timeline` and `batch`. They found I-26 to I-29 (docs/ISSUES.md), not fixed yet: their tests are marked `expectedFailure`, and the live checks for I-27 and I-28 fail until they are fixed.
 - Fixed: `edit__place_clips` refuses clips of one call that overlap each other on a track, naming both; Resolve had placed the later one shifted and shortened (I-27).
 - Fixed: when `edit__move_item` or `edit__trim_item` can't place the clip and can't rebuild the original either, the copy with the clip's settings is kept on its staging track, and the result says where it is and names the backup, instead of a bare error (I-29).
+- Fixed: `edit__place_clips` refuses a source range outside the clip in its preview; before, the preview passed and the confirm failed with the bridge's error (I-28).
 
 ## 2026-11-23
 

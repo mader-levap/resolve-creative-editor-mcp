@@ -11,10 +11,14 @@ def place_clips(a: dict[str, Any]) -> dict[str, Any]:
     for n, spec in enumerate(a["clips"], 1):
         clip = timeline.find_clip(spec["clip"])
         first = spec.get("start_frame") or 0
-        last = spec.get("end_frame") or int(float(clip.get("frames") or 0))
+        frames = int(float(clip.get("frames") or 0))  # 0 when unknown: then only the bridge can check
+        last = spec.get("end_frame") or frames
         record, track = session.to_frame(spec["record"]), spec.get("track_index") or 1
         if last <= first:
             return outcome.blocked(f"{clip['name']}: end_frame must be greater than start_frame")
+        if first < 0 or (frames and last > frames):  # end_frame is exclusive (docs/ISSUES.md I-28)
+            return outcome.blocked(f"{clip['name']}: source range {first}-{last} is outside the clip "
+                                   f"(0-{frames or '?'})")
         kinds = {1: ["video"], 2: ["audio"]}.get(spec.get("media_type"), ["video", "audio"])
         for kind in kinds:
             hit = timeline.collides(kind, track, record, record + last - first)
