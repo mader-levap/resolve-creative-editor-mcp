@@ -4,6 +4,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -89,6 +90,61 @@ class ChildClose(unittest.TestCase):
             c.start("2025-03-26")
         c.close()
         self.assertTrue(os.path.exists(marker))
+
+    def test_a_child_that_ignores_the_end_of_its_input_is_terminated(self):
+        c = start_child(self, FAKE_MCP_IGNORE_EOF="1")
+        proc = c.proc
+        assert proc is not None
+        began = time.monotonic()
+        c.close()
+        self.assertIsNotNone(proc.returncode)
+        self.assertLess(time.monotonic() - began, 6, "2 s grace, then terminate")
+
+
+def start_child(test, *tools, **env):
+    """A started Child running tests/fake_mcp.py with these tools and FAKE_MCP_* switches; closed after the test."""
+    with mock.patch.dict(os.environ, env):
+        c = child.Child("fake", [sys.executable, str(ROOT / "tests" / "fake_mcp.py"), *tools], ROOT)
+        c.start("2025-03-26")
+    test.addCleanup(c.close)
+    return c
+
+
+class ChildRequests(unittest.TestCase):
+    def test_a_request_that_times_out_raises_and_its_late_reply_is_discarded(self):
+        c = start_child(self, "slow", "hello", FAKE_MCP_SLOW="1")
+        with self.assertRaises(TimeoutError):
+            c.request("tools/call", {"name": "slow", "arguments": {}}, timeout=0.2)
+        # the slow reply arrives first; the next request must skip it and get its own
+        r = c.request("tools/call", {"name": "hello", "arguments": {}}, timeout=10)
+        self.assertEqual(r["result"]["content"][0]["text"], "called:hello")
+
+    def test_a_child_that_exits_mid_call_fails_the_call_at_once(self):  # docs/ISSUES.md C-07
+        c = start_child(self, "exit")
+        began = time.monotonic()
+        with self.assertRaisesRegex(RuntimeError, "fake exited while handling tools/call"):
+            c.request("tools/call", {"name": "exit", "arguments": {}}, timeout=20)
+        self.assertLess(time.monotonic() - began, 5, "not after the timeout")
+        with self.assertRaisesRegex(RuntimeError, "not running"):  # and later calls fail at once too
+            c.request("tools/call", {"name": "exit", "arguments": {}}, timeout=20)
+
+    def test_lines_that_are_not_replies_are_skipped(self):
+        c = start_child(self, FAKE_MCP_NOISE="1")
+        r = c.request("tools/call", {"name": "hello", "arguments": {}}, timeout=10)
+        self.assertEqual(r["result"]["content"][0]["text"], "called:hello")
+
+    def test_a_failed_handshake_raises(self):
+        c = child.Child("fake", [sys.executable, str(ROOT / "tests" / "fake_mcp.py")], ROOT)
+        self.addCleanup(c.close)
+        with mock.patch.dict(os.environ, FAKE_MCP_INIT_ERROR="1"), \
+                self.assertRaisesRegex(RuntimeError, "fake initialize failed: .*cannot start"):
+            c.start("2025-03-26")
+
+    def test_a_request_before_start_raises(self):
+        c = child.Child("fake", [sys.executable, "-c", ""], ROOT)
+        with self.assertRaisesRegex(RuntimeError, "fake MCP process is not running"):
+            c.request("ping", {})
+        c.close()  # nothing started: harmless
 
 
 if __name__ == "__main__":

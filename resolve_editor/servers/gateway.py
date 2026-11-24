@@ -236,6 +236,10 @@ class Gateway:
         if self.legacy:
             self.legacy.close()
 
+def _send(message: dict[str, Any]) -> None:
+    sys.stdout.write(json.dumps(message, ensure_ascii=False) + "\n")
+    sys.stdout.flush()
+
 
 def main() -> None:
     """Serve MCP over stdio until stdin ends; --doctor prints the diagnostics instead."""
@@ -260,6 +264,14 @@ def main() -> None:
                 continue
             try:
                 message = json.loads(line)
+            except ValueError:  # JSON-RPC answers bad input with id null (docs/ISSUES.md C-08)
+                _send({"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": "parse error"}})
+                continue
+            if not isinstance(message, dict):
+                _send({"jsonrpc": "2.0", "id": None,
+                       "error": {"code": -32600, "message": "invalid request: not a JSON object"}})
+                continue
+            try:
                 if "id" not in message:
                     gateway.handle(message)
                     continue
@@ -276,8 +288,7 @@ def main() -> None:
                 except Exception as exc:
                     output = {"jsonrpc": "2.0", "id": message["id"],
                               "error": {"code": -32000, "message": f"{type(exc).__name__}: {exc}"}}
-                sys.stdout.write(json.dumps(output, ensure_ascii=False) + "\n")
-                sys.stdout.flush()
+                _send(output)
             except Exception as exc:
                 sys.stderr.write(f"gateway error: {type(exc).__name__}: {exc}\n")
                 sys.stderr.flush()

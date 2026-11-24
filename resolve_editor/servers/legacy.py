@@ -56,18 +56,20 @@ def main() -> None:
         try:
             msg = json.loads(line)
         except ValueError:  # one bad line must not stop the server
-            msg = None
-        if not isinstance(msg, dict):
             out: dict[str, Any] = {"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": "parse error"}}
-        elif "id" not in msg:  # notification
-            continue
         else:
-            try:
-                out = {"jsonrpc": "2.0", "id": msg["id"], "result": handle(msg)}
-            except LookupError:
-                out = {"jsonrpc": "2.0", "id": msg["id"], "error": {"code": -32601, "message": "method not found"}}
-            except Exception as exc:
-                out = {"jsonrpc": "2.0", "id": msg["id"],
-                       "error": {"code": -32000, "message": f"{type(exc).__name__}: {exc}"}}
+            if not isinstance(msg, dict):
+                out = {"jsonrpc": "2.0", "id": None,
+                       "error": {"code": -32600, "message": "invalid request: not a JSON object"}}
+            elif "id" not in msg:  # notification
+                continue
+            else:
+                try:
+                    out = {"jsonrpc": "2.0", "id": msg["id"], "result": handle(msg)}
+                except LookupError:
+                    out = {"jsonrpc": "2.0", "id": msg["id"], "error": {"code": -32601, "message": "method not found"}}
+                except Exception as exc:
+                    out = {"jsonrpc": "2.0", "id": msg["id"],
+                           "error": {"code": -32000, "message": f"{type(exc).__name__}: {exc}"}}
         sys.stdout.write(json.dumps(out) + "\n")
         sys.stdout.flush()

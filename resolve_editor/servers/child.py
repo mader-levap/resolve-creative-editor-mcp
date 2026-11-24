@@ -11,6 +11,8 @@ from typing import Any
 
 from .. import __version__
 
+EXITED: dict[str, Any] = {"_exited": True}  # put on the reply queue when the child's output ends (docs/ISSUES.md C-07)
+
 
 class Child:
     """One child MCP server process, spoken to over its stdin and stdout."""
@@ -23,6 +25,7 @@ class Child:
         self.lock = threading.Lock()
         self.responses: queue.Queue[dict[str, Any]] = queue.Queue()
         self.reader: threading.Thread | None = None
+        self.exited = False  # the child's output has ended: it won't answer again
         self.initialize_result: dict[str, Any] | None = None
         self.tools: list[dict[str, Any]] = []
 
@@ -30,6 +33,7 @@ class Child:
         """Start the process (if not running), do the MCP handshake and load its tool list."""
         if self.proc and self.proc.poll() is None:
             return
+        self.responses, self.exited = queue.Queue(), False  # nothing left over from an earlier process
         self.proc = subprocess.Popen(
             self.command, cwd=self.cwd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             stderr=None, text=True, encoding="utf-8", errors="replace", bufsize=1,
@@ -60,11 +64,14 @@ class Child:
                 continue
             if isinstance(response, dict) and "id" in response:
                 self.responses.put(response)
+        self.exited = True
+        self.responses.put(EXITED)  # wakes a request waiting for a reply that will never come
 
     def request(self, method: str, params: dict[str, Any], timeout: float = 180.0) -> dict[str, Any]:
         """Send one request and wait for its reply; one at a time. Raises when the process isn't running or
-        TimeoutError after `timeout`; a reply that comes after its timeout is discarded later."""
-        if not self.proc or self.proc.poll() is not None:
+        TimeoutError after `timeout`, or at once if the child exits meanwhile; a reply that comes after its timeout is
+        discarded later."""
+        if not self.proc or self.exited or self.proc.poll() is not None:
             raise RuntimeError(f"{self.label} MCP process is not running")
         with self.lock:
             request_id = self.next_id
@@ -79,6 +86,9 @@ class Child:
                     response = self.responses.get(timeout=max(0.0, deadline - time.monotonic()))
                 except queue.Empty as exc:
                     raise TimeoutError(f"{self.label} timed out handling {method} after {timeout:g}s") from exc
+                if response is EXITED:
+                    self.responses.put(EXITED)  # for any later request
+                    raise RuntimeError(f"{self.label} exited while handling {method}")
                 if response.get("id") == request_id:
                     return response
 

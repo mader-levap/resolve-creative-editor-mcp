@@ -779,6 +779,26 @@ Alongside, two checks against drift, neither a bug so far: `outcome.op` takes a 
 
 **Verified:** `tests/unit/test_dispatch.py` `RequiredArguments`, failing before the fix with the `KeyError`s; every `SAMPLE_ARGS` entry passes. A status typo put into `tools/audio.py` was reported by mypy, and a misspelled `TIMELINE_READS` entry failed `ToolLists`; both were reverted.
 
+### C-07 A child server that dies mid-call hangs the gateway for up to 30 minutes (medium, fixed)
+
+**Where:** `resolve_editor/servers/child.py` (`Child.request`, `_read_responses`)
+
+**Problem:** when a child server (the legacy bridge server or the upstream engine) exited while handling a request, the reader thread stopped, but `request` kept waiting for a reply until its timeout: 1800 s for `tools/call`. The client saw nothing for half an hour. Found while mapping untested code with coverage.
+
+**Fix:** when the child's output ends, the reader marks the child as exited and puts a marker on the reply queue. A waiting `request` raises "<label> exited while handling <method>" at once, and later requests raise "not running" at once. The gateway turns both into an error reply. A dead child is not restarted: the client reconnects (`/mcp`).
+
+**Verified:** `tests/unit/test_stdio.py` `test_a_child_that_exits_mid_call_fails_the_call_at_once`, which waited out its 20 s timeout before the fix.
+
+### C-08 The gateway doesn't answer a line that isn't a JSON object (low, fixed)
+
+**Where:** `resolve_editor/servers/gateway.py` (`main`); `legacy.py` (`main`)
+
+**Problem:** a line that wasn't valid JSON, or was JSON but not an object (e.g. an array), was only logged to stderr, and the client got no reply. JSON-RPC answers these with an error and id null. The legacy server answered both (C-02), but gave a non-object the parse error code.
+
+**Fix:** both servers answer a line that doesn't parse with `-32700` (parse error) and valid JSON that isn't an object with `-32600` (invalid request), id null, and keep reading.
+
+**Verified:** `tests/unit/test_gateway_routing.py` `test_bad_input_gets_an_error_reply_and_the_gateway_goes_on` and `LegacyMain`, both failing before the fix.
+
 ## Live tests
 
 ### Setup
