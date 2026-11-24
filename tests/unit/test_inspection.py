@@ -50,3 +50,25 @@ class EmptyTracks(Base):
     def test_analyze_without_counts_is_unchanged(self):
         r = inspection.analyze([item("a", 0, 10, track=2)])
         self.assertEqual(r["tracks"], {"V2": 1})
+
+
+class InspectDetails(Base):
+    def test_details_add_settings_and_list_only_changed_ones(self):
+        items = [item("a", 1000, 10, src=5), item("t", 1008, 4, type="transition"), item("b", 1010, 10)]
+        f = self.use(FakeResolve(items, details={
+            "a": {"properties": {"ZoomX": 1.5, "Opacity": 100, "Pan": 0}, "markers": {"7": {"name": "m"}}},
+            "b": {"enabled": False, "color": "", "speed": {"Percentage": 50}}}))
+        f.settings["t"] = {}  # a transition has no clip details
+        r = dispatch.run("inspect_range", {"start": 1000, "end": 1020, "details": True})
+        rows = {x["id"]: x for x in r["items"]}
+        self.assertEqual(r["count"], 3)
+        self.assertEqual((rows["a"]["changed_settings"], rows["a"]["markers"], rows["a"]["color"]),
+                         ({"ZoomX": 1.5}, 1, "Orange"))
+        self.assertEqual((rows["b"]["enabled"], rows["b"]["speed"], rows["b"]["color"]), (False, 50, None))
+        self.assertNotIn("changed_settings", rows["t"], "transitions aren't asked for details")
+
+    def test_without_details_no_details_are_read(self):
+        f = self.use(FakeResolve([item("a", 1000, 10)]))
+        r = dispatch.run("inspect_range", {"start": 1000, "end": 1020})
+        self.assertNotIn("changed_settings", r["items"][0])
+        self.assertNotIn("item_details", f.calls)

@@ -41,8 +41,12 @@ How each item is known:
 | [I-23](#i-23) | ~~High~~ **Fixed** | Moving or trimming a clip drops its clip markers, reported as `passed` | Live, fake |
 | [I-24](#i-24) | ~~Low~~ **Fixed** | The live caption check assumes one Standard Generator Duration | Live, fake |
 | [I-25](#i-25) | **Decided**: keep parts | A long caption is several clips; it could be one | Live probe |
+| [I-26](#i-26) | Low | A cached transcript names the file it was first made from | Fake |
+| [I-27](#i-27) | Medium | `place_clips` passes clips of one call that overlap each other | Live, fake |
+| [I-28](#i-28) | Low | `place_clips` passes a source range past the clip's end | Live, fake |
+| [I-29](#i-29) | Medium | When a move can't rebuild the original either, the error doesn't say where the clip is | Fake |
 
-Order, one fix at a time, worst first: nothing open; I-22 waits for the next sighting, which will now name where it stopped. Re-rank after each fix.
+Order, one fix at a time, worst first: I-27, I-29, I-28, I-26; I-22 waits for the next sighting, which will now name where it stopped. Re-rank after each fix.
 
 ## Issues
 
@@ -625,6 +629,60 @@ it without gaps. `set_scratch_fps` (test-only, `_RCE_` timelines) sets the rate 
 **Choice:** A would make every caption one clip on the target. The costs are: in Resolve, changing a long caption's wording by hand means changing each title inside its inner timeline; Text+ animation restarts at each inner cut (a static caption, as now, looks the same); and the inner insert is a ripple insert, harmless only because the inner timeline holds nothing else. Needs a bridge change, so it waits for the user's decision.
 
 **Decision 2026-11-23:** keep parts. Each part is the caption's one inner timeline, so editing its text there changes every part, and nothing changes in the bridge. The probe results stay here in case it comes up again.
+
+<a id="i-26"></a>
+### I-26 A cached transcript names the file it was first made from (low)
+
+**Where:** `resolve_editor/media.py` (`_transcribe_audio`)
+
+**Problem:** the cache is keyed by the file's content, model and language, and the whole result is stored, `path` included. A second file with the same content (a copy, or the same recording under another name) gets the first file's `path` back, with `cache_hit: true`. Anything that uses `path` from the result points at the other file.
+
+**Found 2026-11-24** by `tests/unit/test_media.py` `test_a_cached_transcript_names_the_file_asked_for` (marked `expectedFailure`): transcribe `talk.wav`, copy it to `copy.wav`, transcribe the copy; `path` is `talk.wav`.
+
+**Likely fix:** on a cache hit, set `path` to the file asked for. The segments stay the same.
+
+<a id="i-27"></a>
+### I-27 `place_clips` passes clips of one call that overlap each other (medium)
+
+**Where:** `resolve_editor/tools/placement.py` (`place_clips`)
+
+**Problem:** each clip is checked only against what is already on the timeline, not against the other clips of the same call. The preview passes two clips that overlap each other, and the confirm places them.
+
+**Live 2026-11-24** (`tests/live/live_resolve.py`, clips area, 30 fps scratch timeline): two 60-frame video clips at +600 and +640 on V1 in one call. Resolve placed the first at +600 (60 frames) and the second at +660, cut to 40 frames. The tool reported `partial` with `clips_placed: 1`, because its read-back looks for the second at +640. So it isn't the silent rejection AGENTS.md describes for overlapping caption placements: Resolve places a different clip than asked.
+
+**Found** by `tests/unit/test_timeline_steps.py` `test_clips_of_one_call_that_overlap_each_other_are_refused` (marked `expectedFailure`). The live check "I-27: ..." fails until it is fixed.
+
+**Likely fix:** in the plan loop, check each clip against the clips planned before it on the same track and kind, and block naming both.
+
+<a id="i-28"></a>
+### I-28 `place_clips` passes a source range past the clip's end (low)
+
+**Where:** `resolve_editor/tools/placement.py` (`place_clips`)
+
+**Problem:** the preview doesn't compare `end_frame` with the clip's length; `move_item` and `trim_item` do (`_plan_replace`). The confirm then fails with an error from the bridge, not a `blocked` result.
+
+**Live 2026-11-24:** source 300-420 of the 360-frame test clip. Preview: passed. Confirm: `RuntimeError: clips[1] exclusive end_frame exceeds source duration (360 frames)` from the bridge's own check in `append_clips`; nothing was placed. So no harm is done, but the approved preview was wrong and the error comes after the user's confirm.
+
+**Found** by `tests/unit/test_timeline_steps.py` `test_a_source_range_past_the_clip_is_refused` (marked `expectedFailure`). The live check "I-28: ..." fails until it is fixed.
+
+**Likely fix:** block when `last` is greater than the clip's `frames`, worded like `_plan_replace` ("outside the clip").
+
+<a id="i-29"></a>
+### I-29 When a move can't rebuild the original either, the error doesn't say where the clip is (medium)
+
+**Where:** `resolve_editor/tools/replace.py` (`_replace`, the `except` after the swap)
+
+**Problem:** `move_item` and `trim_item` delete the original only after a copy with its settings is ready on a staging track. If placing the new clip fails, they rebuild the original from the staged copy. If that rebuild fails too, `append_one` raises "append to video 1 at 1000 did not land" out of the tool. By then:
+
+- the original is gone;
+- the staged copy, with the clip's settings, is the only one left, on a staging track (V2 in the test);
+- the staging track isn't removed, and the error says none of this.
+
+The backup timeline still has the original, if one was made.
+
+**Found 2026-11-24** with the fake: `tests/unit/test_timeline_steps.py` `test_when_the_original_cant_be_rebuilt_either_the_result_says_where_the_copy_is` (marked `expectedFailure`). Its fake ignores both appends on V1. Not seen live; it needs Resolve to refuse two appends in a row.
+
+**Likely fix:** catch the rebuild's failure and return `failed`, naming the staged copy's track and position and the backup, and keep that track.
 
 ## Live tests
 

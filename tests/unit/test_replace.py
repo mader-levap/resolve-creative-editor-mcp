@@ -65,6 +65,42 @@ class Replace(Base):
         self.assertEqual([(x["start"], x["source_start"], x["duration"]) for x in back], [(1000, 5, 10)])
         self.assertEqual(f.settings[back[0]["id"]]["properties"], {"ZoomX": 1.5})
 
+    def test_a_setting_reported_as_not_copied_leaves_the_original(self):
+        class GradeNotCopied(FakeResolve):
+            def __call__(self, op, args, **kw):
+                r = super().__call__(op, args, **kw)
+                if op == "copy_settings":
+                    r["result"]["failed"] = ["grade"]
+                return r
+        f = self.use(GradeNotCopied([item("a", 1000, 10, src=5)]))
+        r = dispatch.run("move_item", {"item_id": "a", "record": 1050, "confirm": True, "timeline": "T",
+                                       "backup": False})
+        self.assertEqual(r["_operation"]["status"], "failed", r)
+        self.assertIn("grade", r["reason"])
+        self.assertEqual([(x["id"], x["start"]) for x in f.items], [("a", 1000)], "staged copy removed")
+        self.assertEqual(f.tracks["video"], 1, "staging track removed")
+
+    def test_swap_failure_after_one_linked_item_rebuilds_both_and_links_them(self):
+        class FailFourthAppend(FakeResolve):  # 2 staged, then the swap: video lands, audio is refused
+            def __call__(self, op, args, **kw):
+                if op == "append_clips":
+                    self.appends = getattr(self, "appends", 0) + 1
+                    if self.appends == 4:
+                        return {"ok": False, "error": "refused"}
+                if op == "link_items":
+                    self.linked = list(args["item_ids"])
+                return super().__call__(op, args, **kw)
+        items = [item("v", 1000, 60, src=10), item("a", 1000, 60, src=10, kind="audio")]
+        f = self.use(FailFourthAppend(items, details={"v": {"linked": ["a"]}, "a": {"linked": ["v"]}}))
+        r = dispatch.run("move_item", {"item_id": "v", "record": 1200, "confirm": True, "timeline": "T",
+                                       "backup": False})
+        self.assertEqual(r["_operation"]["status"], "failed", r)
+        got = sorted((x["track_type"], x["track"], x["start"], x["source_start"], x["duration"]) for x in f.items)
+        self.assertEqual(got, [("audio", 1, 1000, 10, 60), ("video", 1, 1000, 10, 60)],
+                         "the moved video is removed and both originals are back where they were")
+        self.assertEqual(sorted(f.linked), sorted(x["id"] for x in f.items), "the rebuilt pair is linked")
+        self.assertEqual(f.tracks, {"video": 1, "audio": 1}, "staging tracks removed")
+
     def test_trim_moves_linked_audio_too(self):
         items = [item("v", 1000, 60, src=10), item("a", 1000, 60, src=10, kind="audio")]
         f = self.use(FakeResolve(items, details={"v": {"linked": ["a"]}, "a": {"linked": ["v"]}}))

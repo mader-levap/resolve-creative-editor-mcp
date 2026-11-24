@@ -4,7 +4,8 @@ Requires Resolve open with a project and the bridge running. Everything happens 
 test clip, the scratch timeline of the same name, its backups and the captions); your current timeline is compared
 before and after. At the end the bin you had selected is current again and the run's bin is deleted with everything
 in it, unless --keep is given. Run: python tests/live/live_resolve.py
-One or more areas only: --only captions,markers (areas: bins, clips, transitions, markers, captions, reads).
+One or more areas only: --only captions,markers (areas: bins, clips, ripple, transitions, markers, captions,
+reads).
 The areas run in that order. If a bins check fails, the other areas are skipped: they rely on bins.
 """
 import os
@@ -197,7 +198,7 @@ def bins(name):
     check("use_bin of a deleted bin is refused", "no bin" in err and current() == name, err)
 
 
-AREAS = ("bins", "clips", "transitions", "markers", "captions", "reads")  # run in this order
+AREAS = ("bins", "clips", "ripple", "transitions", "markers", "captions", "reads")  # run in this order
 
 
 def clips(clip, start, name):
@@ -260,14 +261,92 @@ def clips(clip, start, name):
     check("disable clip read-back", status(r) == "success", r)
     dispatch.run("set_enabled", {"item_ids": [second["id"]], "enabled": True})
 
+    r = dispatch.run("set_speed", {"item_id": second["id"], "percentage": 50, "confirm": True, "timeline": name})
+    check("set_speed read-back", status(r) == "success" and r["_operation"]["changes"].get("speed") == 50, r)
+    r = dispatch.run("copy_grade", {"from_id": trimmed.get("new_id"), "to_ids": [second["id"]], "confirm": True,
+                                    "timeline": name})
+    check("copy_grade runs (grades can't be read back)", status(r) == "success", r)
+    sounds = [x["id"] for x in session.items() if x["track_type"] == "audio" and x["start"] < start + 400]
+    r = dispatch.run("normalize_audio", {"item_ids": sounds, "confirm": True, "timeline": name})
+    check("normalize_audio runs (levels can't be judged without listening)", status(r) == "success", r)
+    placement_probes(clip, start, name)
 
-def markers(clip_path, start):
-    """Timeline markers by frame and timecode; beat analysis."""
+
+def placement_probes(clip, start, name):
+    """place_clips requests its own check misses (docs/ISSUES.md I-27, I-28): what Resolve does with them, and
+    whatever landed is removed again."""
+    def landed(lo, hi):
+        return [x for x in session.items() if x["track_type"] == "video" and lo <= x["start"] < hi]
+
+    def place(*clips):
+        return dispatch.run("place_clips", {"clips": [dict(c, clip=clip, media_type=1) for c in clips],
+                                            "confirm": True, "timeline": name})
+
+    r = place({"start_frame": 0, "end_frame": 60, "record": start + 600},
+              {"start_frame": 0, "end_frame": 60, "record": start + 640})
+    got = [(x["start"] - start, x["duration"]) for x in landed(start + 600, start + 700)]
+    check("I-27: clips of one call overlapping each other are refused", status(r) == "blocked",
+          f"{status(r)} {r.get('_operation', {}).get('changes')}; landed (offset, frames): {got}")
+    try:  # the clip has 360 frames
+        r = place({"start_frame": 300, "end_frame": 420, "record": start + 800})
+    except RuntimeError as exc:  # refused by the bridge at the write, after a preview that passed
+        r = {"_operation": {"status": f"error: {exc}"}}
+    past = [(x["start"] - start, x["duration"], x.get("source_start")) for x in landed(start + 800, start + 950)]
+    check("I-28: a source range past the clip's end is refused", status(r) == "blocked",
+          f"{status(r)}; landed (offset, frames, source start): {past}")
+    stray = [x["id"] for x in landed(start + 600, start + 950)]
+    if stray:
+        B("delete_items", item_ids=stray)
+        session.invalidate()
+
+
+def ripple(clip, start, name):
+    """ripple_trim in real Resolve: the trimmed clip's end comes in and everything after it, on every track, moves
+    back by the same frames, gaps kept (trim_tail plus a filler that is ripple-deleted, docs/ISSUES.md I-05)."""
+    at = start + 2000  # after everything the other areas place
+    r = dispatch.run("place_clips", {"clips": [
+        {"clip": clip, "start_frame": 0, "end_frame": 60, "record": at, "media_type": 1},
+        {"clip": clip, "start_frame": 100, "end_frame": 160, "record": at + 100, "media_type": 1},
+        {"clip": clip, "start_frame": 200, "end_frame": 260, "record": at + 200, "media_type": 2}],
+        "confirm": True, "timeline": name})
+    check("ripple clips placed: two videos and a later audio", status(r) == "success", r)
+
+    def spans():
+        return sorted((x["track_type"], x["start"] - at, x["end"] - at) for x in session.items() if x["start"] >= at)
+
+    first = next(x for x in session.items() if x["track_type"] == "video" and x["start"] == at)
+    r = dispatch.run("ripple_trim", {"item_ids": [first["id"]], "tail_frames": 20})
+    check("ripple preview moves the two later clips and changes nothing",
+          status(r) == "preview" and r["plan"]["other_clips_moved_back"] == 2
+          and spans() == [("audio", 200, 260), ("video", 0, 60), ("video", 100, 160)], (r, spans()))
+    r = dispatch.run("ripple_trim", {"item_ids": [first["id"]], "tail_frames": 20, "confirm": True,
+                                     "timeline": name})
+    check("ripple_trim pulls later clips back on every track, gaps kept",
+          status(r) == "success" and spans() == [("audio", 180, 240), ("video", 0, 40), ("video", 80, 140)],
+          (r, spans()))
+    check("ripple_trim made a backup and stayed on the timeline",
+          r.get("snapshot") in B("list_timelines") and B("get_state")["timeline"] == name, r.get("snapshot"))
+
+
+def markers(clip_path, start, name):
+    """Timeline markers by frame and timecode; beat analysis; a batch and a backup on their own."""
     r = dispatch.run("add_markers", {"markers": [{"at": start + 15, "name": "a"},
                                                  {"at": session.to_tc(start + 30), "name": "b"}]})
     check("markers by frame and timecode", status(r) == "success" and set(B("list_markers")) >= {"15", "30"}, r)
     r = dispatch.run("add_audio_markers", {"path": clip_path, "kind": "beats", "dry_run": True})
     check("beat analysis runs", status(r) == "planned", r)
+
+    r = dispatch.run("snapshot_timeline", {})
+    check("snapshot_timeline makes a backup and stays on the timeline",
+          status(r) == "success" and r.get("snapshot") in B("list_timelines") and B("get_state")["timeline"] == name,
+          r)
+    steps = [{"tool": "add_markers", "args": {"markers": [{"at": start + n, "name": f"batch {n}"}]}} for n in (45, 60)]
+    r = dispatch.run("batch", {"operations": steps})
+    check("batch preview changes nothing", status(r) == "preview" and not set(B("list_markers")) & {"45", "60"}, r)
+    r = dispatch.run("batch", {"operations": steps, "confirm": True, "timeline": name})
+    check("batch runs every step after one backup",
+          status(r) == "success" and set(B("list_markers")) >= {"45", "60"}
+          and r.get("snapshot") in B("list_timelines") and B("get_state")["timeline"] == name, r)
 
 
 def reads(start, folder):
@@ -315,9 +394,10 @@ def main():
         for i, area in enumerate(only):
             print(f"--- {area}")
             first = len(RESULTS)
-            {"clips": lambda: clips(clip, start, name), "transitions": lambda: transitions(clip, start, name),
-             "markers": lambda: markers(clip_path, start), "captions": lambda: captions(start, name),
-             "bins": lambda: bins(name), "reads": lambda: reads(start, folder)}[area]()
+            {"bins": lambda: bins(name), "clips": lambda: clips(clip, start, name),
+             "ripple": lambda: ripple(clip, start, name), "transitions": lambda: transitions(clip, start, name),
+             "markers": lambda: markers(clip_path, start, name), "captions": lambda: captions(start, name),
+             "reads": lambda: reads(start, folder)}[area]()
             if area == "bins" and not all(ok for _, ok in RESULTS[first:]) and only[i + 1:]:
                 print("bins failed: the other areas rely on them, skipping " + ", ".join(only[i + 1:]))
                 break

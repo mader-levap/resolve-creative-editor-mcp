@@ -8,6 +8,8 @@ import unittest
 
 from tests.support import ROOT  # also gives the gateway a temporary bridge folder
 
+from resolve_editor.servers import gateway
+
 
 class GatewayTests(unittest.TestCase):
     def test_namespaced_routing(self):
@@ -94,16 +96,25 @@ class GatewayResilience(unittest.TestCase):
             log = [json.loads(line) for line in f]
         self.assertEqual([(e["tool"], e["args"], e["status"]) for e in log], [("legacy__hello", {"x": 1}, "success")])
 
-    def test_delete_bin_needs_confirm_and_it_is_not_forwarded(self):
-        fake = [sys.executable, str(ROOT / "tests" / "fake_mcp.py"), "delete_bin"]
+    def test_guarded_tools_need_confirm_true_and_it_is_not_forwarded(self):
+        guarded = ("delete_items", "start_render", "delete_bin")
+        self.assertEqual(set(guarded), gateway.GUARDED_LEGACY, "a newly guarded tool is tested here too")
+        fake = [sys.executable, str(ROOT / "tests" / "fake_mcp.py"), *guarded]
         env = dict(os.environ, LEGACY_MCP_COMMAND=json.dumps(fake), RESOLVE_MCP_REPO=tempfile.mkdtemp(),
                    RESOLVE_MCP_SERVER="missing.py", RESOLVE_MCP_PYTHON="missing.exe")
         env.pop("RESOLVE_MCP_COMMAND", None)
         call = self.rpc(env)
         call(1, "initialize", {"protocolVersion": "2025-03-26"})
         call(2, "tools/list")
-        r = call(3, "tools/call", {"name": "legacy__delete_bin", "arguments": {"bin": "_RCE_X"}})["result"]
-        self.assertTrue(r["isError"])
-        self.assertIn("confirm", r["content"][0]["text"])
-        r = call(4, "tools/call", {"name": "legacy__delete_bin", "arguments": {"bin": "_RCE_X", "confirm": True}})
-        self.assertEqual(r["result"]["content"][0]["text"], 'called:delete_bin {"bin": "_RCE_X"}')
+        n = 3
+        for name in guarded:
+            for confirm in ((), (("confirm", False),), (("confirm", "true"),)):  # only the boolean true passes
+                with self.subTest(tool=name, confirm=confirm):
+                    r = call(n, "tools/call", {"name": "legacy__" + name, "arguments": {"x": 1, **dict(confirm)}})
+                    n += 1
+                    self.assertTrue(r["result"]["isError"], r)
+                    self.assertIn("confirm", r["result"]["content"][0]["text"])
+            with self.subTest(tool=name, confirm=True):
+                r = call(n, "tools/call", {"name": "legacy__" + name, "arguments": {"x": 1, "confirm": True}})
+                n += 1
+                self.assertEqual(r["result"]["content"][0]["text"], f'called:{name} {{"x": 1}}')
