@@ -7,6 +7,7 @@
 - Changed: the live test works in its own `_RCE_LIVE_<time>` bin (test clip, timelines, backups, captions), deletes it with everything in it at the end, and makes the bin you had selected current again. It used to leave `rce_live_clip.mp4` in whichever bin was current.
 - Added: a `bins` area in the live test (`--only bins`) checks the bin commands in real Resolve: nested bins, switching back to a non-root bin, every `delete_bin` refusal and a delete with contents. It runs first; if any of its checks fails, the other areas are skipped.
 - Added: tests for what had none. Unit: the move/trim rollback when a setting isn't copied or the swap fails after one linked item, the transcription cache, every confirm guard of the gateway, `set_audio` pan, `normalize_audio`, `inspect_range` details, `export_timeline`, `audit_log`, `doctor`, and the error branches of backups, appends, `place_clips`, `ripple_trim` and `list_captions`. `tests/unit/test_media_ffmpeg.py` runs the media tools, `qc_file` and beat detection on a generated clip (skipped without FFmpeg). Live: a `ripple` area, plus `set_speed`, `copy_grade`, `normalize_audio`, `snapshot_timeline` and `batch`. They found I-26 to I-29 (docs/ISSUES.md), not fixed yet: their tests are marked `expectedFailure`, and the live checks for I-27 and I-28 fail until they are fixed.
+- Fixed: `edit__place_clips` refuses clips of one call that overlap each other on a track, naming both; Resolve had placed the later one shifted and shortened (I-27).
 
 ## 2026-11-23
 

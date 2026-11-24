@@ -7,7 +7,8 @@ from .. import outcome, session, timeline
 def place_clips(a: dict[str, Any]) -> dict[str, Any]:
     warnings: list[str]
     plan, warnings = [], []
-    for spec in a["clips"]:
+    planned: list[tuple[str, int, int, int, int, str]] = []  # kind, track, start, end, n, name of earlier clips
+    for n, spec in enumerate(a["clips"], 1):
         clip = timeline.find_clip(spec["clip"])
         first = spec.get("start_frame") or 0
         last = spec.get("end_frame") or int(float(clip.get("frames") or 0))
@@ -20,6 +21,14 @@ def place_clips(a: dict[str, Any]) -> dict[str, Any]:
             if hit:
                 return outcome.blocked(f"{clip['name']} would overwrite {hit['name']} on {kind[0].upper()}{track} "
                                        f"at {session.to_tc(hit['start'])}")
+            # Resolve places a clip that overlaps an earlier one of the same call shifted and shortened (I-27)
+            other = next((p for p in planned if p[:2] == (kind, track) and record < p[3]
+                          and p[2] < record + last - first), None)
+            if other:
+                return outcome.blocked(f"clip {n} ({clip['name']}) would overlap clip {other[4]} ({other[5]}) on "
+                                       f"{kind[0].upper()}{track} at {session.to_tc(record)}; clips of one call "
+                                       "can't overlap")
+        planned += [(kind, track, record, record + last - first, n, clip["name"]) for kind in kinds]
         plan.append({"clip": clip["id"], "name": clip["name"], "start_frame": first, "end_frame": last,
                      "record_frame": record, "track_index": track, "media_type": spec.get("media_type"),
                      "at": session.to_tc(record), "frames": last - first})

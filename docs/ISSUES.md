@@ -1,6 +1,6 @@
 # Issues
 
-Found while testing `edit__add_transition`, 2026-11-22. This is the base for fixes. Fixed so far: I-01, I-02, I-03, I-04, I-05, I-06, I-07, I-08, I-09, I-10, I-11, I-12, I-13, I-14, I-15, I-16, I-17, I-18, I-19, I-20, I-21, I-23, I-24.
+Found while testing `edit__add_transition`, 2026-11-22. This is the base for fixes. Fixed so far: I-01, I-02, I-03, I-04, I-05, I-06, I-07, I-08, I-09, I-10, I-11, I-12, I-13, I-14, I-15, I-16, I-17, I-18, I-19, I-20, I-21, I-23, I-24, I-27.
 
 - Environment: free DaVinci Resolve 21.2.0.6, Windows 10, 60 fps timeline.
 - Code is named by file and function, with paths from the repo root.
@@ -42,11 +42,11 @@ How each item is known:
 | [I-24](#i-24) | ~~Low~~ **Fixed** | The live caption check assumes one Standard Generator Duration | Live, fake |
 | [I-25](#i-25) | **Decided**: keep parts | A long caption is several clips; it could be one | Live probe |
 | [I-26](#i-26) | Low | A cached transcript names the file it was first made from | Fake |
-| [I-27](#i-27) | Medium | `place_clips` passes clips of one call that overlap each other | Live, fake |
+| [I-27](#i-27) | ~~Medium~~ **Fixed** | `place_clips` passes clips of one call that overlap each other | Live, fake |
 | [I-28](#i-28) | Low | `place_clips` passes a source range past the clip's end | Live, fake |
 | [I-29](#i-29) | Medium | When a move can't rebuild the original either, the error doesn't say where the clip is | Fake |
 
-Order, one fix at a time, worst first: I-27, I-29, I-28, I-26; I-22 waits for the next sighting, which will now name where it stopped. Re-rank after each fix.
+Order, one fix at a time, worst first: I-29, I-28, I-26; I-22 waits for the next sighting, which will now name where it stopped. Re-rank after each fix.
 
 ## Issues
 
@@ -642,7 +642,7 @@ it without gaps. `set_scratch_fps` (test-only, `_RCE_` timelines) sets the rate 
 **Likely fix:** on a cache hit, set `path` to the file asked for. The segments stay the same.
 
 <a id="i-27"></a>
-### I-27 `place_clips` passes clips of one call that overlap each other (medium)
+### I-27 `place_clips` passes clips of one call that overlap each other (medium, fixed)
 
 **Where:** `resolve_editor/tools/placement.py` (`place_clips`)
 
@@ -650,9 +650,14 @@ it without gaps. `set_scratch_fps` (test-only, `_RCE_` timelines) sets the rate 
 
 **Live 2026-11-24** (`tests/live/live_resolve.py`, clips area, 30 fps scratch timeline): two 60-frame video clips at +600 and +640 on V1 in one call. Resolve placed the first at +600 (60 frames) and the second at +660, cut to 40 frames. The tool reported `partial` with `clips_placed: 1`, because its read-back looks for the second at +640. So it isn't the silent rejection AGENTS.md describes for overlapping caption placements: Resolve places a different clip than asked.
 
-**Found** by `tests/unit/test_timeline_steps.py` `test_clips_of_one_call_that_overlap_each_other_are_refused` (marked `expectedFailure`). The live check "I-27: ..." fails until it is fixed.
+**Found** by `tests/unit/test_timeline_steps.py` `test_clips_of_one_call_that_overlap_each_other_are_refused`, and by the live check "I-27: ...".
 
-**Likely fix:** in the plan loop, check each clip against the clips planned before it on the same track and kind, and block naming both.
+**Fix:** the plan loop checks each clip, for each kind it places, against the clips planned before it in the same call. On the same kind and track, overlapping spans are blocked before anything is written, naming both clips by their place in the call, the track and the time ("clip 2 (a.mp4) would overlap clip 1 (a.mp4) on V1 at ..."). Clips that only touch end to start pass, and so does the same span on another track or as video-only and audio-only. A clip with video and audio is refused once, on its video track. The tool and schema descriptions say so.
+
+**Verified 2026-11-24:**
+
+- `tests/unit/test_timeline_steps.py` `PlaceClips`: the overlap is refused naming both clips; touching clips, another track, and video-only with audio-only pass; overlapping video + audio clips are refused once, naming V1. The two refusal tests failed before the fix. Each of four breaks is caught: no check, `<=` for `<`, ignoring the kind, ignoring the track.
+- Live: the full `tests/live/live_resolve.py` run, 63 passed. "I-27: clips of one call overlapping each other are refused" passes and nothing is placed at +600. The only failure is the I-28 check.
 
 <a id="i-28"></a>
 ### I-28 `place_clips` passes a source range past the clip's end (low)

@@ -73,16 +73,36 @@ class PlaceClips(Base):
         self.assertIn("end_frame must be greater", r["reason"])
         self.assertNotIn("append_clips", f.calls)
 
-    @unittest.expectedFailure  # docs/ISSUES.md I-27
     def test_clips_of_one_call_that_overlap_each_other_are_refused(self):
-        # Resolve silently drops an append that overlaps another on its track (AGENTS.md), so the preview must say so
+        # Resolve places the later one shifted and shortened (live 2026-11-24, docs/ISSUES.md I-27)
         f = self.use(FakeResolve(sample_items()))
         r = dispatch.run("place_clips", {"clips": [{"clip": "c1", "start_frame": 0, "end_frame": 30, "record": 1200},
                                                    {"clip": "c1", "start_frame": 0, "end_frame": 30,
                                                     "record": 1220}]})
         self.assertEqual(r["_operation"]["status"], "blocked", r)
         self.assertIn("overlap", r["reason"])
+        self.assertIn("clip 2", r["reason"])
+        self.assertIn("clip 1", r["reason"])
         self.assertNotIn("append_clips", f.calls)
+
+    def test_clips_of_one_call_that_touch_or_differ_in_track_or_kind_pass(self):
+        self.use(FakeResolve(sample_items()))
+        cases = {"back to back": ({"record": 1200}, {"record": 1230}),
+                 "other track": ({"record": 1200}, {"record": 1200, "track_index": 3}),
+                 "video and audio only": ({"record": 1200, "media_type": 1}, {"record": 1200, "media_type": 2})}
+        for case, specs in cases.items():
+            with self.subTest(case):
+                clips = [dict(s, clip="c1", start_frame=0, end_frame=30) for s in specs]
+                r = dispatch.run("place_clips", {"clips": clips})
+                self.assertEqual(r["_operation"]["status"], "preview", r)
+
+    def test_overlapping_clips_with_video_and_audio_are_refused_once_naming_the_video_track(self):
+        self.use(FakeResolve(sample_items()))
+        r = dispatch.run("place_clips", {"clips": [{"clip": "c1", "end_frame": 30, "record": 1300},
+                                                   {"clip": "c1", "end_frame": 30, "record": 1290}]})
+        self.assertEqual(r["_operation"]["status"], "blocked", r)
+        self.assertIn("on V1", r["reason"])
+        self.assertNotIn("A1", r["reason"])
 
     @unittest.expectedFailure  # docs/ISSUES.md I-28
     def test_a_source_range_past_the_clip_is_refused(self):
