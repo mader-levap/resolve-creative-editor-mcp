@@ -72,6 +72,13 @@ class AuditLog(Base):
                          [("edit__set_enabled", True), ("edit__set_enabled", False)])
         self.assertEqual(len(dispatch.run("audit_log", {})["entries"]), 3)
 
+    def test_a_corrupt_line_is_reported_not_raised(self):
+        with open(audit.AUDIT, "w", encoding="utf-8") as f:  # e.g. cut short by a crash mid-write
+            f.write('{"tool": "edit__a", "status": "success"}\n{"tool": "edit__b", "sta\n')
+        rows = dispatch.run("audit_log", {})["entries"]
+        self.assertEqual(rows[0]["tool"], "edit__a")
+        self.assertEqual(rows[1], {"unreadable": '{"tool": "edit__b", "sta'})
+
 
 class Doctor(Base):
     def test_a_running_bridge_reports_resolve(self):

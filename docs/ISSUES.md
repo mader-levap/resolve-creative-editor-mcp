@@ -715,6 +715,58 @@ The backup timeline still has the original, if one was made.
   All five failed before the fix with the bare error. Each of six breaks is caught: no `try` around a rebuild or a removal, every staged copy deleted, the staging track deleted, the bare item kept, a link with one clip.
 - Live, `tests/live/live_resolve.py` clips area: a `move_item` with both appends on V1 refused by the test. In real Resolve the copy was on the staging track at the new place, the result named that track, and the track was still there. The probe then removed both. Full run: 67 passed; the only failure is the I-28 check.
 
+## Code review fixes
+
+Found 2026-11-24 in a review of the Python code against common practice, not by testing in Resolve. All are known by **Code**, then reproduced by a unit test that failed before the fix. Numbered C-xx, apart from the I-xx list.
+
+### C-01 The stdio servers depend on PYTHONUTF8 (medium, fixed)
+
+**Where:** `resolve_editor/servers/gateway.py` and `legacy.py` (`main`)
+
+**Problem:** both servers read stdin and write stdout in the locale's encoding (cp1250 on a Polish Windows). Only `PYTHONUTF8=1` in the client config made them UTF-8. Without it, the legacy server garbled non-ASCII arguments (caption text) or crashed on bytes the code page doesn't define, and the gateway could fail to write a reply with `ensure_ascii=False`: the error was caught and logged, the request got no answer and the client waited.
+
+**Fix:** new `resolve_editor/servers/stdio.py` `use_utf8()`, called first in both `main()`s, reconfigures stdin and stdout to UTF-8.
+
+**Verified:** `tests/unit/test_stdio.py` `StdioServer`, servers started with `PYTHONIOENCODING=cp1252`, `PYTHONUTF8=0`, sending "Zażółć Łódź 日本語" (`Ł` is C5 81 in UTF-8, and 0x81 is undefined in cp1252, so it can't survive a wrong decode by chance).
+
+### C-02 One bad line stops the legacy server (medium, fixed)
+
+**Where:** `resolve_editor/servers/legacy.py` (`main`)
+
+**Problem:** `json.loads` ran outside any `try`, and only `LookupError` from `handle` was caught. A malformed line or any other exception ended the process, and every later `legacy__` call failed with "not running".
+
+**Fix:** a line that isn't a JSON object gets a JSON-RPC parse error (`-32700`, id null); another exception gets `-32000` with its message, like the gateway. The server keeps reading.
+
+**Verified:** `tests/unit/test_stdio.py` `test_legacy_keeps_answering_after_bad_input`.
+
+### C-03 Closing a child server leaks its pipes (low, fixed)
+
+**Where:** `resolve_editor/servers/child.py` (`Child.close`); `tests/unit/test_bridge_lock.py` (`BridgeLock.child`)
+
+**Problem:** `close` never closed the child's stdin and stdout, caught any `Exception` instead of `subprocess.TimeoutExpired`, and didn't wait for the process after `kill()`. The bridge-lock test's child processes had the same leak and no encoding. The test run showed five `ResourceWarning`s for unclosed pipes.
+
+**Fix:** `close` terminates, waits, kills and waits on timeout, joins the reader thread and closes both pipes; a second call is harmless. The test closes its pipes after the process has ended and reads them as UTF-8.
+
+**Verified:** `tests/unit/test_stdio.py` `ChildClose`; `python -W error::ResourceWarning -m unittest` passes.
+
+### C-04 One corrupt line breaks `audit_log` (low, fixed)
+
+**Where:** `resolve_editor/tools/diagnostics.py` (`audit_log`)
+
+**Problem:** every line was parsed with `json.loads`, so one corrupt line (e.g. cut short by a crash mid-write) made `edit__audit_log` raise and show nothing.
+
+**Fix:** a line that can't be parsed is returned as `{"unreadable": <line>}`; the others are returned as before.
+
+**Verified:** `tests/unit/test_delivery.py` `test_a_corrupt_line_is_reported_not_raised`.
+
+### C-05 `snapshot_timeline` has an unreachable `partial` result (low, fixed)
+
+**Where:** `resolve_editor/timeline.py` (`snapshot_timeline`)
+
+**Problem:** it raises when the check fails, so the following `"success" if ok else "partial"` could only ever be `success`. Dead code, misleading about what the function returns.
+
+**Fix:** the check raises; otherwise the result is `success`. No change in behaviour.
+
 ## Live tests
 
 ### Setup

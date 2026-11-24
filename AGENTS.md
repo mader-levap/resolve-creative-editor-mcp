@@ -5,7 +5,7 @@
 - `resolve_editor/`: the MCP server package (`dispatch.py` runs the `edit__` tools; `session.py`, `bridge.py`, `timeline.py` and the other modules are shared helpers).
   - `tools/`: the `edit__` tools, one file per area (captions, clips, placement, ripple, ...).
   - `schemas/`: tool definitions (names, arguments, descriptions) for the `edit__`, `legacy__` and `media__` tools.
-  - `servers/`: the MCP servers: `gateway.py` (the one clients connect to; runs `edit__` itself and forwards the rest), `legacy.py` (the `legacy__` bridge tools and the `media__` tools), `upstream.py` (where the upstream engine and legacy server are, and how to start them), `child.py` (one child server process over stdio).
+  - `servers/`: the MCP servers: `gateway.py` (the one clients connect to; runs `edit__` itself and forwards the rest), `legacy.py` (the `legacy__` bridge tools and the `media__` tools), `upstream.py` (where the upstream engine and legacy server are, and how to start them), `child.py` (one child server process over stdio), `stdio.py` (what both stdio servers share: UTF-8 stdio).
 - `tests/`: the shared fake Resolve (`support.py`), a fake MCP server (`fake_mcp.py`) and the Lua smoke test (`smoke_bridge.py`).
   - `unit/`: the unit tests (`test_*.py`), run by `python -m unittest`.
   - `live/`: the by-hand live test against a real Resolve (`live_resolve.py`).

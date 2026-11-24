@@ -83,9 +83,17 @@ class Child:
             self.proc.stdin.flush()
 
     def close(self) -> None:
-        if self.proc and self.proc.poll() is None:
+        if not self.proc:
+            return
+        if self.proc.poll() is None:
+            self.proc.terminate()
             try:
-                self.proc.terminate()
                 self.proc.wait(timeout=3)
-            except Exception:
+            except subprocess.TimeoutExpired:
                 self.proc.kill()
+                self.proc.wait()
+        if self.reader:
+            self.reader.join(timeout=3)  # the process is gone, so it reads EOF; then stdout is no longer in use
+        for stream in (self.proc.stdin, self.proc.stdout):
+            if stream:
+                stream.close()

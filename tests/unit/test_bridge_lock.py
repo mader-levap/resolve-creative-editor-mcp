@@ -108,8 +108,11 @@ class BridgeLock(unittest.TestCase):
         return fake
 
     def child(self, script, *args, **kw):
-        return subprocess.Popen([sys.executable, "-c", script, self.dir, self.prefs, str(ROOT), *args], text=True,
-                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, **kw)
+        p = subprocess.Popen([sys.executable, "-c", script, self.dir, self.prefs, str(ROOT), *args], encoding="utf-8",
+                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, **kw)
+        # registered first, so it runs after the test's own cleanups have waited for the process
+        self.addCleanup(lambda: [s.close() for s in (p.stdin, p.stdout, p.stderr) if s])
+        return p
 
     def hold_lock(self, how):
         p = self.child(HOLDER, how, stdin=subprocess.PIPE)

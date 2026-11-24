@@ -6,6 +6,7 @@ from typing import Any
 
 from .. import bridge, media
 from ..schemas import legacy as schema
+from . import stdio
 
 
 def run_tool(name: str, args: dict[str, Any]) -> dict[str, Any]:
@@ -53,15 +54,25 @@ def handle(msg: dict[str, Any]) -> dict[str, Any]:
 
 
 def main() -> None:
+    stdio.use_utf8()
     for line in sys.stdin:
         if not line.strip():
             continue
-        msg = json.loads(line)
-        if "id" not in msg:  # notification
-            continue
         try:
-            out = {"jsonrpc": "2.0", "id": msg["id"], "result": handle(msg)}
-        except LookupError:
-            out = {"jsonrpc": "2.0", "id": msg["id"], "error": {"code": -32601, "message": "method not found"}}
+            msg = json.loads(line)
+        except ValueError:  # one bad line must not stop the server
+            msg = None
+        if not isinstance(msg, dict):
+            out: dict[str, Any] = {"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": "parse error"}}
+        elif "id" not in msg:  # notification
+            continue
+        else:
+            try:
+                out = {"jsonrpc": "2.0", "id": msg["id"], "result": handle(msg)}
+            except LookupError:
+                out = {"jsonrpc": "2.0", "id": msg["id"], "error": {"code": -32601, "message": "method not found"}}
+            except Exception as exc:
+                out = {"jsonrpc": "2.0", "id": msg["id"],
+                       "error": {"code": -32000, "message": f"{type(exc).__name__}: {exc}"}}
         sys.stdout.write(json.dumps(out) + "\n")
         sys.stdout.flush()

@@ -14,7 +14,14 @@ def audit_log(a: dict[str, Any]) -> dict[str, Any]:
             rows = f.readlines()
     except OSError:
         return {"entries": []}
-    return {"entries": [json.loads(x) for x in rows[-(a.get("limit") or 20):]]}
+    return {"entries": [_entry(x) for x in rows[-(a.get("limit") or 20):]]}
+
+
+def _entry(line: str) -> Any:
+    try:
+        return json.loads(line)
+    except ValueError:  # e.g. cut short by a crash mid-write: show it rather than fail the whole log
+        return {"unreadable": line.rstrip("\n")}
 
 
 def doctor(a: dict[str, Any] | None = None) -> dict[str, Any]:

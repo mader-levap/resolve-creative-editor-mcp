@@ -18,6 +18,7 @@ from ..schemas import edit as edit_schema
 from ..schemas import legacy as legacy_schema
 from ..tools import diagnostics
 from . import child as child_process
+from . import stdio
 from . import upstream as engine
 
 # Upstream tools that work without a live scripting connection, so they stay useful on free Resolve.
@@ -243,6 +244,7 @@ class Gateway:
 
 
 def main() -> None:
+    stdio.use_utf8()
     if "--doctor" in sys.argv:
         py = engine.upstream_python()
         print(json.dumps({

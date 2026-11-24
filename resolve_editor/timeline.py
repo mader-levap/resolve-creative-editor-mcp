@@ -14,10 +14,9 @@ def snapshot_timeline(a: dict[str, Any]) -> dict[str, Any]:
     session.call("duplicate_timeline", name=name)  # Resolve makes the copy current
     session.call("set_current_timeline", name=current)  # the bridge retries until Resolve stays on it
     session.invalidate()
-    ok = name in session.as_list(session.call("list_timelines")) and session.call("get_state")["timeline"] == current
-    if not ok:
+    if name not in session.as_list(session.call("list_timelines")) or session.call("get_state")["timeline"] != current:
         raise RuntimeError(f"backup made, but Resolve did not return to {current}; nothing was edited")
-    return outcome.op("success" if ok else "partial", ok, {"created_timeline": name}, snapshot=name)
+    return outcome.op("success", True, {"created_timeline": name}, snapshot=name)
 
 
 def find_clip(ref: str) -> dict[str, Any]:
