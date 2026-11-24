@@ -4,7 +4,8 @@ Requires Resolve open with a project and the bridge running. Everything happens 
 test clip, the scratch timeline of the same name, its backups and the captions); your current timeline is compared
 before and after. At the end the bin you had selected is current again and the run's bin is deleted with everything
 in it, unless --keep is given. Run: python tests/live/live_resolve.py
-One or more areas only: --only captions,markers (areas: clips, transitions, markers, captions, reads).
+One or more areas only: --only captions,markers (areas: bins, clips, transitions, markers, captions, reads).
+The areas run in that order. If a bins check fails, the other areas are skipped: they rely on bins.
 """
 import os
 import pathlib
@@ -141,7 +142,62 @@ def shift_captions(name, track, long_parts):
           status(r) == "blocked" and "caption 1" in str(r.get("reason")) and listed() == moved, r)
 
 
-AREAS = ("clips", "transitions", "markers", "captions", "reads")
+def bins(name):
+    """Bin commands in real Resolve, inside the run's bin: creating, switching, the delete refusals and a delete with
+    contents. The run's bin is current again at the end, so the run's cleanup still works."""
+    sub, tl = f"{name}/sub", f"{name}_sub"  # the timeline name starts with the run's, so the cleanup check sees it
+
+    def current():
+        return B("get_state").get("current_bin")
+
+    def timelines():
+        return set(B("list_timelines"))
+
+    r = B("create_bin", bin=sub)
+    check("create_bin makes a nested bin, the current bin stays",
+          r.get("bin") == sub and current() == name, (r, current()))
+    check("create_bin of an existing bin is refused", "already exists" in _refusal("create_bin", bin=sub))
+    err = _refusal("create_bin", bin=f"{name}/missing/x")
+    check("create_bin under a missing parent is refused", f"no bin {name}/missing" in err, err)
+
+    r = B("use_bin", bin=sub)
+    check("use_bin of a nested bin returns the run's bin as previous",
+          r.get("bin") == sub and r.get("previous") == name and current() == sub, (r, current()))
+    err = _refusal("use_bin", bin=f"{name}/missing")
+    check("use_bin of a missing bin is refused, the current bin stays", "no bin" in err and current() == sub, err)
+
+    err = _refusal("delete_bin", bin=sub)
+    check("delete_bin of the current bin is refused", "is or holds the current bin" in err and current() == sub, err)
+    err = _refusal("delete_bin", bin=name)
+    check("delete_bin of the current bin's parent is refused",
+          "is or holds the current bin" in err and current() == sub, err)
+
+    B("create_timeline", name=tl)  # lands in the current bin, sub
+    B("set_current_timeline", name=name)  # whether or not creating it made it current
+    session.invalidate()
+    r = B("use_bin", bin=name)
+    check("use_bin back to a non-root bin", r.get("previous") == sub and current() == name, (r, current()))
+    before = timelines()
+    err = _refusal("delete_bin", bin=sub)
+    check("delete_bin of a bin with a timeline needs with_contents",
+          "1 timeline;" in err and "with_contents" in err and timelines() == before, err)
+    B("set_current_timeline", name=tl)
+    session.invalidate()
+    err = _refusal("delete_bin", bin=sub, with_contents=True)
+    check("delete_bin of a bin holding the current timeline is refused",
+          "holds the current timeline" in err and tl in timelines(), err)
+    B("set_current_timeline", name=name)
+    session.invalidate()
+
+    r = B("delete_bin", bin=sub, with_contents=True)
+    check("delete_bin with_contents reports the timeline and keeps the current bin",
+          (r.get("timelines"), r.get("clips"), r.get("bins")) == (1, 0, 0) and current() == name, (r, current()))
+    check("the deleted bin's timeline is gone", tl not in timelines())
+    err = _refusal("use_bin", bin=sub)
+    check("use_bin of a deleted bin is refused", "no bin" in err and current() == name, err)
+
+
+AREAS = ("bins", "clips", "transitions", "markers", "captions", "reads")  # run in this order
 
 
 def clips(clip, start, name):
@@ -256,11 +312,15 @@ def main():
         B("set_current_timeline", name=name)
         session.invalidate()
         start = B("get_state")["timeline_start_frame"]
-        for area in only:
+        for i, area in enumerate(only):
             print(f"--- {area}")
+            first = len(RESULTS)
             {"clips": lambda: clips(clip, start, name), "transitions": lambda: transitions(clip, start, name),
              "markers": lambda: markers(clip_path, start), "captions": lambda: captions(start, name),
-             "reads": lambda: reads(start, folder)}[area]()
+             "bins": lambda: bins(name), "reads": lambda: reads(start, folder)}[area]()
+            if area == "bins" and not all(ok for _, ok in RESULTS[first:]) and only[i + 1:]:
+                print("bins failed: the other areas rely on them, skipping " + ", ".join(only[i + 1:]))
+                break
     except SystemExit:
         raise
     except Exception as exc:

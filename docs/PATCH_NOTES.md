@@ -5,6 +5,7 @@
 - Added: `legacy__create_bin`, `legacy__use_bin` and `legacy__delete_bin` (with `confirm`) work with Media Pool bins by their path from the root, and `legacy__get_state` reports `current_bin`. `delete_bin` refuses a bin with anything in it unless `with_contents=true`, and keeps the current bin current (Resolve makes the root current when a bin is deleted). Needs the new bridge script.
 - Added: `edit__add_captions` offers `folder`, the top-level bin for the caption timelines (default `Captions (Resolve Creative Editor)`). Fixed: its preview always named the default bin, even when `folder` named another.
 - Changed: the live test works in its own `_RCE_LIVE_<time>` bin (test clip, timelines, backups, captions), deletes it with everything in it at the end, and makes the bin you had selected current again. It used to leave `rce_live_clip.mp4` in whichever bin was current.
+- Added: a `bins` area in the live test (`--only bins`) checks the bin commands in real Resolve: nested bins, switching back to a non-root bin, every `delete_bin` refusal and a delete with contents. It runs first; if any of its checks fails, the other areas are skipped.
 
 ## 2026-11-23
 
