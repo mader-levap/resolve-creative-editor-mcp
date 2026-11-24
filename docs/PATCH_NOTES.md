@@ -10,6 +10,7 @@
 - Fixed: `edit__place_clips` refuses clips of one call that overlap each other on a track, naming both; Resolve had placed the later one shifted and shortened (I-27).
 - Fixed: when `edit__move_item` or `edit__trim_item` can't place the clip and can't rebuild the original either, the copy with the clip's settings is kept on its staging track, and the result says where it is and names the backup, instead of a bare error (I-29).
 - Fixed: `edit__place_clips` refuses a source range outside the clip in its preview; before, the preview passed and the confirm failed with the bridge's error (I-28).
+- Fixed: a cached transcript from `media__transcribe_audio` names the file asked for, not the one it was first made from (I-26).
 
 ## 2026-11-23
 

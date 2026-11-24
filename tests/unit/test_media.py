@@ -111,8 +111,7 @@ class Transcription(unittest.TestCase):
         self.assertEqual((pathlib.Path(self.path).read_bytes(), os.stat(self.path).st_mtime_ns), before)
         self.assertEqual(os.listdir(os.path.dirname(self.path)), ["talk.wav"], "nothing written next to it")
 
-    @unittest.expectedFailure  # docs/ISSUES.md I-26: the cached copy keeps the path it was made from
-    def test_a_cached_transcript_names_the_file_asked_for(self):
+    def test_a_cached_transcript_names_the_file_asked_for(self):  # docs/ISSUES.md I-26
         self.run_tool()
         copy = os.path.join(os.path.dirname(self.path), "copy.wav")
         with open(self.path, "rb") as f, open(copy, "wb") as g:
@@ -120,3 +119,6 @@ class Transcription(unittest.TestCase):
         r = media.run_media_tool("transcribe_audio", {"path": copy})
         self.assertTrue(r["cache_hit"])
         self.assertEqual(r["path"], copy)
+        again = self.run_tool()  # the first file still gets its own name, not the last one asked for
+        self.assertEqual((again["cache_hit"], again["path"]), (True, self.path))
+        self.assertEqual(len(self.loads), 1)

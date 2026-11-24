@@ -1,6 +1,6 @@
 # Issues
 
-Found while testing `edit__add_transition`, 2026-11-22. This is the base for fixes. Fixed so far: I-01, I-02, I-03, I-04, I-05, I-06, I-07, I-08, I-09, I-10, I-11, I-12, I-13, I-14, I-15, I-16, I-17, I-18, I-19, I-20, I-21, I-23, I-24, I-27, I-28, I-29.
+Found while testing `edit__add_transition`, 2026-11-22. This is the base for fixes. Fixed so far: I-01, I-02, I-03, I-04, I-05, I-06, I-07, I-08, I-09, I-10, I-11, I-12, I-13, I-14, I-15, I-16, I-17, I-18, I-19, I-20, I-21, I-23, I-24, I-26, I-27, I-28, I-29.
 
 - Environment: free DaVinci Resolve 21.2.0.6, Windows 10, 60 fps timeline.
 - Code is named by file and function, with paths from the repo root.
@@ -41,12 +41,12 @@ How each item is known:
 | [I-23](#i-23) | ~~High~~ **Fixed** | Moving or trimming a clip drops its clip markers, reported as `passed` | Live, fake |
 | [I-24](#i-24) | ~~Low~~ **Fixed** | The live caption check assumes one Standard Generator Duration | Live, fake |
 | [I-25](#i-25) | **Decided**: keep parts | A long caption is several clips; it could be one | Live probe |
-| [I-26](#i-26) | Low | A cached transcript names the file it was first made from | Fake |
+| [I-26](#i-26) | ~~Low~~ **Fixed** | A cached transcript names the file it was first made from | Fake |
 | [I-27](#i-27) | ~~Medium~~ **Fixed** | `place_clips` passes clips of one call that overlap each other | Live, fake |
 | [I-28](#i-28) | ~~Low~~ **Fixed** | `place_clips` passes a source range past the clip's end | Live, fake |
 | [I-29](#i-29) | ~~Medium~~ **Fixed** | When a move can't rebuild the original either, the error doesn't say where the clip is | Fake |
 
-Order, one fix at a time, worst first: I-26; I-22 waits for the next sighting, which will now name where it stopped. Re-rank after each fix.
+Order, one fix at a time, worst first: nothing open; I-22 waits for the next sighting, which will now name where it stopped. Re-rank after each fix.
 
 ## Issues
 
@@ -631,15 +631,17 @@ it without gaps. `set_scratch_fps` (test-only, `_RCE_` timelines) sets the rate 
 **Decision 2026-11-23:** keep parts. Each part is the caption's one inner timeline, so editing its text there changes every part, and nothing changes in the bridge. The probe results stay here in case it comes up again.
 
 <a id="i-26"></a>
-### I-26 A cached transcript names the file it was first made from (low)
+### I-26 A cached transcript names the file it was first made from (low, fixed)
 
 **Where:** `resolve_editor/media.py` (`_transcribe_audio`)
 
 **Problem:** the cache is keyed by the file's content, model and language, and the whole result is stored, `path` included. A second file with the same content (a copy, or the same recording under another name) gets the first file's `path` back, with `cache_hit: true`. Anything that uses `path` from the result points at the other file.
 
-**Found 2026-11-24** by `tests/unit/test_media.py` `test_a_cached_transcript_names_the_file_asked_for` (marked `expectedFailure`): transcribe `talk.wav`, copy it to `copy.wav`, transcribe the copy; `path` is `talk.wav`.
+**Found 2026-11-24** by `tests/unit/test_media.py` `test_a_cached_transcript_names_the_file_asked_for`: transcribe `talk.wav`, copy it to `copy.wav`, transcribe the copy; `path` is `talk.wav`.
 
-**Likely fix:** on a cache hit, set `path` to the file asked for. The segments stay the same.
+**Fix:** on a cache hit, `path` is set to the file asked for, like `cache_hit` and `note`. The segments, model, language and `source_sha256` stay: they describe the content, which is the same. The cache file keeps the path it was made from. It is only read back through that branch, so old cache files need no change.
+
+**Verified 2026-11-24:** the test now also transcribes the first file again after the copy. Each gets its own path, from one transcription. It failed before the fix, and it fails again without the new line or with the cached path kept. Not checked through MCP: faster-whisper isn't installed here, and transcription doesn't touch Resolve.
 
 <a id="i-27"></a>
 ### I-27 `place_clips` passes clips of one call that overlap each other (medium, fixed)

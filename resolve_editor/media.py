@@ -103,6 +103,7 @@ def _transcribe_audio(source: str, args: dict[str, Any]) -> dict[str, Any]:
         with open(cache_path, "r", encoding="utf-8") as cached_file:
             cached = json.load(cached_file)
         cached["cache_hit"] = True
+        cached["path"] = source  # the same content may be another file than the one it was made from (I-26)
         cached["note"] = "Cached draft transcription; listen to recordings before making dialogue cuts."
         return cached
     try:
