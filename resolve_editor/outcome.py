@@ -1,10 +1,13 @@
 """The _operation block every result carries (status, verification, changes, warnings), an idea borrowed
 from the upstream Resolve MCP."""
 from collections.abc import Iterable
-from typing import Any
+from typing import Any, Literal
+
+# preview: nothing changed yet, confirm to apply; planned: a dry run's result; blocked: refused before any change
+Status = Literal["success", "partial", "failed", "preview", "blocked", "planned"]
 
 
-def op(status: str, verified: bool | None = None, changes: dict[str, Any] | None = None,
+def op(status: Status, verified: bool | None = None, changes: dict[str, Any] | None = None,
        warnings: Iterable[str] = (), **payload: Any) -> dict[str, Any]:
     verification = "unverified" if verified is None else ("passed" if verified else "contradiction")
     payload["_operation"] = {"status": status, "verification": verification, "changes": changes or {},

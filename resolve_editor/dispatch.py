@@ -2,6 +2,7 @@
 from typing import Any
 
 from . import audit, outcome, session, timeline
+from .schemas import edit as edit_schema
 from .tools import audio, captions, clips, delivery, diagnostics, inspection, markers, placement, replace, ripple
 
 
@@ -98,9 +99,20 @@ CONFIRMABLE = PREVIEWABLE | {"batch"}
 TIMELINE_READS = {"timeline_summary", "inspect_range", "find_media", "list_captions"}
 
 
+REQUIRED = {t["name"]: list(t["inputSchema"].get("required", ())) for t in edit_schema.TOOLS}
+
+
+def missing(name: str, args: dict[str, Any]) -> list[str]:
+    """Required top-level arguments of the tool's schema that are absent or null (docs/ISSUES.md C-06)."""
+    return [k for k in REQUIRED.get(name, ()) if args.get(k) is None]
+
+
 def run(name: str, args: dict[str, Any]) -> dict[str, Any]:
     """Entry point of every edit__ tool. Resolve acts on the current timeline, so a call that writes is pinned to
     the one that was current when it started, batch steps included (docs/ISSUES.md I-16)."""
+    absent = missing(name, args)
+    if absent:  # before Resolve is touched; otherwise the tool fails with a bare KeyError
+        return outcome.blocked(f"missing argument(s): {', '.join(absent)}")
     if "confirm" in args:
         args = {**args, "confirm": args["confirm"] is True}  # "false", "no" and 1 are truthy but are not approval
     if session.pin is None and name in TIMELINE_READS:

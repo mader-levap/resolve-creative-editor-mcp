@@ -767,6 +767,18 @@ Found 2026-11-24 in a review of the Python code against common practice, not by 
 
 **Fix:** the check raises; otherwise the result is `success`. No change in behaviour.
 
+### C-06 A missing argument fails with a bare `KeyError` (low, fixed)
+
+**Where:** `resolve_editor/dispatch.py` (`run`)
+
+**Problem:** the tools index their arguments directly, and nothing checked them against the `required` lists in `schemas/edit.py`. A call without a required argument reached the model as `KeyError: 'item_ids'`, not saying it was an argument or which tool needs it. A batch step without one failed the same way in the preview.
+
+**Fix:** `run` first checks the schema's required top-level arguments; a missing one, or one that is null, is `blocked` with "missing argument(s): enabled" before Resolve is called. Batch steps go through `run`, so the preview reports it per step. Fields inside arrays (`clips[].record`, `markers[].name`) are not checked.
+
+Alongside, two checks against drift, neither a bug so far: `outcome.op` takes a `Status` literal, so mypy reports a misspelled status, and `tests/unit/test_dispatch.py` `ToolLists` fails when `READ_ONLY`, `PREVIEWABLE`, `CONFIRMABLE` or `TIMELINE_READS` names a tool that doesn't exist, or a tool and its schema don't match.
+
+**Verified:** `tests/unit/test_dispatch.py` `RequiredArguments`, failing before the fix with the `KeyError`s; every `SAMPLE_ARGS` entry passes. A status typo put into `tools/audio.py` was reported by mypy, and a misspelled `TIMELINE_READS` entry failed `ToolLists`; both were reverted.
+
 ## Live tests
 
 ### Setup

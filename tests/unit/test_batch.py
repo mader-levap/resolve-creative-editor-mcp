@@ -74,7 +74,8 @@ class BatchStop(Base):
                                 ("preview", False), ("failed", False), ("blocked", False), ("something_new", False)):
             with self.subTest(status=status):
                 f = self.use(Answers({}))
-                result = {"count": 1} if status is None else outcome.op(status)  # a read has no _operation
+                # a read has no _operation; "something_new" stands for a status a future tool might add
+                result = {"count": 1} if status is None else outcome.op(status)  # type: ignore[arg-type]
                 with mock.patch.dict(dispatch.HANDLERS, {"stub": lambda a, result=result: dict(result)}):
                     r = self.batch({"tool": "stub"}, self.NEXT)
                 self.assertEqual("copy_grade" in f.calls, goes_on)
