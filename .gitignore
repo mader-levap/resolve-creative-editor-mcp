@@ -7,6 +7,9 @@ logs/
 analysis/
 scratch/
 *.tmp
+.coverage
+.coverage.*
+htmlcov/
 .mcp.json
 
 .mcp.json.setup-generated

@@ -5,6 +5,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 from tests.support import ROOT  # also gives the servers a temporary bridge folder
 
@@ -77,6 +78,17 @@ class ChildClose(unittest.TestCase):
         self.assertIsNotNone(proc.returncode)
         self.assertTrue(proc.stdin.closed and proc.stdout.closed)
         c.close()  # twice is harmless
+
+    def test_close_lets_the_process_exit_by_itself(self):
+        # it gets to its own exit (atexit handlers, coverage data); terminate() is only the fallback
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        marker = os.path.join(folder.name, "exited")
+        with mock.patch.dict(os.environ, FAKE_MCP_EXIT_FILE=marker):
+            c = child.Child("fake", [sys.executable, str(ROOT / "tests" / "fake_mcp.py")], ROOT)
+            c.start("2025-03-26")
+        c.close()
+        self.assertTrue(os.path.exists(marker))
 
 
 if __name__ == "__main__":

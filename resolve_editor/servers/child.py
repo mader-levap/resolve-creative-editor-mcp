@@ -1,4 +1,5 @@
 """One child MCP server process, spoken to over stdio."""
+import contextlib
 import json
 import os
 import pathlib
@@ -88,16 +89,23 @@ class Child:
             self.proc.stdin.flush()
 
     def close(self) -> None:
-        """Stop the process (terminate, then kill after 3 s) and close its pipes; harmless when already closed."""
+        """Stop the process and close its pipes; harmless when already closed. An MCP server stops at the end of its
+        input, so it gets 2 s to exit by itself (its own cleanup runs); then terminate, then kill after 3 s more."""
         if not self.proc:
             return
         if self.proc.poll() is None:
-            self.proc.terminate()
+            if self.proc.stdin:
+                with contextlib.suppress(OSError):
+                    self.proc.stdin.close()
             try:
-                self.proc.wait(timeout=3)
+                self.proc.wait(timeout=2)
             except subprocess.TimeoutExpired:
-                self.proc.kill()
-                self.proc.wait()
+                self.proc.terminate()
+                try:
+                    self.proc.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    self.proc.kill()
+                    self.proc.wait()
         if self.reader:
             self.reader.join(timeout=3)  # the process is gone, so it reads EOF; then stdout is no longer in use
         for stream in (self.proc.stdin, self.proc.stdout):

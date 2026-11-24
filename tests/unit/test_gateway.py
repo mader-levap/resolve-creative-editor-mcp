@@ -11,6 +11,20 @@ from tests.support import ROOT  # also gives the gateway a temporary bridge fold
 from resolve_editor.servers import gateway
 
 
+def stop(proc):
+    """End the gateway's input, as a client does: it stops its children and exits by itself, so its own cleanup runs
+    (and coverage saves its data). Killing it is the fallback."""
+    proc.stdin.close()
+    try:
+        proc.wait(timeout=15)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait()
+    for stream in (proc.stdout, proc.stderr):
+        if stream:
+            stream.close()
+
+
 class GatewayTests(unittest.TestCase):
     def test_namespaced_routing(self):
         env = os.environ.copy()
@@ -46,18 +60,14 @@ class GatewayTests(unittest.TestCase):
             result = request(5, "tools/call", {"name": "legacy__hello", "arguments": {}})
             self.assertEqual(result["result"]["content"][0]["text"], "called:hello")
         finally:
-            proc.terminate()
-            proc.wait(timeout=5)
-            for stream in (proc.stdin, proc.stdout, proc.stderr):
-                if stream:
-                    stream.close()
+            stop(proc)
 
 
 class GatewayResilience(unittest.TestCase):
     def rpc(self, env):
         p = subprocess.Popen([sys.executable, str(ROOT / "unified_server.py")], stdin=subprocess.PIPE,
                              stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, encoding="utf-8", env=env)
-        self.addCleanup(lambda: (p.terminate(), p.wait(5), p.stdin.close(), p.stdout.close()))  # type: ignore[func-returns-value]
+        self.addCleanup(stop, p)
 
         def call(i, m, params=None):
             p.stdin.write(json.dumps({"jsonrpc": "2.0", "id": i, "method": m, "params": params or {}}) + "\n")
