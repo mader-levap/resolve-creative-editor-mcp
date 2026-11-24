@@ -84,10 +84,15 @@ def _replace(plan: list[dict[str, Any]], backup: bool = True) -> dict[str, Any]:
             staging[kind] = session.call("add_track", track_type=kind)["count"]
         return staging[kind]
 
-    def cleanup() -> None:
-        if staged:
-            session.call("delete_items", item_ids=[s["id"] for s in staged])
+    def cleanup(keep: Collection[str] = ()) -> None:
+        """Remove the staged copies and the staging tracks, except copies in `keep` and the tracks holding them."""
+        gone = [s for s in staged if s["id"] not in keep]
+        if gone:
+            session.call("delete_items", item_ids=[s["id"] for s in gone])
+        held = {s["track_type"] for s in staged if s["id"] in keep}
         for kind, track in staging.items():
+            if kind in held:
+                continue
             try:
                 session.call("delete_empty_track", track_type=kind, track=track)
             except RuntimeError:
@@ -117,20 +122,7 @@ def _replace(plan: list[dict[str, Any]], backup: bool = True) -> dict[str, Any]:
             session.call("copy_settings", from_id=p["staged"]["id"], to_id=n["id"], kind=kind)
             done.append((p, n))
     except Exception as exc:
-        for _, n in done:
-            session.call("delete_items", item_ids=[n["id"]])
-        restored = []
-        for p in plan:
-            item = p["item"]
-            r = timeline.append_one(p["media_id"], item["track_type"], item["source_start"],
-                                    item["source_start"] + item["duration"], item["start"], item["track"])
-            session.call("copy_settings", from_id=p["staged"]["id"], to_id=r["id"], kind=item["track_type"])
-            restored.append(r["id"])
-        if len(restored) > 1:
-            session.call("link_items", item_ids=restored)
-        cleanup()
-        return outcome.op("failed", reason=f"swap failed ({exc}); the original was rebuilt with its settings",
-                          snapshot=snapshot, warnings=["keyframes on the original are lost"])
+        return _roll_back(plan, done, exc, snapshot, cleanup)
 
     if len(done) > 1:
         session.call("link_items", item_ids=[n["id"] for _, n in done])
@@ -148,6 +140,57 @@ def _replace(plan: list[dict[str, Any]], backup: bool = True) -> dict[str, Any]:
              "without a name"] if renamed else []
     return outcome.op("success" if not problems else "partial", not problems, {"replaced": changes},
                       ["keyframes are not copied"] + named + problems, snapshot=snapshot)
+
+
+def _label(it: session.Item) -> str:
+    return f"{it['track_type'][0].upper()}{it['track']}"
+
+
+def _roll_back(plan: list[dict[str, Any]], done: list[tuple[dict[str, Any], session.Item]], exc: Exception,
+               snapshot: str | None, cleanup: Callable[[Collection[str]], None]) -> dict[str, Any]:
+    """The swap failed after the originals were deleted: rebuild each one at its old place from its staged copy.
+    A clip that can't be rebuilt keeps its staged copy, the last one with its settings, and the result says where it
+    is (docs/ISSUES.md I-29)."""
+    warnings = ["keyframes on the original are lost"]
+    for _, n in done:
+        try:
+            session.call("delete_items", item_ids=[n["id"]])
+        except Exception as err:
+            warnings.append(f"the new {n['name']} on {_label(n)} at {session.to_tc(n['start'])} could not be removed "
+                            f"({err}); delete it by hand")
+    session.invalidate()
+    restored, kept, failures = [], [], []
+    for p in plan:
+        item, copy = p["item"], p["staged"]
+        r = None
+        try:
+            r = timeline.append_one(p["media_id"], item["track_type"], item["source_start"],
+                                    item["source_start"] + item["duration"], item["start"], item["track"])
+            session.call("copy_settings", from_id=copy["id"], to_id=r["id"], kind=item["track_type"])
+            restored.append(r["id"])
+        except Exception as err:
+            if r:  # placed, but without its settings: the staged copy is the one to keep
+                try:
+                    session.call("delete_items", item_ids=[r["id"]])
+                except Exception:
+                    warnings.append(f"a rebuilt {item['name']} without its settings is on {_label(item)} at "
+                                    f"{session.to_tc(item['start'])}")
+            kept.append({"item": item["name"], "track": _label(copy), "at": session.to_tc(copy["start"]),
+                         "id": copy["id"]})
+            failures.append(f"rebuilding {item['name']} failed too ({err}): its copy with its settings is on "
+                            f"{_label(copy)} at {session.to_tc(copy['start'])}, and the staging track was kept")
+    if len(restored) > 1:
+        session.call("link_items", item_ids=restored)
+    cleanup([k["id"] for k in kept])
+    if not kept:
+        return outcome.op("failed", reason=f"swap failed ({exc}); the original was rebuilt with its settings",
+                          snapshot=snapshot, warnings=warnings)
+    if restored:
+        warnings.append("the rebuilt clips aren't linked to the kept copies")
+    back = (f"Move it back by hand, or use the backup timeline {snapshot}" if snapshot
+            else "Move it back by hand; no backup was made")
+    return outcome.op("failed", False, {"rebuilt": restored, "kept_on_staging": kept}, warnings, snapshot=snapshot,
+                      reason=f"swap failed ({exc}); " + "; ".join(failures) + f". {back}")
 
 
 def _replace_tool(a: dict[str, Any], new_range: Callable[[session.Item], tuple[int, int, int, int]],

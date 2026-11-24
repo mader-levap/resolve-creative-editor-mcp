@@ -1,6 +1,6 @@
 # Issues
 
-Found while testing `edit__add_transition`, 2026-11-22. This is the base for fixes. Fixed so far: I-01, I-02, I-03, I-04, I-05, I-06, I-07, I-08, I-09, I-10, I-11, I-12, I-13, I-14, I-15, I-16, I-17, I-18, I-19, I-20, I-21, I-23, I-24, I-27.
+Found while testing `edit__add_transition`, 2026-11-22. This is the base for fixes. Fixed so far: I-01, I-02, I-03, I-04, I-05, I-06, I-07, I-08, I-09, I-10, I-11, I-12, I-13, I-14, I-15, I-16, I-17, I-18, I-19, I-20, I-21, I-23, I-24, I-27, I-29.
 
 - Environment: free DaVinci Resolve 21.2.0.6, Windows 10, 60 fps timeline.
 - Code is named by file and function, with paths from the repo root.
@@ -44,9 +44,9 @@ How each item is known:
 | [I-26](#i-26) | Low | A cached transcript names the file it was first made from | Fake |
 | [I-27](#i-27) | ~~Medium~~ **Fixed** | `place_clips` passes clips of one call that overlap each other | Live, fake |
 | [I-28](#i-28) | Low | `place_clips` passes a source range past the clip's end | Live, fake |
-| [I-29](#i-29) | Medium | When a move can't rebuild the original either, the error doesn't say where the clip is | Fake |
+| [I-29](#i-29) | ~~Medium~~ **Fixed** | When a move can't rebuild the original either, the error doesn't say where the clip is | Fake |
 
-Order, one fix at a time, worst first: I-29, I-28, I-26; I-22 waits for the next sighting, which will now name where it stopped. Re-rank after each fix.
+Order, one fix at a time, worst first: I-28, I-26; I-22 waits for the next sighting, which will now name where it stopped. Re-rank after each fix.
 
 ## Issues
 
@@ -673,7 +673,7 @@ it without gaps. `set_scratch_fps` (test-only, `_RCE_` timelines) sets the rate 
 **Likely fix:** block when `last` is greater than the clip's `frames`, worded like `_plan_replace` ("outside the clip").
 
 <a id="i-29"></a>
-### I-29 When a move can't rebuild the original either, the error doesn't say where the clip is (medium)
+### I-29 When a move can't rebuild the original either, the error doesn't say where the clip is (medium, fixed)
 
 **Where:** `resolve_editor/tools/replace.py` (`_replace`, the `except` after the swap)
 
@@ -685,9 +685,25 @@ it without gaps. `set_scratch_fps` (test-only, `_RCE_` timelines) sets the rate 
 
 The backup timeline still has the original, if one was made.
 
-**Found 2026-11-24** with the fake: `tests/unit/test_timeline_steps.py` `test_when_the_original_cant_be_rebuilt_either_the_result_says_where_the_copy_is` (marked `expectedFailure`). Its fake ignores both appends on V1. Not seen live; it needs Resolve to refuse two appends in a row.
+**Found 2026-11-24** with the fake: `tests/unit/test_timeline_steps.py` `test_when_the_original_cant_be_rebuilt_either_the_result_says_where_the_copy_is` . Its fake ignores both appends on V1. Not seen live; it needs Resolve to refuse two appends in a row.
 
-**Likely fix:** catch the rebuild's failure and return `failed`, naming the staged copy's track and position and the backup, and keep that track.
+**Fix:** the rollback moved to `_roll_back`, which rebuilds each clip on its own:
+
+- A clip that can't be rebuilt keeps its staged copy. That includes a rebuilt clip that wouldn't take the settings, whose bare item is deleted. The staging track holding the copy is kept too.
+- The result is `failed` / `contradiction`. The reason names each such clip with its track and time ("its copy with its settings is on V2 at ..."), and names the backup timeline, or says no backup was made. `changes` has `rebuilt` and `kept_on_staging`.
+- A new clip already placed that can't be removed again is a warning naming it, and the rebuild still runs.
+- Clips that were rebuilt are linked only when more than one was. When every clip is rebuilt, the result is as before.
+
+**Verified 2026-11-24:**
+
+- `tests/unit/test_timeline_steps.py` `Appends`, with the fake:
+  - neither the swap nor the rebuild lands;
+  - the backup is named;
+  - a linked pair where only the audio can't be rebuilt (video rebuilt and its staging track removed; audio copy kept on A2; no link);
+  - the rebuilt clip won't take the settings;
+  - a placed clip can't be removed.
+  All five failed before the fix with the bare error. Each of six breaks is caught: no `try` around a rebuild or a removal, every staged copy deleted, the staging track deleted, the bare item kept, a link with one clip.
+- Live, `tests/live/live_resolve.py` clips area: a `move_item` with both appends on V1 refused by the test. In real Resolve the copy was on the staging track at the new place, the result named that track, and the track was still there. The probe then removed both. Full run: 67 passed; the only failure is the I-28 check.
 
 ## Live tests
 

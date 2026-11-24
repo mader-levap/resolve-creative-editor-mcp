@@ -14,10 +14,11 @@ import subprocess
 import sys
 import time
 from typing import Any
+from unittest import mock
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
-from resolve_editor import dispatch, paths, prefs, session  # noqa: E402  (needs the sys.path line above)
+from resolve_editor import dispatch, paths, prefs, session, timeline  # noqa: E402  (needs the sys.path line above)
 from resolve_editor.tools import clips as clip_tools  # noqa: E402
 
 RESULTS: list[tuple[str, bool]] = []
@@ -270,6 +271,7 @@ def clips(clip, start, name):
     r = dispatch.run("normalize_audio", {"item_ids": sounds, "confirm": True, "timeline": name})
     check("normalize_audio runs (levels can't be judged without listening)", status(r) == "success", r)
     placement_probes(clip, start, name)
+    rollback_probe(clip, start, name)
 
 
 def placement_probes(clip, start, name):
@@ -298,6 +300,42 @@ def placement_probes(clip, start, name):
     if stray:
         B("delete_items", item_ids=stray)
         session.invalidate()
+
+
+def rollback_probe(clip, start, name):
+    """A move whose swap and rebuild both fail, forced by refusing appends on V1: the copy with the clip's settings
+    is kept on the staging track and the result says where (docs/ISSUES.md I-29). Then removed again."""
+    at = start + 1700
+    r = dispatch.run("place_clips", {"clips": [{"clip": clip, "start_frame": 0, "end_frame": 60, "record": at,
+                                                "media_type": 1}], "confirm": True, "timeline": name})
+    check("rollback probe clip placed", status(r) == "success", r)
+    moved = next(x for x in session.items() if x["track_type"] == "video" and x["start"] == at)
+    real, refused = timeline.append_one, list[int]()
+
+    def refuse_on_v1(media_id, kind, first, last, record, track):
+        if track == 1 and len(refused) < 2:  # the swap, then the rebuild
+            refused.append(record)
+            raise RuntimeError(f"append to {kind} {track} at {record} refused by the live test")
+        return real(media_id, kind, first, last, record, track)
+    with mock.patch.object(timeline, "append_one", refuse_on_v1):
+        r = dispatch.run("move_item", {"item_id": moved["id"], "record": at + 100, "confirm": True,
+                                       "timeline": name})
+    kept = (r.get("_operation", {}).get("changes", {}).get("kept_on_staging") or [{}])[0]
+    track = int(str(kept.get("track", "V0"))[1:])
+    here = [x for x in session.items() if x["id"] == kept.get("id")]
+    check("rollback failure keeps the copy and says where it is",
+          status(r) == "failed" and kept.get("track", "?") in str(r.get("reason")) and refused == [at + 100, at]
+          and [(x["track_type"], x["track"], x["start"]) for x in here] == [("video", track, at + 100)], (r, here))
+    check("rollback failure keeps the staging track",
+          B("get_state")["track_counts"]["video"] >= track > 1, B("get_state")["track_counts"])
+    if here:
+        B("delete_items", item_ids=[kept["id"]])
+        session.invalidate()
+    if track > 1:
+        B("delete_empty_track", track_type="video", track=track)
+    check("rollback probe cleaned up: no copy, no staging track",
+          not [x for x in session.items() if x["start"] >= at and x["start"] < at + 200]
+          and B("get_state")["track_counts"]["video"] == track - 1, B("get_state")["track_counts"])
 
 
 def ripple(clip, start, name):

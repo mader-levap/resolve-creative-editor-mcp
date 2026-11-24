@@ -20,6 +20,19 @@ class Backup(Base):
         self.assertFalse({"add_track", "append_clips", "delete_items"} & set(f.calls))
 
 
+class IgnoresOnTrack1(FakeResolve):
+    """The staging append lands; the first `swaps` appends on the clip's own track (track 1) don't."""
+
+    swaps = 0
+
+    def __call__(self, op, args, **kw):
+        if op == "append_clips" and args["clips"][0]["track_index"] == 1:
+            self.ignored = getattr(self, "ignored", 0) + 1
+            if self.ignored <= self.swaps:
+                return {"ok": True, "result": []}
+        return super().__call__(op, args, **kw)
+
+
 class Appends(Base):
     def test_an_append_that_doesnt_land_changes_nothing(self):
         class Ignores(FakeResolve):  # Resolve accepts the append but nothing appears
@@ -33,35 +46,97 @@ class Appends(Base):
         self.assertEqual([(x["id"], x["start"]) for x in f.items], [("a", 1000)])
         self.assertEqual(f.tracks["video"], 1)
 
-
     @staticmethod
-    def ignoring(swaps):
-        class IgnoresOnTrack1(FakeResolve):
-            """The staging append lands; the first `swaps` appends on the clip's own track (V1) don't."""
-            def __call__(self, op, args, **kw):
-                if op == "append_clips" and args["clips"][0]["track_index"] == 1:
-                    self.ignored = getattr(self, "ignored", 0) + 1
-                    if self.ignored <= swaps:
-                        return {"ok": True, "result": []}
-                return super().__call__(op, args, **kw)
-        return IgnoresOnTrack1
+    def ignoring(swaps, items, cls=None):
+        f = (cls or IgnoresOnTrack1)(items)
+        f.swaps = swaps
+        return f
 
     def test_a_clip_of_the_same_length_elsewhere_isnt_taken_for_the_append(self):
-        f = self.use(self.ignoring(1)([item("a", 1000, 10, src=5), item("b", 1100, 10, src=5)]))
+        f = self.use(self.ignoring(1, [item("a", 1000, 10, src=5), item("b", 1100, 10, src=5)]))
         r = dispatch.run("move_item", {"item_id": "a", "record": 1050, "confirm": True, "timeline": "T",
                                        "backup": False})
         self.assertEqual(r["_operation"]["status"], "failed", r)
         self.assertEqual([c["to_id"] for c in f.copies if c["to_id"] == "b"], [], "b's settings left alone")
         self.assertEqual(sorted((x["start"], x["duration"]) for x in f.items), [(1000, 10), (1100, 10)])
 
-    @unittest.expectedFailure  # docs/ISSUES.md I-29
     def test_when_the_original_cant_be_rebuilt_either_the_result_says_where_the_copy_is(self):
-        f = self.use(self.ignoring(2)([item("a", 1000, 10, src=5)]))
+        f = self.use(self.ignoring(2, [item("a", 1000, 10, src=5)]))  # the swap and the rebuild don't land
         r = dispatch.run("move_item", {"item_id": "a", "record": 1050, "confirm": True, "timeline": "T",
-                                       "backup": False})  # raises "append ... did not land" today
-        self.assertEqual(r["_operation"]["status"], "failed", r)
+                                       "backup": False})
+        self.assertEqual((r["_operation"]["status"], r["_operation"]["verification"]), ("failed", "contradiction"), r)
         self.assertIn("V2", r["reason"], "the staged copy, with the clip's settings, is all that is left")
+        self.assertIn("no backup", r["reason"])
         self.assertEqual([(x["track"], x["start"]) for x in f.items], [(2, 1050)])
+        kept = r["_operation"]["changes"]["kept_on_staging"]
+        self.assertEqual([(k["track"], k["id"]) for k in kept], [("V2", f.items[0]["id"])])
+        self.assertEqual(f.tracks["video"], 2, "the staging track is kept")
+        self.assertEqual(f.settings[f.items[0]["id"]]["properties"], {"ZoomX": 1.5})
+
+    def test_the_backup_is_named_when_there_is_one(self):
+        self.use(self.ignoring(2, [item("a", 1000, 10, src=5)]))
+        r = dispatch.run("move_item", {"item_id": "a", "record": 1050, "confirm": True, "timeline": "T"})
+        self.assertIn(f"backup timeline {r['snapshot']}", r["reason"])
+
+    def test_a_linked_pair_where_only_the_audio_cant_be_rebuilt(self):
+        class AudioRebuildFails(FakeResolve):  # the swap's video append and every audio append on A1 don't land
+            def __call__(self, op, args, **kw):
+                c = args["clips"][0] if op == "append_clips" else {}
+                if op == "append_clips" and c["track_index"] == 1:
+                    self.v1 = getattr(self, "v1", 0) + (c.get("media_type") == 1)
+                    if c.get("media_type") == 2 or self.v1 == 1:
+                        return {"ok": True, "result": []}
+                return super().__call__(op, args, **kw)
+        items = [item("v", 1000, 60, src=10), item("a", 1000, 60, src=10, kind="audio")]
+        f = self.use(AudioRebuildFails(items, details={"v": {"linked": ["a"]}, "a": {"linked": ["v"]}}))
+        r = dispatch.run("move_item", {"item_id": "v", "record": 1200, "confirm": True, "timeline": "T",
+                                       "backup": False})
+        self.assertEqual(r["_operation"]["status"], "failed", r)
+        got = sorted((x["track_type"], x["track"], x["start"]) for x in f.items)
+        self.assertEqual(got, [("audio", 2, 1200), ("video", 1, 1000)], "video rebuilt, audio copy kept")
+        rebuilt = next(x for x in f.items if x["track_type"] == "video")
+        self.assertEqual(f.settings[rebuilt["id"]]["properties"], {"ZoomX": 1.5})
+        self.assertIn("A2", r["reason"])
+        self.assertNotIn("V2", r["reason"])
+        self.assertEqual(f.tracks, {"video": 1, "audio": 2}, "only the track with a kept copy stays")
+        self.assertNotIn("link_items", f.calls)
+
+    def test_settings_that_cant_be_copied_to_the_rebuilt_clip_leave_the_copy(self):
+        class CopyToV1Fails(IgnoresOnTrack1):  # the swap doesn't land; the rebuild lands but takes no settings
+            def __call__(self, op, args, **kw):
+                to = next((x for x in self.items if x["id"] == args.get("to_id")), None)
+                if op == "copy_settings" and to and to["track"] == 1:
+                    return {"ok": False, "error": "copy_settings failed"}
+                return super().__call__(op, args, **kw)
+        f = self.use(self.ignoring(1, [item("a", 1000, 10, src=5)], CopyToV1Fails))
+        r = dispatch.run("move_item", {"item_id": "a", "record": 1050, "confirm": True, "timeline": "T",
+                                       "backup": False})
+        self.assertEqual(r["_operation"]["status"], "failed", r)
+        self.assertEqual([(x["track"], x["start"]) for x in f.items], [(2, 1050)], "the bare rebuilt clip is removed")
+        self.assertIn("V2", r["reason"])
+
+    def test_a_placed_clip_that_cant_be_removed_is_named_and_the_rebuild_still_runs(self):
+        class SecondDeleteFails(FakeResolve):  # the swap's audio append fails; the delete of the video too
+            def __call__(self, op, args, **kw):
+                c = args["clips"][0] if op == "append_clips" else {}
+                if op == "append_clips" and c["track_index"] == 1 and c.get("media_type") == 2:
+                    self.a1 = getattr(self, "a1", 0) + 1
+                    if self.a1 == 1:
+                        return {"ok": True, "result": []}
+                if op == "delete_items":
+                    self.deletes = getattr(self, "deletes", 0) + 1
+                    if self.deletes == 2:
+                        return {"ok": False, "error": "delete_items failed"}
+                return super().__call__(op, args, **kw)
+        items = [item("v", 1000, 60, src=10), item("a", 1000, 60, src=10, kind="audio")]
+        f = self.use(SecondDeleteFails(items, details={"v": {"linked": ["a"]}, "a": {"linked": ["v"]}}))
+        r = dispatch.run("move_item", {"item_id": "v", "record": 1200, "confirm": True, "timeline": "T",
+                                       "backup": False})
+        self.assertEqual(r["_operation"]["status"], "failed", r)
+        got = sorted((x["track_type"], x["track"], x["start"]) for x in f.items)
+        self.assertEqual(got, [("audio", 1, 1000), ("video", 1, 1000), ("video", 1, 1200)])
+        self.assertIn("V1", " ".join(r["_operation"]["warnings"]))
+        self.assertIn("link_items", f.calls)
 
 
 class PlaceClips(Base):
