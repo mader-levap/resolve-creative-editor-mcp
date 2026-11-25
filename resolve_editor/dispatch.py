@@ -104,12 +104,14 @@ HANDLERS = {"doctor": diagnostics.doctor, "timeline_summary": inspection.timelin
             "export_srt": captions.export_srt, "export_timeline": delivery.export_timeline,
             "qc_file": delivery.qc_file, "batch": batch, "audit_log": diagnostics.audit_log,
             "list_captions": captions.list_captions, "shift_captions": captions.shift_captions,
-            "read_titles": titles.read_titles, "titles_to_captions": titles.titles_to_captions}
+            "read_titles": titles.read_titles, "titles_to_captions": titles.titles_to_captions,
+            "remove_captions": captions.remove_captions, "delete_unused_captions": captions.delete_unused_captions}
 READ_ONLY = {"doctor", "timeline_summary", "inspect_range", "find_media", "audit_log", "qc_file", "list_captions",
              "read_titles"}
 # Tools that change nothing until confirm=true. A batch preview calls only these, so add a tool here only if that holds.
 PREVIEWABLE = {"place_clips", "move_item", "trim_item", "ripple_trim", "normalize_audio", "set_speed", "copy_grade",
-               "add_captions", "add_transition", "shift_captions", "titles_to_captions"}
+               "add_captions", "add_transition", "shift_captions", "titles_to_captions", "remove_captions",
+               "delete_unused_captions"}
 # Tools that take confirm=true. Their previews name the timeline, and a confirm must name it too (docs/ISSUES.md I-17).
 CONFIRMABLE = PREVIEWABLE | {"batch"}
 # Reads that may follow a switch by hand, so they check the current timeline before using cached reads.

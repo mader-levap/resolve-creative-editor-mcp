@@ -859,6 +859,27 @@ local function text_inputs(tool)
   return inputs, animated
 end
 
+-- Caption timelines in the project, read only: named "... caption NNNN" (add_title_cards) with a Text+ on V1, and
+-- for each one the timelines that place it: {captions = {names}, used_by = {caption = {timelines}}}.
+function OPS.caption_usage()
+  local p = proj()
+  local caps, used = {}, {}
+  for i = 1, p:GetTimelineCount() do
+    local t = p:GetTimelineByIndex(i)
+    local n = t:GetName()
+    if n:match(" caption %d%d%d%d$") then
+      local first = each(t:GetItemListInTrack("video", 1))[1]
+      if first and pcall(text_tool, first) then caps[#caps + 1] = n end
+    else
+      for _, c in ipairs(caption_timelines(t)) do
+        used[c.name] = used[c.name] or {}
+        table.insert(used[c.name], n)
+      end
+    end
+  end
+  return { captions = caps, used_by = used }
+end
+
 -- Text and style of Text+ titles and captions, read only: per item {kind, inputs, animated} or {error}.
 function OPS.read_titles(a)
   local out = {}

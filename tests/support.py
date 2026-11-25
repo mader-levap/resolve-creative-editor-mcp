@@ -8,6 +8,7 @@ behaves the same way; see tests/live/live_resolve.py for the checks that need a 
 import json
 import os
 import pathlib
+import re
 import sys
 import tempfile
 import unittest
@@ -47,6 +48,10 @@ class FakeResolve:
         self.title_inputs: dict[str, dict[str, Any]] = {}  # plain Text+ title id -> its Text+ inputs
         self.caption_inputs: dict[str, dict[str, Any]] = {}  # caption timeline name -> its Text+ inputs
         self.title_calls: list[dict[str, Any]] = []  # every add_title_cards call, in order
+        self.other_usage: dict[str, list[str]] = {}  # caption timeline name -> other timelines that place it
+        self.deleted_timelines: list[str] = []
+        # caption timelines no timeline places, kept out of `timelines` (ripple uses any timeline as filler)
+        self.orphans = ["Old 1101-000000 caption 0009"]
         self.settings: dict[str, dict[str, Any]] = {
             x["id"]: {"properties": {"ZoomX": 1.5}, "fades": {"FadeIn": 4, "FadeOut": 0},
                       "color": "Orange", "enabled": True, "speed": {"Percentage": 100}, "linked": [],
@@ -165,6 +170,21 @@ class FakeResolve:
             r = {i: {"text": self.caption_text[by_id[i]]} if by_id.get(i) in self.caption_text
                  else {"error": "not a caption" if i in by_id else f"timeline item not found: {i}"}
                  for i in args["item_ids"]}
+        elif op == "caption_usage":  # like resolve_bridge.lua: caption timelines and the timelines that place them
+            used: dict[str, list[str]] = {k: list(v) for k, v in self.other_usage.items()}
+            for x in self.items:
+                if x["track_type"] == "video" and x["name"] in self.caption_text and "T" not in used.get(x["name"], []):
+                    used.setdefault(x["name"], []).append("T")
+            r = {"captions": [n for n in self.timelines if re.search(r" caption \d{4}$", n)] + self.orphans,
+                 "used_by": used}
+        elif op == "delete_timeline":
+            missing = [n for n in args["names"] if n not in self.timelines + self.orphans]
+            if missing:
+                return {"ok": False, "error": f"no timeline named {missing[0]}; nothing was deleted"}
+            self.timelines[:] = [n for n in self.timelines if n not in args["names"]]
+            self.orphans[:] = [n for n in self.orphans if n not in args["names"]]
+            self.deleted_timelines += args["names"]
+            r = {"deleted": list(args["names"]), "captions_deleted": [], "captions_kept": []}
         elif op == "add_title_cards":
             self.title_args = dict(args)  # what add_captions sent, style included
             self.title_calls.append(dict(args))
@@ -255,7 +275,7 @@ def sample_items() -> list[dict[str, Any]]:
 
 # Bridge ops that change nothing. A preview may use these and no others.
 READ_OPS = {"get_state", "list_timeline_items", "list_media", "item_details", "list_markers", "list_timelines",
-            "audio_modes", "caption_texts", "read_titles"}
+            "audio_modes", "caption_texts", "read_titles", "caption_usage"}
 # Valid args for every handler: a new tool has to be added here before the suite passes.
 SAMPLE_ARGS: dict[str, dict[str, Any]] = {
     "doctor": {}, "timeline_summary": {}, "inspect_range": {"start": 1000, "end": 1010}, "find_media": {},
@@ -281,4 +301,6 @@ SAMPLE_ARGS: dict[str, dict[str, Any]] = {
     "shift_captions": {"caption": "cap", "seconds": 1},
     "read_titles": {},
     "titles_to_captions": {"item_ids": ["ttl"]},
+    "remove_captions": {"captions": ["cap"]},
+    "delete_unused_captions": {},
 }

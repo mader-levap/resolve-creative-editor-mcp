@@ -45,7 +45,7 @@ In order: story/emotion, clarity, rhythm, continuity, visual polish.
 
 ## Available tools
 
-All tools come from the `resolve-creative-editor` MCP server (69 on free Resolve; `resolve__` timeline tools need Studio and are hidden). `edit__` tools that take `confirm` return a preview first; repeat with `confirm=true` and `timeline` set to the timeline the preview names (refused if another timeline is current). The others run on the first call.
+All tools come from the `resolve-creative-editor` MCP server (71 on free Resolve; `resolve__` timeline tools need Studio and are hidden). `edit__` tools that take `confirm` return a preview first; repeat with `confirm=true` and `timeline` set to the timeline the preview names (refused if another timeline is current). The others run on the first call.
 
 ### `edit__`: checked editing (preferred)
 
@@ -72,6 +72,8 @@ All tools come from the `resolve-creative-editor` MCP server (69 on free Resolve
 - **edit__shift_captions**: move a caption (all its parts) by signed `seconds` or `frames`, and by default every later caption on its track (`following=false`: only this one). Other tracks stay. Refuses to land on another clip or before the timeline start; one backup per call.
 - **edit__read_titles**: text, style and state of Text+ titles and captions: kind (`title` or `caption`), track, in/out, enabled, fades, text, and font, style, size, x, y, anchor, colour and outline; `all_inputs` adds every Text+ input. Select by `item_ids`, or a time range and track (default: the whole timeline).
 - **edit__titles_to_captions**: replace plain Text+ titles with captions (the `edit__add_captions` kind) with the same text, frames, every Text+ input, fades and enabled state. Titles deleted (no ripple) and captions on the same track, or `keep_originals=true`: titles disabled and captions on new tracks. Preview first; one backup; keyframed inputs aren't copied.
+- **edit__remove_captions**: remove captions (n from `edit__list_captions` or a part id): every part off the track, no ripple. By default with a backup, which still places the caption timelines, so they stay; `delete_timelines=true`: no backup, and each caption's own timeline is deleted unless a timeline (older backups included) still places it.
+- **edit__delete_unused_captions**: delete the caption timelines no timeline in the project places any more (after captions were deleted by hand, or their backups were deleted). Preview lists them; project-wide.
 - **edit__export_srt**: write an .srt from segments or a transcription (user imports it by hand); lines are split like `edit__add_captions`.
 - **edit__export_timeline**: export the current timeline as OTIO, FCPXML, EDL, AAF or DRT.
 - **edit__qc_file**: QC a rendered file: loudness, true peak, black/frozen frames, silence.
@@ -161,6 +163,7 @@ Observed on free DaVinci Resolve 21.2.0.6 through this server's Lua bridge. Othe
   - Placements must not overlap on a track, or the append is silently rejected.
   - Never use a compound clip instead: it places correctly but cuts the script's access to the Text+.
 - `edit__read_titles` reads a title's or caption's text and every Text+ input (about 300 on 21.2: number, point, text and FuID inputs, from `GetInputList`; keyframed ones are listed, not copied). When inputs are copied, the bridge sets only those that differ from the new Text+, so buttons (`ClearAllKerning`) and script fields are left alone (verified: a converted caption renders byte-identical to its title).
+- Deleting a caption clip (by hand or `legacy__delete_items`) leaves its caption timeline in the bin. Deleting a caption timeline that a timeline still places leaves that clip Media Offline, backups included (verified). `edit__remove_captions` and `edit__delete_unused_captions` only delete caption timelines nothing places.
 - Use the nested-timeline route when the user wants full automation; prefer plain Text+ (user sets the destination) when they will edit the titles by hand. Source: `vendor/davinci-resolve-mcp/docs/reference/api-limitations.md` (Source Track Selector).
 
 ### Editing

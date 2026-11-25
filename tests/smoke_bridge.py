@@ -95,6 +95,8 @@ local function timeline(name)
       GetTrackCount=function() return 1 end,
       GetItemListInTrack=function(self, kind)
         if kind == "video" and (name == "_RCE_FULL" or name == "_RCE_FULL_TOO") then return {placed} end
+        if kind == "video" and name:match(" caption %d%d%d%d$") and not name:match("^_RCE_NOTEXT") then
+          return {caption_title} end
         return {} end,
       GetStartFrame=function() return 0 end,
       GetEndFrame=function() return 100 end, GetCurrentTimecode=function() return "01:00:00:00" end,
@@ -404,6 +406,14 @@ assert world["deleted"] == [("timeline", "_RCE_FULL")], world["deleted"]
 world["deleted"].clear()
 r = bridge.call_bridge("delete_timeline", {"names": ["_RCE_FULL", "_RCE_FULL_TOO"], "with_captions": True})
 assert r["ok"] and r["result"]["captions_deleted"] == [CAP], r
+
+
+# caption_usage: caption timelines (by name, with a Text+ on V1) and the timelines that place each one
+ORPHAN = "_RCE_OLD 1125-000000 caption 0002"
+reset(cur="WORK", names=("WORK", "_RCE_FULL", "_RCE_FULL_TOO", CAP, ORPHAN, "_RCE_NOTEXT caption 0003"))
+r = bridge.call_bridge("caption_usage", {})
+assert r["ok"] and r["result"]["captions"] == [CAP, ORPHAN], r
+assert r["result"]["used_by"] == {CAP: ["_RCE_FULL", "_RCE_FULL_TOO"]}, r
 
 
 # Bins by path from the Media Pool root ("" is the root); every refusal changes nothing

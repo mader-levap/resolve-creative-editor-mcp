@@ -374,3 +374,103 @@ def shift_captions(args: dict[str, Any]) -> dict[str, Any]:
             result["_operation"]["warnings"].append(
                 f"not where expected after the move: captions {', '.join(str(r['n']) for r in missing)}")
     return result
+
+
+def caption_usage() -> tuple[list[str], dict[str, list[str]]]:
+    """(Every caption timeline in the project, caption timeline name -> the timelines that place it), from the
+    bridge's caption_usage."""
+    try:
+        r = session.call("caption_usage")
+    except RuntimeError as exc:
+        if "unknown op" not in str(exc):
+            raise
+        raise RuntimeError("the Resolve bridge is older than this server and can't see which timelines use a "
+                           "caption; restart the bridge (Workspace > Scripts > resolve_bridge)") from exc
+    used = r.get("used_by") if isinstance(r.get("used_by"), dict) else {}
+    return session.as_list(r.get("captions")), {k: session.as_list(v) for k, v in used.items()}
+
+
+def _pick(rows: list[dict[str, Any]], keys: list[Any]) -> tuple[list[dict[str, Any]], list[str]]:
+    """The captions named by n (from list_captions) or by the id of any part, each once; and the keys that match
+    none."""
+    picked: list[dict[str, Any]] = []
+    unknown = []
+    for key in keys:
+        if isinstance(key, int) or (isinstance(key, str) and key.isdigit()):
+            hit = next((c for c in rows if c["n"] == int(key)), None)
+        else:
+            hit = next((c for c in rows if key in [x["id"] for x in c["parts"]]), None)
+        if hit is None:
+            unknown.append(str(key))
+        elif hit not in picked:
+            picked.append(hit)
+    return picked, unknown
+
+
+def remove_captions(args: dict[str, Any]) -> dict[str, Any]:
+    """edit__remove_captions: preview, then delete every part of the captions (no ripple). By default a backup is
+    made, and it still places the caption timelines, so they stay. With delete_timelines=true no backup is made and
+    their own timelines are deleted too, unless a timeline (an older backup included) still places them: deleting
+    one that a timeline places leaves that clip Media Offline (live 2026-11-25)."""
+    rows = _captions()
+    picked, unknown = _pick(rows, list(args.get("captions") or []))
+    if unknown:
+        return outcome.blocked(f"no caption {', '.join(unknown)} on this timeline (see list_captions)")
+    if not picked:
+        return outcome.blocked("give the captions to remove: n from list_captions or the id of any part")
+    current = session.get_state()["timeline"]
+    ids = {x["id"] for c in picked for x in c["parts"]}
+    drop = args.get("delete_timelines") is True
+    delete, kept = [], []
+    if drop:
+        known, used = caption_usage()
+        names = [n for n in dict.fromkeys(c["name"] for c in picked) if n in known]  # a timeline gone already: skip
+        left = {x["name"] for x in session.items() if x["track_type"] == "video" and x["id"] not in ids}
+        for name in names:
+            users = [t for t in used.get(name, []) if t != current] + ([current] if name in left else [])
+            if users:
+                kept.append({"name": name, "used_by": users})
+            else:
+                delete.append(name)
+    plan = [{"n": c["n"], "text": c["text"], "track": f"V{c['track']}", "in": session.to_tc(c["start"]),
+             "out": session.to_tc(c["end"]), "parts": len(c["parts"])} for c in picked]
+    if drop:
+        notes = ["the parts are deleted without ripple",
+                 "no backup is made: it would still place the caption timelines, and deleting them would leave "
+                 "its clips Media Offline"]
+    else:
+        notes = ["the parts are deleted without ripple; a backup timeline is made first",
+                 "the caption timelines stay, because the backup places them; after deleting the backup, "
+                 "delete_unused_captions removes them"]
+    if not args.get("confirm"):
+        return outcome.preview({"captions": plan, "timelines_deleted": delete, "timelines_kept": kept}, notes)
+    backup = not drop and args.get("backup", True) is not False
+    snapshot = timeline.snapshot_timeline({"label": "before removing captions"}).get("snapshot") if backup else None
+    session.call("delete_items", item_ids=sorted(ids), ripple=False)
+    session.invalidate()
+    still = [x["id"] for x in session.items() if x["id"] in ids]
+    if still:
+        return outcome.op("partial", False, {"parts_deleted": len(ids) - len(still)}, snapshot=snapshot,
+                          reason=f"{len(still)} part(s) are still on the timeline; no caption timeline was deleted")
+    if delete:
+        session.call("delete_timeline", names=delete)
+    changes = {"captions_removed": len(picked), "parts_deleted": len(ids), "timelines_deleted": len(delete)}
+    return outcome.op("success", True, changes, snapshot=snapshot, captions=plan, kept=kept)
+
+
+def delete_unused_captions(args: dict[str, Any]) -> dict[str, Any]:
+    """edit__delete_unused_captions: preview, then delete the caption timelines (from add_captions) that no timeline
+    in the project places any more."""
+    names, used = caption_usage()
+    unused = [n for n in names if not used.get(n)]
+    if not args.get("confirm"):
+        return outcome.preview({"count": len(unused), "timelines": unused[: args.get("limit") or 200]},
+                               ["caption timelines are found by name (\"... caption NNNN\") with a Text+ on V1",
+                                "Media Pool entries only; there is no backup, but Resolve's Edit > Undo may work"])
+    if unused:
+        session.call("delete_timeline", names=unused)
+    left, _ = caption_usage()
+    gone = [n for n in unused if n not in left]
+    ok = len(gone) == len(unused)
+    return outcome.op("success" if ok else "partial", ok, {"timelines_deleted": len(gone)},
+                      **({} if ok else {"reason": f"still there: {', '.join(n for n in unused if n in left)}"}))

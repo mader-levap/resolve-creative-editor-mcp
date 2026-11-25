@@ -105,6 +105,16 @@ TOOLS = [
       "Refuses to land on another clip or before the timeline start. Each part is rebuilt with its settings.",
       {"caption": {"type": ["integer", "string"], "description": "n from list_captions, or the id of any part"},
        "seconds": N, "frames": I, "following": B, "confirm": CONFIRM, "timeline": TIMELINE}, ["caption"]),
+    T("remove_captions", "Remove captions: every part off the track (no ripple). By default one backup, which "
+      "still places the caption timelines, so they stay (delete_unused_captions frees them once the backup is "
+      "gone). delete_timelines=true: no backup, and each caption's own timeline is deleted unless a timeline (older "
+      "backups included) still places it (kept and named).",
+      {"captions": {"type": "array", "items": {"type": ["integer", "string"]},
+                    "description": "n from list_captions, or the id of any part"},
+       "delete_timelines": B, "confirm": CONFIRM, "timeline": TIMELINE}, ["captions"]),
+    T("delete_unused_captions", "Delete the caption timelines (from add_captions) that no timeline in the project "
+      "places any more, e.g. after captions were deleted by hand. Preview lists them.",
+      {"limit": I, "confirm": CONFIRM, "timeline": TIMELINE}),
     T("read_titles", "Text, style and state of Text+ titles and captions: kind (title or caption), track, in/out, "
       "enabled, fades, text, and font, style, size, x, y, anchor, colour and outline. all_inputs adds every Text+ "
       "input (for match or inputs elsewhere). Select by item_ids, or a time range and track (default: whole "

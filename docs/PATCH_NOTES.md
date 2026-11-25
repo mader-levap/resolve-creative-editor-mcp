@@ -6,6 +6,8 @@
 - Added: `edit__titles_to_captions` replaces plain Text+ titles with captions that keep the text, frames, track, every Text+ input, fades and enabled state; `keep_originals=true` disables the titles and puts the captions on new tracks instead. It previews first, makes one backup and reads the captions back. Live: converted captions render byte-identical to the titles.
 - Added: `edit__add_captions` takes `style`, `x`, `inputs` (any Text+ input, e.g. an outline) and `match` (copy every input of a title or caption). Before, only `font`, `size` and `y` reached Resolve.
 - Changed: `legacy__style_text_plus` works on captions too, and its `inputs` take strings and points (`[x, y]`), not only numbers. An input that already has the value isn't set again. `x` without `y` now moves the text (it was ignored).
+- Added: `edit__remove_captions` removes captions with all their parts. By default it makes a backup and keeps the caption timelines, which the backup places; `delete_timelines=true` makes no backup and deletes the caption timelines no other timeline places. Live: deleting a caption timeline that a backup still placed left the backup's clip Media Offline, so timelines in use are never deleted.
+- Added: `edit__delete_unused_captions` deletes the caption timelines no timeline places any more, project-wide, after a preview. Needs the new bridge script (`caption_usage`).
 - Added: `legacy__delete_timeline` (with `confirm`) deletes timelines by name; `with_captions=true` also deletes the caption timelines placed on them unless another timeline still uses them. Needs the new bridge script.
 - Changed: the fades warning says the restart bug was also seen on video and audio clips (docs/ISSUES.md F1).
 

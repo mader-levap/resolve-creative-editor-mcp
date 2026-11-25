@@ -135,7 +135,7 @@ Claude makes a backup copy of the timeline before every move or trim, and asks b
 | Grade | `edit__copy_grade`, `legacy__set_grade`, `legacy__set_lut` | Grade copy live-tested inside move | Not tested |
 | Markers | `edit__add_markers`, `edit__add_audio_markers` | Live-tested | Not tested |
 | Captions | `edit__add_captions` (exact length Text+ cards; long text on lines one under another, or one after another); `edit__list_captions` finds them by text, `edit__shift_captions` moves one and the ones after it | Live-tested | Not tested |
-| Titles | `edit__read_titles` (text, style, outline, fades of titles and captions); `edit__titles_to_captions` turns plain Text+ titles into captions with the same look; `edit__add_captions` `match`/`inputs` copy or set any Text+ style | Live-tested (scratch) | Not tested |
+| Titles | `edit__read_titles` (text, style, outline, fades of titles and captions); `edit__titles_to_captions` turns plain Text+ titles into captions with the same look; `edit__remove_captions` and `edit__delete_unused_captions` remove captions and their unused timelines; `edit__add_captions` `match`/`inputs` copy or set any Text+ style | Live-tested (scratch) | Not tested |
 | Subtitles | `edit__export_srt`, then File > Import > Subtitle | SRT file tested; import is manual | Same |
 | Export | `edit__export_timeline` | OTIO live-tested; others not | Not tested |
 | Render | `legacy__queue_render`, `legacy__start_render` (needs confirm) | Live-tested earlier | Not tested |
