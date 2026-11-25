@@ -9,6 +9,9 @@ TIMELINE = {"type": "string", "description": "With confirm=true: the timeline na
 SEGMENTS = {"type": "array", "items": {"type": "object", "properties": {"start": N, "end": N, "text": S},
                                        "required": ["start", "end", "text"]},
             "description": "Caption lines in seconds. Omit to transcribe `path` instead."}
+INPUTS = {"type": "object", "description": "Text+ inputs by id, set after the other style arguments: a number, a "
+          "string or [x, y], e.g. {\"Enabled2\": 1, \"Thickness2\": 0.05, \"Red2\": 0} for a black outline. Not "
+          "StyledText (the text comes from the segments)."}
 LINES = {"line_split": {"type": "string", "enum": ["stack", "sequence"],
                         "description": "Text longer than max_chars: stack (default) wraps it onto lines shown one "
                         "under another, at most max_lines at once; sequence shows one line after another"},
@@ -81,8 +84,13 @@ TOOLS = [
       "record is where the audio starts (default timeline start). Each caption is a small timeline in a bin, "
       "placed like a clip; long text is wrapped onto lines one under another (line_split). dry_run only lists them.",
       {"path": S, "segments": SEGMENTS, "record": WHEN, "track_index": I, "max_chars": I, "model": S, "language": S,
-       "font": S, "size": N, "y": {"type": "number", "description": "0-1 from the bottom; with anchor=bottom, where "
-                                   "the caption's bottom edge sits"},
+       "font": S, "style": {"type": "string", "description": "font style, e.g. Regular (Text+ defaults to Semibold)"},
+       "size": N, "x": {"type": "number", "description": "0-1 from the left; 0.5 is the centre"},
+       "y": {"type": "number", "description": "0-1 from the bottom; with anchor=bottom, where the caption's bottom "
+             "edge sits"},
+       "inputs": INPUTS,
+       "match": {"type": "string", "description": "id of a Text+ title or caption to copy every input from (font, "
+                 "size, position, colour, outline...), not its text; the other style arguments override it"},
        "anchor": {"type": "string", "enum": ["bottom", "center"], "description": "bottom (default): extra lines grow "
                   "upward from y; center: the text block is centred on y"},
        "folder": {"type": "string", "description": "top-level bin for the caption timelines (default: Captions "
@@ -97,6 +105,19 @@ TOOLS = [
       "Refuses to land on another clip or before the timeline start. Each part is rebuilt with its settings.",
       {"caption": {"type": ["integer", "string"], "description": "n from list_captions, or the id of any part"},
        "seconds": N, "frames": I, "following": B, "confirm": CONFIRM, "timeline": TIMELINE}, ["caption"]),
+    T("read_titles", "Text, style and state of Text+ titles and captions: kind (title or caption), track, in/out, "
+      "enabled, fades, text, and font, style, size, x, y, anchor, colour and outline. all_inputs adds every Text+ "
+      "input (for match or inputs elsewhere). Select by item_ids, or a time range and track (default: whole "
+      "timeline).",
+      {"item_ids": IDS, "start": WHEN, "end": WHEN, "track_index": I, "all_inputs": B, "limit": I}),
+    T("titles_to_captions", "Replace plain Text+ titles with captions (the add_captions kind, which can be placed and "
+      "moved by script) with the same text, frames, every Text+ input, fades and enabled state. Same track with the "
+      "titles deleted (no ripple), or keep_originals=true: titles disabled and captions on new tracks. Select by "
+      "item_ids, or a time range and track (default: every title). One backup.",
+      {"item_ids": IDS, "start": WHEN, "end": WHEN, "track_index": I, "keep_originals": B,
+       "folder": {"type": "string", "description": "top-level bin for the caption timelines (default: Captions "
+                  "(Resolve Creative Editor))"},
+       "confirm": CONFIRM, "timeline": TIMELINE}),
     T("export_srt", "Write an .srt subtitle file from segments or by transcribing `path`. Import it in Resolve with "
       "File > Import > Subtitle (importing subtitles by script can crash Resolve 21).",
       {"path": S, "segments": SEGMENTS, "output": S, "model": S, "language": S, "max_chars": I, **LINES}),

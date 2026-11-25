@@ -874,6 +874,16 @@ Same setup, plenty of spare frames: "Cross Disolve" refused; an audio type (`Cro
   described in `README.md`.
 - The audio crossfade was added after this restart, so it isn't covered.
 
+### F1 Script fades on video and audio clips: lost on restart (2026-11-25)
+
+The `SetFades` persistence bug in `README.md` ("Known Resolve bug") was only seen on Text+ titles before. Same bug on normal clips, free Resolve 21.2.0.6:
+
+- Scratch timeline `_RCE_fade_test`, one linked V1 + A1 clip (1080p60 recording, source frames 600-1200). `edit__set_fades` set 60-frame fade-in and fade-out on both; read-back `passed`. No fade handle dragged by hand.
+- Saved, quit and restarted Resolve: all four fades read back 0, and the user saw none in the timeline.
+- Control, same restart: timeline `Dev Log 01`, separate V1 video and A1 audio clips of the same file. The user dragged a fade-in on each by hand, then `edit__set_fades` set both to 60 frames. Both still 60 after the restart.
+
+So the workaround (drag a fade handle once per clip) applies to video and audio clips too.
+
 ## Open observation
 
 A backup made with `edit__snapshot_timeline` before adding a track reported success, but was no longer in

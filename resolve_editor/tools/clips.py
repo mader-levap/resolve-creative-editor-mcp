@@ -12,10 +12,11 @@ def set_enabled(args: dict[str, Any]) -> dict[str, Any]:
     return outcome.op("success" if ok else "partial", ok, {"items_changed": r.get("changed")})
 
 
-FADES_NOT_SAVED = ("Resolve bug (seen on free 21.2, Text+ titles): fades set by script on a clip whose fade was never "
-                   "dragged by hand show and play but are lost when Resolve restarts, even after saving. Once the user "
-                   "has dragged any fade handle on that clip, script fades on it are saved. Read-back can't tell the "
-                   "two apart, so ask the user to drag a fade on each clip first unless they already have.")
+FADES_NOT_SAVED = ("Resolve bug (seen on free 21.2, on Text+ titles and on video and audio clips): fades set by "
+                   "script on a clip whose fade was never dragged by hand show and play but are lost when Resolve "
+                   "restarts, even after saving. Once the user has dragged any fade handle on that clip, script fades "
+                   "on it are saved. Read-back can't tell the two apart, so ask the user to drag a fade on each clip "
+                   "first unless they already have.")
 
 
 def set_fades(args: dict[str, Any]) -> dict[str, Any]:

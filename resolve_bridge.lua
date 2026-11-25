@@ -230,6 +230,15 @@ do
   end
 end
 
+-- Call a method that may not exist on this Resolve build. Never use this for Studio-gated calls: on free
+-- they raise a modal dialog that blocks every later API call.
+local function try(obj, name, ...)
+  local args, n = { ... }, select("#", ...)
+  local ok, r = pcall(function() return obj[name](obj, unpack(args, 1, n)) end)
+  if ok then return r end
+  return nil
+end
+
 -- ---------- Resolve helpers ----------
 -- Resolve lists carry extra non-index keys (e.g. __flags = <number>); keep only numeric keys, in order.
 local function each(t)
@@ -495,6 +504,74 @@ function OPS.delete_bin(a)
   return n
 end
 
+-- The caption timelines placed on a timeline (add_title_cards names them "<timeline> <stamp> caption NNNN"),
+-- by name, each once.
+local function caption_timelines(t)
+  local out, seen = {}, {}
+  for i = 1, t:GetTrackCount("video") do
+    for _, it in ipairs(each(t:GetItemListInTrack("video", i))) do
+      local mp = try(it, "GetMediaPoolItem")
+      local inner = mp and try(mp, "GetTimeline")
+      local name = inner and inner:GetName()
+      if name and name:match(" caption %d%d%d%d$") and not seen[name] then
+        seen[name] = true
+        out[#out + 1] = { name = name, timeline = inner }
+      end
+    end
+  end
+  return out
+end
+
+-- Delete timelines by exact name (Media Pool entries; nothing on disk). Refuses the current timeline and unknown
+-- names before deleting anything. with_captions also deletes the caption timelines placed on them, unless a timeline
+-- that stays still uses one (then it is kept and named).
+function OPS.delete_timeline(a)
+  local p, mp = proj(), pool()
+  local names = a.names or {}
+  if #names == 0 then error("give the name of at least one timeline", 0) end
+  local by_name, all = {}, {}
+  for i = 1, p:GetTimelineCount() do
+    local t = p:GetTimelineByIndex(i)
+    by_name[t:GetName()] = t
+    all[#all + 1] = t
+  end
+  local now, doomed, list = current_name(p), {}, {}
+  for _, n in ipairs(names) do
+    if not by_name[n] then error("no timeline named " .. tostring(n) .. "; nothing was deleted", 0) end
+    if n == now then error(n .. " is the current timeline; switch to another one first. Nothing was deleted", 0) end
+    if not doomed[n] then doomed[n] = true; list[#list + 1] = by_name[n] end
+  end
+  local deleted, caps, kept = {}, {}, {}
+  for _, t in ipairs(list) do deleted[#deleted + 1] = t:GetName() end
+  if a.with_captions then
+    local wanted, order = {}, {}
+    for _, t in ipairs(list) do
+      for _, c in ipairs(caption_timelines(t)) do
+        if not wanted[c.name] and not doomed[c.name] then wanted[c.name] = c.timeline; order[#order + 1] = c.name end
+      end
+    end
+    local used = {}
+    if #order > 0 then
+      for _, t in ipairs(all) do
+        local n = t:GetName()
+        if not doomed[n] and not wanted[n] then
+          for _, c in ipairs(caption_timelines(t)) do used[c.name] = used[c.name] or n end
+        end
+      end
+    end
+    for _, n in ipairs(order) do
+      if used[n] then
+        kept[#kept + 1] = { name = n, used_by = used[n] }
+      else
+        list[#list + 1] = by_name[n] or wanted[n]
+        caps[#caps + 1] = n
+      end
+    end
+  end
+  if not mp:DeleteTimelines(list) then error("Resolve refused to delete the timelines", 0) end
+  return { deleted = deleted, captions_deleted = caps, captions_kept = kept }
+end
+
 function OPS.list_timelines()
   local p, out = proj(), {}
   for i = 1, p:GetTimelineCount() do out[#out + 1] = p:GetTimelineByIndex(i):GetName() end
@@ -685,29 +762,55 @@ local function text_tool(it)
   return tool
 end
 
--- Font/size/position plus other Text+ inputs by id. Enabled* first: an element's inputs don't exist until it is on.
+-- The Text+ of a timeline item: a title's own, or a caption's (a clip of its own small timeline, add_title_cards, whose
+-- V1 title holds the Text+). Returns the tool and "title" or "caption".
+local function title_tool(it)
+  local comp = try(it, "GetFusionCompByIndex", 1)
+  if comp then return text_tool(it), "title" end
+  local mp = try(it, "GetMediaPoolItem")
+  local inner = mp and try(mp, "GetTimeline")
+  if not inner then error("not a Text+ title or caption", 0) end
+  local title = each(inner:GetItemListInTrack("video", 1))[1]
+  if not title then error("not a caption: its timeline has no title on V1", 0) end
+  return text_tool(title), "caption"
+end
+
+-- Input ids that may be set from `inputs` (letters, digits, dots), and the values: a number, a string or a point.
+local function settable(k, v)
+  if type(k) ~= "string" or not k:match("^%a[%w%.]*$") or k == "StyledText" then return false end
+  if type(v) == "table" then return type(v[1]) == "number" and type(v[2]) == "number" end
+  return type(v) == "number" or type(v) == "string"
+end
+
+-- Font/style/size/position plus other Text+ inputs by id. Enabled* first: an element's inputs don't exist until it
+-- is on. A point is given as [x, y].
 local function apply_text_style(tool, a)
   if a.font then tool:SetInput("Font", a.font) end
   if a.style then tool:SetInput("Style", a.style) end
   if a.size then tool:SetInput("Size", a.size) end
-  if a.y then tool:SetInput("Center", { a.x or 0.5, a.y }) end
+  if a.x or a.y then tool:SetInput("Center", { a.x or 0.5, a.y or 0.5 }) end
   local keys = {}
   for k, v in pairs(a.inputs or {}) do
-    if type(k) == "string" and k:match("^%a+%d?$") and type(v) == "number" then keys[#keys + 1] = k end
+    if settable(k, v) then keys[#keys + 1] = k end
   end
   table.sort(keys, function(p, q)
     local ep, eq = p:match("^Enabled") ~= nil, q:match("^Enabled") ~= nil
     if ep ~= eq then return ep end
     return p < q
   end)
-  for _, k in ipairs(keys) do tool:SetInput(k, a.inputs[k]) end
+  for _, k in ipairs(keys) do
+    local v, now = a.inputs[k], tool:GetInput(k)
+    -- Set only what differs: a copied title brings ~300 inputs, buttons (ClearAllKerning) and script fields among them
+    local same = (type(v) == "table" and type(now) == "table") and (v[1] == now[1] and v[2] == now[2]) or v == now
+    if not same then tool:SetInput(k, type(v) == "table" and { v[1], v[2] } or v) end
+  end
 end
 
--- Change existing Text+ titles in place (text and/or style) without replacing them. Reads the text back.
+-- Change existing Text+ titles or captions in place (text and/or style) without replacing them. Reads the text back.
 function OPS.style_text_plus(a)
   local n, texts = 0, {}
   for _, id in ipairs(a.item_ids) do
-    local tool = text_tool(find_item(id))
+    local tool = title_tool(find_item(id))
     if a.text then tool:SetInput("StyledText", a.text) end
     apply_text_style(tool, a)
     if a.text then texts[id] = tool:GetInput("StyledText") end
@@ -718,20 +821,54 @@ function OPS.style_text_plus(a)
   return out
 end
 
--- The text of placed captions, read only. A caption is a clip of its own small timeline (add_title_cards), whose V1
--- title holds the Text+. Each item gets {text=...} or {error=...}, so one odd clip doesn't fail the rest.
+-- The text of placed captions, read only. Each item gets {text=...} or {error=...}, so one odd clip doesn't fail
+-- the rest.
 function OPS.caption_texts(a)
   local out = {}
   for _, id in ipairs(a.item_ids or {}) do
     local ok, r = pcall(function()
-      local mp = find_item(id):GetMediaPoolItem()
-      local inner = mp and mp:GetTimeline()
-      if not inner then error("not a caption: its clip has no timeline", 0) end
-      local title = each(inner:GetItemListInTrack("video", 1))[1]
-      if not title then error("not a caption: its timeline has no title on V1", 0) end
-      return text_tool(title):GetInput("StyledText")
+      local tool, kind = title_tool(find_item(id))
+      if kind ~= "caption" then error("not a caption: it is a title", 0) end
+      return tool:GetInput("StyledText")
     end)
     out[id] = ok and { text = r } or { error = tostring(r) }
+  end
+  return out
+end
+
+local COPYABLE = { Number = true, Point = true, Text = true, FuID = true }  -- input types read_titles reports
+
+-- Every input of a Text+ that can be copied to another one (number, point, text, FuID), keyed by id, and the ids of
+-- keyframed (connected) inputs, which are left out.
+local function text_inputs(tool)
+  local inputs, animated = {}, {}
+  for _, inp in pairs(tool:GetInputList() or {}) do
+    local attrs = inp:GetAttrs() or {}
+    local id = attrs.INPS_ID
+    if type(id) == "string" and COPYABLE[attrs.INPS_DataType] then
+      if inp:GetConnectedOutput() then
+        animated[#animated + 1] = id
+      else
+        local v = tool:GetInput(id)
+        if type(v) == "table" then v = (type(v[1]) == "number") and { v[1], v[2] } or nil end
+        if v ~= nil then inputs[id] = v end
+      end
+    end
+  end
+  table.sort(animated)
+  return inputs, animated
+end
+
+-- Text and style of Text+ titles and captions, read only: per item {kind, inputs, animated} or {error}.
+function OPS.read_titles(a)
+  local out = {}
+  for _, id in ipairs(a.item_ids or {}) do
+    local ok, r = pcall(function()
+      local tool, kind = title_tool(find_item(id))
+      local inputs, animated = text_inputs(tool)
+      return { kind = kind, inputs = inputs, animated = animated }
+    end)
+    out[id] = ok and r or { error = tostring(r) }
   end
   return out
 end
@@ -895,15 +1032,6 @@ end
 local unpack = unpack or table.unpack
 local reload_requested = false
 local BRIDGE_FILE = (os.getenv("APPDATA") or "") .. "\\Blackmagic Design\\DaVinci Resolve\\Support\\Fusion\\Scripts\\Utility\\resolve_bridge.lua"
-
--- Call a method that may not exist on this Resolve build. Never use this for Studio-gated calls: on free
--- they raise a modal dialog that blocks every later API call.
-local function try(obj, name, ...)
-  local args, n = { ... }, select("#", ...)
-  local ok, r = pcall(function() return obj[name](obj, unpack(args, 1, n)) end)
-  if ok then return r end
-  return nil
-end
 
 function OPS.probe_api(a)
   local t = tl()
@@ -1210,6 +1338,7 @@ function OPS.add_title_cards(a)
       local tool = text_tool(title)
       tool:SetInput("StyledText", c.text)
       apply_text_style(tool, a)
+      if c.inputs then apply_text_style(tool, { inputs = c.inputs }) end  -- this card's own style, last
       local item = try(inner, "GetMediaPoolItem")
       focus(target)
       if not item then error("this Resolve build gives timelines no media pool item", 0) end

@@ -44,6 +44,9 @@ class FakeResolve:
         self.media_frames = 300  # length of the one media pool clip
         self.parts: list[dict[str, Any]] = []
         self.caption_text: dict[str, str] = {}  # caption timeline name -> its Text+ text
+        self.title_inputs: dict[str, dict[str, Any]] = {}  # plain Text+ title id -> its Text+ inputs
+        self.caption_inputs: dict[str, dict[str, Any]] = {}  # caption timeline name -> its Text+ inputs
+        self.title_calls: list[dict[str, Any]] = []  # every add_title_cards call, in order
         self.settings: dict[str, dict[str, Any]] = {
             x["id"]: {"properties": {"ZoomX": 1.5}, "fades": {"FadeIn": 4, "FadeOut": 0},
                       "color": "Orange", "enabled": True, "speed": {"Percentage": 100}, "linked": [],
@@ -138,9 +141,25 @@ class FakeResolve:
             r = self.transition(args["item_id"], args["options"])
             if r is None:  # refused, worded like resolve_bridge.lua
                 return {"ok": False, "error": "Resolve refused the transition and gave no reason (...)"}
-        elif op in ("set_speed", "copy_grade", "normalize_audio", "set_enabled", "set_item_properties",
-                    "export_timeline"):
+        elif op == "set_enabled":
+            for i in args["item_ids"]:
+                self.settings[i]["enabled"] = args["enabled"]
+            r = {"ok": True, "changed": len(args["item_ids"])}
+        elif op in ("set_speed", "copy_grade", "normalize_audio", "set_item_properties", "export_timeline"):
             r = {"ok": True}
+        elif op == "read_titles":  # like resolve_bridge.lua: a title's own Text+, or a caption's in its timeline
+            by_id = {x["id"]: x["name"] for x in self.items}
+            r = {}
+            for i in args["item_ids"]:
+                if i in self.title_inputs or by_id.get(i) == "Text+":
+                    inputs = self.title_inputs.get(i) or {"StyledText": "Title", "Font": "Open Sans"}
+                    r[i] = {"kind": "title", "inputs": dict(inputs), "animated": []}
+                elif by_id.get(i) in self.caption_text:
+                    name = by_id[i]
+                    r[i] = {"kind": "caption", "animated": [],
+                            "inputs": dict(self.caption_inputs.get(name, {}), StyledText=self.caption_text[name])}
+                else:
+                    r[i] = {"error": "no Text+ tool in this title" if i in by_id else f"timeline item not found: {i}"}
         elif op == "caption_texts":  # like resolve_bridge.lua: the text in each clip's own timeline
             by_id = {x["id"]: x["name"] for x in self.items}
             r = {i: {"text": self.caption_text[by_id[i]]} if by_id.get(i) in self.caption_text
@@ -148,6 +167,7 @@ class FakeResolve:
                  for i in args["item_ids"]}
         elif op == "add_title_cards":
             self.title_args = dict(args)  # what add_captions sent, style included
+            self.title_calls.append(dict(args))
             r = self.title_cards(args)
         return {"ok": True, "result": r}
 
@@ -189,21 +209,31 @@ class FakeResolve:
         return {"id": tr["id"], "name": tr["name"], "start": tr["start"], "end": tr["end"], "duration": d}
 
     def title_cards(self, args):
-        """Like resolve_bridge.lua: one timeline per card, placed in parts no longer than the inserted title."""
+        """Like resolve_bridge.lua: one timeline per card, placed in parts no longer than the inserted title. The
+        parts land on the timeline, and each card's text and style go into its own timeline. Returns only the parts
+        this call placed, like the bridge."""
+        placed: list[dict[str, Any]] = []
         for i, c in enumerate(args["cards"], 1):
             if c["name"] in self.timelines:  # Resolve refuses a duplicate name, and the op stops there
-                return {"placed": list(self.parts), "error": f"could not create timeline {c['name']}"}
+                return {"placed": placed, "error": f"could not create timeline {c['name']}"}
             self.timelines.append(c["name"])
+            self.caption_text[c["name"]] = c["text"]
+            self.caption_inputs[c["name"]] = dict(args.get("inputs") or {}, **(c.get("inputs") or {}))
             done = 0
             while done < c["frames"]:
                 if self.refuse_part == len(self.parts):
-                    return {"placed": list(self.parts), "error": f"Resolve refused to place card {i}"}
+                    return {"placed": placed, "error": f"Resolve refused to place card {i}"}
                 part = min(c["frames"] - done, self.title_frames)
                 x = item(f"t{len(self.parts)}", c["record_frame"] + done, part, name=c["name"],
                          track=args["track_index"])
                 self.parts.append(dict(x, card=i))
+                placed.append(dict(x, card=i))
+                self.items.append(x)
+                self.settings[x["id"]] = {"properties": {}, "fades": {"FadeIn": 0, "FadeOut": 0}, "color": "",
+                                          "enabled": True, "speed": {"Percentage": 100}, "linked": [],
+                                          "media_id": f"tl-{c['name']}", "markers": {}}
                 done += part
-        return {"placed": list(self.parts)}
+        return {"placed": placed}
 
 
 class Base(unittest.TestCase):
@@ -217,13 +247,15 @@ class Base(unittest.TestCase):
 
 
 def sample_items() -> list[dict[str, Any]]:
-    """The timeline the every-tool tests run on: clip "a" on V1 and caption "cap" (a placed caption timeline) on V2."""
-    return [item("a", 1000, 10, src=5), item("cap", 1100, 10, name="T 1123-120000 caption 0001", track=2)]
+    """The timeline the every-tool tests run on: clip "a" on V1, caption "cap" (a placed caption timeline) on V2 and a
+    plain Text+ title "ttl" on V3."""
+    return [item("a", 1000, 10, src=5), item("cap", 1100, 10, name="T 1123-120000 caption 0001", track=2),
+            item("ttl", 1500, 10, name="Text+", track=3)]
 
 
 # Bridge ops that change nothing. A preview may use these and no others.
 READ_OPS = {"get_state", "list_timeline_items", "list_media", "item_details", "list_markers", "list_timelines",
-            "audio_modes", "caption_texts"}
+            "audio_modes", "caption_texts", "read_titles"}
 # Valid args for every handler: a new tool has to be added here before the suite passes.
 SAMPLE_ARGS: dict[str, dict[str, Any]] = {
     "doctor": {}, "timeline_summary": {}, "inspect_range": {"start": 1000, "end": 1010}, "find_media": {},
@@ -247,4 +279,6 @@ SAMPLE_ARGS: dict[str, dict[str, Any]] = {
     "batch": {"operations": []},
     "list_captions": {},
     "shift_captions": {"caption": "cap", "seconds": 1},
+    "read_titles": {},
+    "titles_to_captions": {"item_ids": ["ttl"]},
 }

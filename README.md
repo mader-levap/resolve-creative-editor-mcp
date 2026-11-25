@@ -135,6 +135,7 @@ Claude makes a backup copy of the timeline before every move or trim, and asks b
 | Grade | `edit__copy_grade`, `legacy__set_grade`, `legacy__set_lut` | Grade copy live-tested inside move | Not tested |
 | Markers | `edit__add_markers`, `edit__add_audio_markers` | Live-tested | Not tested |
 | Captions | `edit__add_captions` (exact length Text+ cards; long text on lines one under another, or one after another); `edit__list_captions` finds them by text, `edit__shift_captions` moves one and the ones after it | Live-tested | Not tested |
+| Titles | `edit__read_titles` (text, style, outline, fades of titles and captions); `edit__titles_to_captions` turns plain Text+ titles into captions with the same look; `edit__add_captions` `match`/`inputs` copy or set any Text+ style | Live-tested (scratch) | Not tested |
 | Subtitles | `edit__export_srt`, then File > Import > Subtitle | SRT file tested; import is manual | Same |
 | Export | `edit__export_timeline` | OTIO live-tested; others not | Not tested |
 | Render | `legacy__queue_render`, `legacy__start_render` (needs confirm) | Live-tested earlier | Not tested |
@@ -154,7 +155,7 @@ Claude makes a backup copy of the timeline before every move or trim, and asks b
 
 ### Known Resolve bug: script fades aren't saved on fresh clips
 
-Seen on free Resolve 21.2 with Text+ titles; other clip types are untested. Fades set by script (`SetFades`) show in the viewer, play and read back correctly, but if nobody has ever dragged a fade handle on that clip by hand, they are gone after Resolve restarts. Saving doesn't help, not even Ctrl+S or a save that also stores other changes.
+Seen on free Resolve 21.2 with Text+ titles and with video and audio clips (docs/ISSUES.md, F1). Fades set by script (`SetFades`) show in the viewer, play and read back correctly, but if nobody has ever dragged a fade handle on that clip by hand, they are gone after Resolve restarts. Saving doesn't help, not even Ctrl+S or a save that also stores other changes.
 
 Workaround: drag any fade handle on the clip once, any length. From then on, fades set by script on that clip are saved, both ends, including setting them to 0 and back. A hand-dragged fade on one clip doesn't help other clips. `edit__set_fades` can't detect which case a clip is in, so every result includes a warning.
 

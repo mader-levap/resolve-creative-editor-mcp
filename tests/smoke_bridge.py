@@ -64,10 +64,25 @@ local placed = {GetUniqueId=function() return "item1" end, GetName=function() re
   AddMarker=function(self, f, color, name) if name == "" then return false end; clip_marker(f, name); return true end,
   AddTransition=function() return nil end}  -- Resolve gives no reason (live T3/T4, docs/ISSUES.md I-09)
 -- a placed caption: its media pool item is the caption's own timeline, whose V1 title holds the text
-local caption_tool = {GetInput=function(self, k) if k == "StyledText" then return "line one\nline two" end end}
+-- its Text+ inputs: a number, a point (Fusion adds a third value), a FuID, an image (not copied) and a keyframed one
+local caption_values = {StyledText="line one\nline two", Size=0.034, Center={0.5, 0.08, 0}, Font="Normograf",
+  Image1="img", Thickness2=0.05}
+local caption_types = {StyledText="Text", Size="Number", Center="Point", Font="Text", Image1="Image",
+  Thickness2="Number"}
+local function caption_input(id)
+  return {GetAttrs=function() return {INPS_ID=id, INPS_DataType=caption_types[id]} end,
+    GetConnectedOutput=function() if id == "Thickness2" then return {} end end}
+end
+local caption_tool = {GetInput=function(self, k) return caption_values[k] end,
+  SetInput=function(self, k, v) text_input_set(k, v) end,
+  GetInputList=function() local out = {}
+    for _, id in ipairs({"StyledText", "Size", "Center", "Font", "Image1", "Thickness2"}) do
+      out[#out + 1] = caption_input(id) end
+    return out end}
 local caption_title = {GetFusionCompByIndex=function() return {FindToolByID=function() return caption_tool end} end}
 placed.GetMediaPoolItem = function() return {GetTimeline=function()
-  return {GetItemListInTrack=function(self, kind, i) if kind == "video" and i == 1 then return {caption_title} end
+  return {GetName=function() return "_RCE_FULL 1125-000000 caption 0001" end,
+    GetItemListInTrack=function(self, kind, i) if kind == "video" and i == 1 then return {caption_title} end
     return {} end} end} end
 local function timeline(name)
   if not made[name] then
@@ -78,7 +93,9 @@ local function timeline(name)
       GetSetting=function(self, k) return setting(name, k) end,
       SetSetting=function(self, k, v) return set_setting(name, k, v) end,
       GetTrackCount=function() return 1 end,
-      GetItemListInTrack=function() if name == "_RCE_FULL" then return {placed} end return {} end,
+      GetItemListInTrack=function(self, kind)
+        if kind == "video" and (name == "_RCE_FULL" or name == "_RCE_FULL_TOO") then return {placed} end
+        return {} end,
       GetStartFrame=function() return 0 end,
       GetEndFrame=function() return 100 end, GetCurrentTimecode=function() return "01:00:00:00" end,
       GetMediaPoolItem=function() return {} end,
@@ -123,7 +140,13 @@ resolve = {GetVersionString=function() return "21.1-fake" end, GetCurrentPage=fu
 L: dict[str, Any] = {}
 appended: list[tuple[int, int]] = []
 clip_marks: list[tuple[int, str]] = []
-world: dict[str, Any] = {"project": "demo", "names": [], "cur": None, "wrote": [], "ignore": {}, "deleted": []}
+world: dict[str, Any] = {"project": "demo", "names": [], "cur": None, "wrote": [], "ignore": {}, "deleted": [],
+                         "text_inputs": []}
+
+
+def lupa_table(v):
+    """Whether v is a Lua table handed to Python."""
+    return lua_mod.lua_type(v) == "table"
 titles: dict[str, Any] = {"length": 300, "settings": {}, "stuck": False, "parts": []}
 
 
@@ -178,6 +201,8 @@ def run_bridge():
     g.part = lambda rec, s, e: titles["parts"].append((rec, s, e))
     g.folder_deleted = lambda name: world["deleted"].append(("bin", name))
     g.tl_deleted = lambda name: world["deleted"].append(("timeline", name))
+    # Text+ SetInput calls, converted here (in the bridge thread, which holds the Lua runtime)
+    g.text_input_set = lambda k, v: world["text_inputs"].append((k, list(v.values()) if lupa_table(v) else v))
     # mimic Resolve's sandbox: no io/require; loadfile reads, fusion prefs is the only writer
     lua.execute("io = nil; require = nil; bmd = {}; fusion = {}")
     g.bmd.wait = time.sleep
@@ -332,6 +357,53 @@ assert "may have no spare" not in r["error"], r
 r = bridge.call_bridge("caption_texts", {"item_ids": ["item1", "nope"]})
 assert r["ok"] and r["result"]["item1"] == {"text": "line one\nline two"}, r
 assert "not found" in r["result"]["nope"]["error"], r
+
+# read_titles reads a caption's Text+ through its own timeline: copyable inputs only, keyframed ones listed
+r = bridge.call_bridge("read_titles", {"item_ids": ["item1", "nope"]})
+assert r["ok"], r
+got = r["result"]["item1"]
+assert got["kind"] == "caption" and got["animated"] == ["Thickness2"], got
+assert got["inputs"] == {"StyledText": "line one\nline two", "Size": 0.034, "Center": [0.5, 0.08],
+                         "Font": "Normograf"}, got
+assert "not found" in r["result"]["nope"]["error"], r
+
+# style_text_plus reaches a caption's Text+ too; Enabled* goes first, a point is sent as {x, y}, StyledText and
+# inputs that already have the value (Size) are skipped
+r = bridge.call_bridge("style_text_plus", {"item_ids": ["item1"], "inputs": {"Thickness2": 0.06, "Enabled2": 1,
+                                           "Center": [0.4, 0.1], "Font": "Arial", "StyledText": "no",
+                                           "Size": 0.034}})
+assert r["ok"] and r["result"]["styled"] == 1, r
+sets = world["text_inputs"]
+assert [k for k, _ in sets] == ["Enabled2", "Center", "Font", "Thickness2"], sets
+assert sets[1][1] == [0.4, 0.1], sets
+
+
+# delete_timeline: by exact name; refuses the current timeline and unknown names before deleting anything;
+# with_captions also deletes the caption timelines placed on it, unless another timeline still uses them
+CAP = "_RCE_FULL 1125-000000 caption 0001"
+for names, why in ((["WORK"], "current"), (["_RCE_FULL", "nope"], "no timeline named nope"), ([], "name")):
+    reset(cur="WORK", names=("WORK", "_RCE_FULL", CAP))
+    world["deleted"].clear()
+    r = bridge.call_bridge("delete_timeline", {"names": names})
+    assert not r["ok"] and why in r["error"] and world["deleted"] == [], (names, r, world["deleted"])
+reset(cur="WORK", names=("WORK", "_RCE_FULL", CAP))
+world["deleted"].clear()
+r = bridge.call_bridge("delete_timeline", {"names": ["_RCE_FULL"]})
+assert r["ok"] and r["result"]["deleted"] == ["_RCE_FULL"] and r["result"]["captions_deleted"] == [], r
+assert world["deleted"] == [("timeline", "_RCE_FULL")], world["deleted"]
+world["deleted"].clear()
+r = bridge.call_bridge("delete_timeline", {"names": ["_RCE_FULL"], "with_captions": True})
+assert r["ok"] and r["result"]["captions_deleted"] == [CAP], r
+assert world["deleted"] == [("timeline", "_RCE_FULL"), ("timeline", CAP)], world["deleted"]
+reset(cur="WORK", names=("WORK", "_RCE_FULL", "_RCE_FULL_TOO", CAP))
+world["deleted"].clear()
+r = bridge.call_bridge("delete_timeline", {"names": ["_RCE_FULL"], "with_captions": True})
+assert r["ok"] and r["result"]["captions_deleted"] == [], r
+assert r["result"]["captions_kept"] == [{"name": CAP, "used_by": "_RCE_FULL_TOO"}], r
+assert world["deleted"] == [("timeline", "_RCE_FULL")], world["deleted"]
+world["deleted"].clear()
+r = bridge.call_bridge("delete_timeline", {"names": ["_RCE_FULL", "_RCE_FULL_TOO"], "with_captions": True})
+assert r["ok"] and r["result"]["captions_deleted"] == [CAP], r
 
 
 # Bins by path from the Media Pool root ("" is the root); every refusal changes nothing

@@ -108,7 +108,7 @@ class GatewayResilience(unittest.TestCase):
         self.assertEqual([(e["tool"], e["args"], e["status"]) for e in log], [("legacy__hello", {"x": 1}, "success")])
 
     def test_guarded_tools_need_confirm_true_and_it_is_not_forwarded(self):
-        guarded = ("delete_items", "start_render", "delete_bin")
+        guarded = ("delete_items", "start_render", "delete_bin", "delete_timeline")
         self.assertEqual(set(guarded), gateway.GUARDED_LEGACY, "a newly guarded tool is tested here too")
         fake = [sys.executable, str(ROOT / "tests" / "fake_mcp.py"), *guarded]
         env = dict(os.environ, LEGACY_MCP_COMMAND=json.dumps(fake), RESOLVE_MCP_REPO=tempfile.mkdtemp(),

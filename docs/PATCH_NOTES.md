@@ -1,5 +1,14 @@
 # Patch notes — DaVinci Resolve MCP
 
+## 2026-11-25
+
+- Added: `edit__read_titles` reads the text, style (font, style, size, position, anchor, colour, outline), fades and enabled state of Text+ titles and captions; `all_inputs` gives every Text+ input. Needs the new bridge script (`read_titles`).
+- Added: `edit__titles_to_captions` replaces plain Text+ titles with captions that keep the text, frames, track, every Text+ input, fades and enabled state; `keep_originals=true` disables the titles and puts the captions on new tracks instead. It previews first, makes one backup and reads the captions back. Live: converted captions render byte-identical to the titles.
+- Added: `edit__add_captions` takes `style`, `x`, `inputs` (any Text+ input, e.g. an outline) and `match` (copy every input of a title or caption). Before, only `font`, `size` and `y` reached Resolve.
+- Changed: `legacy__style_text_plus` works on captions too, and its `inputs` take strings and points (`[x, y]`), not only numbers. An input that already has the value isn't set again. `x` without `y` now moves the text (it was ignored).
+- Added: `legacy__delete_timeline` (with `confirm`) deletes timelines by name; `with_captions=true` also deletes the caption timelines placed on them unless another timeline still uses them. Needs the new bridge script.
+- Changed: the fades warning says the restart bug was also seen on video and audio clips (docs/ISSUES.md F1).
+
 ## 2026-11-24
 
 - Added: `legacy__create_bin`, `legacy__use_bin` and `legacy__delete_bin` (with `confirm`) work with Media Pool bins by their path from the root, and `legacy__get_state` reports `current_bin`. `delete_bin` refuses a bin with anything in it unless `with_contents=true`, and keeps the current bin current (Resolve makes the root current when a bin is deleted). Needs the new bridge script.

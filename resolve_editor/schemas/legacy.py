@@ -18,6 +18,10 @@ TOOLS = [
     T("delete_bin", "Delete a bin (path from the root). A bin with clips, timelines or bins in it is refused unless "
       "with_contents=true, which deletes them with it (Media Pool entries only, files on disk stay). Refuses the "
       "root, the current bin and a bin holding the current timeline.", {"bin": S, "with_contents": B}, ["bin"]),
+    T("delete_timeline", "Delete timelines by exact name (Media Pool entries only). Refuses the current timeline and "
+      "unknown names before deleting anything. with_captions=true also deletes the caption timelines placed on them "
+      "(edit__add_captions), except ones a remaining timeline still uses, which are kept and named.",
+      {"names": STRS, "with_captions": B}, ["names"]),
     T("create_timeline", "Create a timeline, empty or from media-pool clips.",
       {"name": S, "clips": {"type": "array", "items": S, "description": CLIP_REF}}, ["name"]),
     T("append_clips",
@@ -52,10 +56,11 @@ TOOLS = [
                                             "required": ["text", "record_frame"]}},
        "font": S, "style": S, "size": {"type": "number"}, "x": {"type": "number"}, "y": {"type": "number"},
        "lock_video_tracks": {"type": "array", "items": I},
-       "inputs": {"type": "object", "description": "other numeric Text+ inputs by id"},
+       "inputs": {"type": "object", "description": "other Text+ inputs by id: a number, a string or [x, y]"},
        "list_inputs": B}, ["items"]),
-    T("style_text_plus", "Change existing Text+ titles in place: text, font, style, size, x, y, other numeric inputs "
-      "by id. text replaces the whole text of every listed title; use \\n for line breaks.",
+    T("style_text_plus", "Change existing Text+ titles or captions in place: text, font, style, size, x, y, other "
+      "Text+ inputs by id (number, string or [x, y]). text replaces the whole text of every listed title; use \\n "
+      "for line breaks.",
       {"item_ids": STRS, "text": S, "font": S, "style": S, "size": {"type": "number"}, "x": {"type": "number"},
        "y": {"type": "number"}, "inputs": {"type": "object"}}, ["item_ids"]),
     T("add_marker", "Add a timeline marker. frame is relative to the timeline start. Colors: Blue, Cyan, Green, "

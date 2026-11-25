@@ -1,23 +1,6 @@
 # DaVinci Resolve for AI agents
 
-## Structure
-
-- `resolve_editor/`: the MCP server package (`dispatch.py` runs the `edit__` tools; `session.py`, `bridge.py`, `timeline.py`, `rebuild.py` (moving and trimming a clip by rebuilding it with its settings) and the other modules are shared helpers).
-  - `tools/`: the `edit__` tools, one file per area (captions, clips, placement, ripple, ...).
-  - `schemas/`: tool definitions (names, arguments, descriptions) for the `edit__`, `legacy__` and `media__` tools.
-  - `servers/`: the MCP servers: `gateway.py` (the one clients connect to; runs `edit__` itself and forwards the rest), `legacy.py` (the `legacy__` bridge tools and the `media__` tools), `upstream.py` (where the upstream engine and legacy server are, and how to start them), `child.py` (one child server process over stdio), `stdio.py` (what both stdio servers share: UTF-8 stdio).
-- `tests/`: the shared fake Resolve (`support.py`), a fake MCP server (`fake_mcp.py`) and the Lua smoke test (`smoke_bridge.py`).
-  - `unit/`: the unit tests (`test_*.py`), run by `python -m unittest`.
-  - `live/`: the by-hand live test against a real Resolve (`live_resolve.py`).
-- `docs/`:
-  - `ISSUES.md`: known issues and live test results
-  - `PATCH_NOTES.md`
-  - `MANUAL.md`
-  - `THIRD_PARTY_NOTICES.md`.
-- `patches/`: patches applied to the upstream engine at setup.
-- `vendor/` (not in git): the upstream engine, `davinci-resolve-mcp`, installed by `setup.ps1`/`setup.sh`.
-- `logs/` (not in git): setup logs.
-- Root files: `resolve_bridge.lua` (the bridge that runs inside Resolve), `unified_server.py` and `mcp_server.py` (server entry points), `setup.ps1`/`setup.sh` (install), `pyproject.toml` (ruff and mypy settings).
+Here are instructions for editing videos. If you need to code, see `docs/CODING.md`.
 
 ## Working rules
 
@@ -62,7 +45,7 @@ In order: story/emotion, clarity, rhythm, continuity, visual polish.
 
 ## Available tools
 
-All tools come from the `resolve-creative-editor` MCP server (66 on free Resolve; `resolve__` timeline tools need Studio and are hidden). `edit__` tools that take `confirm` return a preview first; repeat with `confirm=true` and `timeline` set to the timeline the preview names (refused if another timeline is current). The others run on the first call.
+All tools come from the `resolve-creative-editor` MCP server (69 on free Resolve; `resolve__` timeline tools need Studio and are hidden). `edit__` tools that take `confirm` return a preview first; repeat with `confirm=true` and `timeline` set to the timeline the preview names (refused if another timeline is current). The others run on the first call.
 
 ### `edit__`: checked editing (preferred)
 
@@ -84,9 +67,11 @@ All tools come from the `resolve-creative-editor` MCP server (66 on free Resolve
 - **edit__copy_grade**: copy one clip's grade onto other clips.
 - **edit__add_markers**: add several timeline markers at once, read back. Every marker needs a name.
 - **edit__add_audio_markers**: mark silences or beats found in a file.
-- **edit__add_captions**: editable Text+ captions at exact times, from segments or by transcribing a file. Text longer than `max_chars` (42) is wrapped onto balanced lines one under another, at most `max_lines` (2) at once, more in captions one after another; `line_split="sequence"` puts each line in its own caption instead. Captions are anchored at their bottom (`anchor`, default `bottom`): `y` is where the bottom edge sits and extra lines grow upward; `anchor="center"` centres the block on `y`. One small timeline per caption, in the `Captions (Resolve Creative Editor)` bin unless `folder` names another top-level bin; a caption longer than the inserted title (Standard Generator Duration) is placed in parts that share its text; the preview says which, from Standard Generator Duration.
+- **edit__add_captions**: editable Text+ captions at exact times, from segments or by transcribing a file. Text longer than `max_chars` (42) is wrapped onto balanced lines one under another, at most `max_lines` (2) at once, more in captions one after another; `line_split="sequence"` puts each line in its own caption instead. Captions are anchored at their bottom (`anchor`, default `bottom`): `y` is where the bottom edge sits and extra lines grow upward; `anchor="center"` centres the block on `y`. One small timeline per caption, in the `Captions (Resolve Creative Editor)` bin unless `folder` names another top-level bin; a caption longer than the inserted title (Standard Generator Duration) is placed in parts that share its text; the preview says which, from Standard Generator Duration. Style: `font`, `style`, `size`, `x`, `y`, any Text+ input in `inputs` (e.g. an outline: `Enabled2`, `Thickness2`, `Red2`...), or `match` (a title or caption id) to copy every input of that one; the other style arguments override `match`.
 - **edit__list_captions**: captions placed by `edit__add_captions`, in time order: number, text, in/out, track and part ids; filter by text, time range or track.
 - **edit__shift_captions**: move a caption (all its parts) by signed `seconds` or `frames`, and by default every later caption on its track (`following=false`: only this one). Other tracks stay. Refuses to land on another clip or before the timeline start; one backup per call.
+- **edit__read_titles**: text, style and state of Text+ titles and captions: kind (`title` or `caption`), track, in/out, enabled, fades, text, and font, style, size, x, y, anchor, colour and outline; `all_inputs` adds every Text+ input. Select by `item_ids`, or a time range and track (default: the whole timeline).
+- **edit__titles_to_captions**: replace plain Text+ titles with captions (the `edit__add_captions` kind) with the same text, frames, every Text+ input, fades and enabled state. Titles deleted (no ripple) and captions on the same track, or `keep_originals=true`: titles disabled and captions on new tracks. Preview first; one backup; keyframed inputs aren't copied.
 - **edit__export_srt**: write an .srt from segments or a transcription (user imports it by hand); lines are split like `edit__add_captions`.
 - **edit__export_timeline**: export the current timeline as OTIO, FCPXML, EDL, AAF or DRT.
 - **edit__qc_file**: QC a rendered file: loudness, true peak, black/frozen frames, silence.
@@ -102,6 +87,7 @@ All tools come from the `resolve-creative-editor` MCP server (66 on free Resolve
 - **legacy__create_bin**: create a Media Pool bin by its path from the root (`Footage/Day 1`); only the last level, under an existing parent; the current bin stays.
 - **legacy__use_bin**: make a bin current (`""` is the root); new clips, timelines and backups go there. Returns `previous`, for switching back. `legacy__get_state` gives `current_bin`.
 - **legacy__delete_bin**: delete a bin (needs `confirm`). A bin with anything in it needs `with_contents=true`, which deletes its clips, timelines and bins too (Media Pool entries only; files stay). Refuses the root, the current bin and a bin holding the current timeline.
+- **legacy__delete_timeline**: delete timelines by exact name (needs `confirm`). Refuses the current timeline and unknown names before deleting anything. `with_captions=true` also deletes the caption timelines placed on them, except ones another remaining timeline uses (kept and named). Deleting a timeline alone leaves its caption timelines in their bin.
 - **legacy__duplicate_timeline**: duplicate the current timeline under a new name.
 - **legacy__list_timeline_items**: items on the current timeline's video, audio or subtitle tracks.
 - **legacy__list_media**: all Media Pool clips (id, name, duration, fps, resolution, path).
@@ -110,7 +96,7 @@ All tools come from the `resolve-creative-editor` MCP server (66 on free Resolve
 - **legacy__delete_items**: delete timeline items, optionally rippling (needs `confirm`).
 - **legacy__add_track**: add a video or audio track.
 - **legacy__add_text_plus**: insert editable Text+ titles at frames with text and style.
-- **legacy__style_text_plus**: change existing Text+ titles: text, font, style, size, position.
+- **legacy__style_text_plus**: change existing Text+ titles or captions: text, font, style, size, position, other Text+ inputs by id (number, string or `[x, y]`).
 - **legacy__set_item_properties**: transform/composite properties (zoom, pan, opacity, crop, ...).
 - **legacy__set_grade**: primary grade (ASC CDL slope/offset/power, saturation).
 - **legacy__set_lut**: load a .cube LUT onto a node.
@@ -174,6 +160,7 @@ Observed on free DaVinci Resolve 21.2.0.6 through this server's Lua bridge. Othe
   - A new timeline takes the project frame rate. To give it another rate by script, set `useCustomSettings` to `"1"` first, then `timelineFrameRate`; only an empty timeline accepts it (verified).
   - Placements must not overlap on a track, or the append is silently rejected.
   - Never use a compound clip instead: it places correctly but cuts the script's access to the Text+.
+- `edit__read_titles` reads a title's or caption's text and every Text+ input (about 300 on 21.2: number, point, text and FuID inputs, from `GetInputList`; keyframed ones are listed, not copied). When inputs are copied, the bridge sets only those that differ from the new Text+, so buttons (`ClearAllKerning`) and script fields are left alone (verified: a converted caption renders byte-identical to its title).
 - Use the nested-timeline route when the user wants full automation; prefer plain Text+ (user sets the destination) when they will edit the titles by hand. Source: `vendor/davinci-resolve-mcp/docs/reference/api-limitations.md` (Source Track Selector).
 
 ### Editing
@@ -181,7 +168,7 @@ Observed on free DaVinci Resolve 21.2.0.6 through this server's Lua bridge. Othe
 - Resolve 21.2 refuses a marker without a name, on the timeline and on clips. `edit__add_markers` and `legacy__add_marker` refuse one before sending it. Markers made by hand get a name (`Marker 1`).
 - Clip marker frames count from the start of the source media, not the clip, for reading and adding (verified). Markers outside the clip's used range are kept, hidden. Resolve's marker tooltip shows source time; use the playhead to see where a marker sits on the timeline. `edit__move_item` and `edit__trim_item` keep clip markers at their source frames.
 - Fades are in frames (`edit__set_fades`); at 60 fps a 1 s fade is 60 frames. An end you leave out keeps its length.
-- Resolve bug (free 21.2, Text+ titles): script fades are lost on restart unless the user has dragged a fade handle on that clip by hand at least once. Ask the user to do that first; after it, script fades on the clip are saved (both ends, including 0 and back). Read-back passing does not prove the fade is saved. Tried and failed: saving, Ctrl+S, script text/size changes plus save. See README "Known Resolve bug".
+- Resolve bug (free 21.2, Text+ titles and video/audio clips): script fades are lost on restart unless the user has dragged a fade handle on that clip by hand at least once. Ask the user to do that first; after it, script fades on the clip are saved (both ends, including 0 and back). Read-back passing does not prove the fade is saved. Tried and failed: saving, Ctrl+S, script text/size changes plus save. See README "Known Resolve bug".
 - `edit__move_item` and `edit__trim_item` rebuild the clip and copy grade, transform, audio levels, fades, colour, flags and markers, but not keyframes. They refuse titles and generators (no Media Pool item, Fusion comp).
 - Deleting a bin makes the root bin current; `delete_bin` makes the previous current bin current again (verified).
 - `edit__ripple_trim` shortens clip ends and pulls everything after them earlier, keeping the gaps. It works on titles because nothing is rebuilt: it trims in place (`trim_tail`), drops a filler from a Media Pool timeline into the gap, and ripple-deletes the filler. Verified: `DeleteClips(..., ripple=true)` shifts later clips on **all** tracks by the deleted length, and a title's text, fades and ID survive. Titles can't be moved directly, so this ripple trick is the only way to shift them.
@@ -189,55 +176,3 @@ Observed on free DaVinci Resolve 21.2.0.6 through this server's Lua bridge. Othe
 - A writing `edit__` call stays on the timeline that was current when it started: if the user clicks another one
   meanwhile, Resolve jumps back and the result has a warning. `legacy__` calls don't do this.
 - Take `edit__snapshot_timeline` before multi-step changes; it gives the user a one-step way back.
-
-## Coding
-
-### General
-
-- Always comment public classes and functions.
-
-### Modifying scripts and mcp
-
-When you encounter issues with doing tasks with existing tools, consider if it is possible to add new tool and/or fix existing script or tool. Never add/modify/delete script or tool without explicit permission of user.
-
-### Bridge
-
-After modification of `resolve_bridge.lua` script, copy it to **both** places it runs from, then reload it with the bridge's `reload_bridge` op:
-- `%USERPROFILE%\resolve-claude-bridge\resolve_bridge.lua` (run by the console command below and by `reload_bridge`)
-- `%APPDATA%\Blackmagic Design\DaVinci Resolve\Support\Fusion\Scripts\Utility\resolve_bridge.lua` (run by Workspace > Scripts > resolve_bridge in Resolve)
-
-If the reload fails or the bridge stops answering, ask user to restart script in DaVinci's console (or the menu below):
-```lua
-fusion:RunScript(os.getenv("USERPROFILE").."\\resolve-claude-bridge\\resolve_bridge.lua")
-```
-or from the menu: `Workspace > Scripts > resolve_bridge`.
-
-Bridge calls from all processes take turns through `bridge.lock` in the bridge folder (`bridge.call_bridge`). Never write `request.lua` another way. "bridge busy" means another client held it for 60 s and nothing was sent; retrying is safe.
-
-`reload_bridge` only works while the bridge is running. After Resolve starts, the user has to start the bridge once (console command or menu); no tool can do that.
-
-If a call says the bridge acknowledged an op and then stopped answering, or that it is still stuck (docs/ISSUES.md I-22): the bridge is stuck inside a Resolve call. Ask the user to restart it (menu or console; this works while the old copy is stuck, no Resolve restart needed), then run `edit__doctor`: `previous_run_stuck` names the op and step it stopped in. The stuck op may have made its change, so read the timeline back before writing again. Report the `previous_run_stuck` details in docs/ISSUES.md I-22.
-
-### MCP server and tools
-
-The code is the `resolve_editor` package: `tools/` (one file per area), `dispatch.py`, `schemas/`, `servers/`. Import its modules, not names from them (`session.pin`, `bridge.call_bridge()`): a copied name doesn't see the timeline pin or the test fakes.
-
-New or changed `edit__` tools need the MCP server restarted. Until then they can be run by importing `resolve_editor.dispatch` in a Python script and calling `run(name, args)`.
-
-Ask user to reconnect with tool via:
-```bash
-/mcp
-```
-
-### Testing changes
-
-- Create tests first, fix code after, ensuring tests actually catch bugs.
-- Run from the repo root: `python -m unittest`, one area with `python -m unittest tests.unit.test_batch`, the Lua smoke test with `python tests/smoke_bridge.py`, the linter with `python -m ruff check .` and the type checker with `python -m mypy` (settings for both in `pyproject.toml`). A new unit test file goes in `tests/unit/` and imports `tests.support` before `resolve_editor`.
-- Coverage (to find untested code, not a target to reach): `python -m coverage run -m unittest`, then `python -m coverage combine` and `python -m coverage report`. It also measures the servers the tests start as processes, so a test must stop a server by closing its stdin, not by killing it, or that process's data is lost.
-- The live test (`python tests/live/live_resolve.py`, Resolve open, bridge running) runs every area in its own `_RCE_LIVE_<time>` bin, deletes the bin with everything in it at the end and makes your bin current again; `--only captions,markers` runs some (areas: bins, clips, ripple, transitions, markers, captions, reads, in that order; a failed bins check skips the rest).
-- In DaVinci, test new Resolve behaviour or code modification on a scratch timeline named `_RCE_...`, never on the user's timeline. Work in a scratch bin: remember `current_bin` from `get_state`, `create_bin` and `use_bin` an `_RCE_...` bin, and at the end `use_bin` the remembered bin and `delete_bin` the scratch one with `with_contents=true`. Otherwise new clips, timelines and backups land in the user's current bin. Pass `folder` set to the scratch bin to `edit__add_captions`, or the caption timelines go to the shared `Captions (Resolve Creative Editor)` bin, which holds the user's real captions.
-- If a call fails, read the timeline back (`edit__inspect_range`) before retrying: a failed insert may or may not have left something behind.
-
-## Commits
-
-Never commit/push without permission.

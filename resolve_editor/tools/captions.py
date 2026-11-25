@@ -6,6 +6,7 @@ from itertools import pairwise
 from typing import Any
 
 from .. import media, outcome, paths, prefs, rebuild, session, timecode, timeline
+from . import titles
 
 CAPTION_BIN = "Captions (Resolve Creative Editor)"
 # Text+ inputs per anchor. VerticalTopCenterBottom 1 puts the block's bottom at y, so extra lines grow upward
@@ -100,17 +101,23 @@ def _segments(args: dict[str, Any]) -> list[dict[str, Any]]:
     return split_segments(media.run_media_tool("transcribe_audio", transcribe)["segments"], **split)
 
 
+def card_name(prefix: str, n: int) -> str:
+    """The name of caption n's own timeline, "<timeline> <stamp> caption NNNN" (CAPTION_NAME finds it); a long prefix
+    is cut before the caption number."""
+    suffix = f" caption {n:04d}"
+    return prefix[:120 - len(suffix)] + suffix
+
+
 def caption_cards(segments: list[dict[str, Any]], fps: Fraction | float, base: int, timeline: str,
                   stamp: str = "") -> list[dict[str, Any]]:
-    """One card per caption. Timeline names must be unique in a project, so each run's cards carry a time stamp; a long
-    name is cut before the caption number. The bridge places a card longer than the inserted title in parts."""
+    """One card per caption. Timeline names must be unique in a project, so each run's cards carry a time stamp.
+    The bridge places a card longer than the inserted title in parts."""
     cards, prefix = [], f"{timeline} {stamp}".strip()
     for n, s in enumerate(segments, 1):
         start, end = (base + timecode.seconds_to_frames(s["start"], fps),
                       base + timecode.seconds_to_frames(s["end"], fps))
         if end > start:
-            suffix = f" caption {n:04d}"
-            cards.append({"name": prefix[:120 - len(suffix)] + suffix, "text": s["text"], "record_frame": start,
+            cards.append({"name": card_name(prefix, n), "text": s["text"], "record_frame": start,
                           "frames": end - start})
     return cards
 
@@ -141,12 +148,57 @@ def _parts_note(cards: list[dict[str, Any]], fps: Fraction) -> list[str]:
             f"{len(long)} caption(s) in {parts} parts (Standard Generator Duration, {prefs.NOTE})"]
 
 
+EXPLICIT = {"font": "Font", "style": "Style", "size": "Size"}  # add_captions arguments and the Text+ inputs they set
+
+
+def _style(args: dict[str, Any]) -> dict[str, Any]:
+    """What add_title_cards gets: font, style, size, x and y as given, and `inputs`: every input of the `match` title
+    but its text, the anchor (unless match brings one and none is given), then the caller's inputs. The bridge sets
+    inputs last, so an explicit argument also replaces the same input from match."""
+    anchor = args.get("anchor")
+    if anchor is not None and anchor not in ANCHORS:
+        raise ValueError(f"anchor must be bottom or center, not {anchor!r}")
+    own = args.get("inputs") or {}
+    if not isinstance(own, dict):
+        raise ValueError("inputs must be an object of Text+ input ids and values")
+    if titles.TEXT in own:
+        raise ValueError(f"inputs can't set {titles.TEXT}: the text comes from the segments")
+    inputs: dict[str, Any] = {}
+    if args.get("match"):
+        got = titles.read_inputs([args["match"]]).get(args["match"]) or {}
+        if got.get("error") or not got:
+            raise ValueError(f"match: {args['match']} is not a Text+ title or caption ({got.get('error')})")
+        inputs.update(titles.text_style(got.get("inputs") or {}))
+    if anchor is not None or not args.get("match"):
+        inputs.pop("VerticalTopCenterBottom", None)
+        inputs.update(ANCHORS[anchor or "bottom"])
+    inputs.update(own)
+    style: dict[str, Any] = {k: args[k] for k in ("font", "style", "size", "x", "y") if args.get(k) is not None}
+    for k, name in EXPLICIT.items():
+        if k in style and name in inputs:
+            inputs[name] = style[k]
+    if ("x" in style or "y" in style) and isinstance(inputs.get("Center"), list):
+        center = inputs["Center"]
+        inputs["Center"] = [style.get("x", center[0]), style.get("y", center[1])]
+    if inputs:
+        style["inputs"] = inputs
+    return style
+
+
+def _shown(style: dict[str, Any]) -> dict[str, Any]:
+    """The style as Text+ inputs, for the preview."""
+    shown = dict(style.get("inputs") or {})
+    shown.update({name: style[k] for k, name in EXPLICIT.items() if k in style})
+    if "x" in style or "y" in style:
+        center = shown.get("Center") or [0.5, 0.5]
+        shown["Center"] = [style.get("x", center[0]), style.get("y", center[1])]
+    return shown
+
+
 def add_captions(args: dict[str, Any]) -> dict[str, Any]:
     """edit__add_captions: preview, then Text+ captions from segments or a transcription, one small timeline
     each, on a new track or the one given."""
-    anchor = args.get("anchor") or "bottom"
-    if anchor not in ANCHORS:
-        raise ValueError(f"anchor must be bottom or center, not {anchor!r}")
+    style = _style(args)
     segments = _segments(args)
     fps, _, state = session.clock()
     base = session.to_frame(args["record"]) if args.get("record") is not None else state["timeline_start_frame"]
@@ -154,7 +206,7 @@ def add_captions(args: dict[str, Any]) -> dict[str, Any]:
     preview = [{"at": session.to_tc(c["record_frame"]), "frames": c["frames"], "text": c["text"]} for c in cards]
     if args.get("dry_run") or not args.get("confirm") or not cards:
         return outcome.preview({"captions": preview[: args.get("limit") or 20], "count": len(cards),
-                                "bin": args.get("folder") or CAPTION_BIN},
+                                "bin": args.get("folder") or CAPTION_BIN, "style": _shown(style)},
                                ["each caption is a small timeline in the bin; edit its text there",
                                 "a caption longer than Resolve's inserted title is placed in parts sharing its text"]
                                + _parts_note(cards, fps))
@@ -169,9 +221,6 @@ def add_captions(args: dict[str, Any]) -> dict[str, Any]:
         if hit:
             return outcome.blocked(f"V{track} is busy at {session.to_tc(hit['start'])}; "
                                    "leave track_index out to use a new track")
-    style: dict[str, Any] = {k: args[k] for k in ("font", "size", "y") if k in args}
-    if ANCHORS[anchor]:
-        style["inputs"] = ANCHORS[anchor]
     r = session.call("add_title_cards", cards=cards, folder=args.get("folder") or CAPTION_BIN, track_index=track,
                      **style)
     session.invalidate()
