@@ -54,7 +54,7 @@ All tools come from the `resolve-creative-editor` MCP server (71 on free Resolve
 - **edit__inspect_range**: items between two frames/timecodes; `details` adds grade, transform, fades, speed, markers.
 - **edit__find_media**: search the Media Pool by name (id, name, frames, fps, type).
 - **edit__snapshot_timeline**: duplicate the current timeline as a timestamped backup and stay on the original.
-- **edit__place_clips**: put Media Pool clips at exact frames and tracks; refuses to overwrite, also between the clips of one call.
+- **edit__place_clips**: put Media Pool clips at exact frames and tracks; refuses to overwrite, also between the clips of one call. The source range is in the clip's own frames; a clip at another frame rate takes converted timeline frames (30 fps on a 60 fps timeline: twice as many), which the preview's `frames` gives.
 - **edit__move_item**: move a clip (and linked audio/video) by rebuilding it with its settings; not titles.
 - **edit__trim_item**: trim either end of a clip by rebuilding it with its settings; not titles.
 - **edit__ripple_trim**: shorten clip ends in place and pull everything after them earlier; works on titles. Refuses when a clip or transition on any track overlaps the frames being removed.
@@ -179,3 +179,7 @@ Observed on free DaVinci Resolve 21.2.0.6 through this server's Lua bridge. Othe
 - A writing `edit__` call stays on the timeline that was current when it started: if the user clicks another one
   meanwhile, Resolve jumps back and the result has a warning. `legacy__` calls don't do this.
 - Take `edit__snapshot_timeline` before multi-step changes; it gives the user a one-step way back.
+
+### Transitions
+
+- If user wants transitions between full videos, adjust actual start/end of clips yourself so transition works correctly.

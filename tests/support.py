@@ -12,6 +12,7 @@ import re
 import sys
 import tempfile
 import unittest
+from fractions import Fraction
 from typing import Any
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -42,6 +43,9 @@ class FakeResolve:
         # captions: the inserted Text+ length, whether the bridge places long captions in parts, a part it refuses
         self.title_frames, self.caption_parts, self.refuse_part = 300, True, None
         self.timeline_fps = 30  # fps above is the clips' rate
+        # append_clips converts a clip's source frames to timeline frames when the rates differ, like Resolve
+        # (live 2026-11-26, docs/ISSUES.md I-30); False places them unconverted
+        self.conform_fps = True
         self.media_frames = 300  # length of the one media pool clip
         self.parts: list[dict[str, Any]] = []
         self.caption_text: dict[str, str] = {}  # caption timeline name -> its Text+ text
@@ -114,7 +118,10 @@ class FakeResolve:
                 kind = "audio" if c.get("media_type") == 2 else "video"
                 # a timeline placed as a clip (a caption) is named after it, like in Resolve
                 name = c["clip"][3:] if str(c["clip"]).startswith("tl-") else "a.mp4"
-                new = item(f"n{self.n}", c["record_frame"], c["end_frame"] - c["start_frame"], src=c["start_frame"],
+                frames = c["end_frame"] - c["start_frame"]
+                if self.conform_fps:
+                    frames = round(Fraction(frames) * Fraction(self.timeline_fps) / Fraction(self.fps))
+                new = item(f"n{self.n}", c["record_frame"], frames, src=c["start_frame"],
                            track=c["track_index"], kind=kind, name=name)
                 self.items.append(new)
                 self.settings[new["id"]] = {"properties": {"ZoomX": 1}, "fades": {"FadeIn": 0, "FadeOut": 0},

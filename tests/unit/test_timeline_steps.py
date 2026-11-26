@@ -1,7 +1,7 @@
 """Shared timeline steps and the refusals around them: backups, appends that don't land, placing clips."""
 from tests.support import Base, FakeResolve, item, sample_items
 
-from resolve_editor import dispatch
+from resolve_editor import dispatch, session
 
 
 class Backup(Base):
@@ -210,6 +210,76 @@ class PlaceClips(Base):
         r = dispatch.run("place_clips", {"clips": [{"clip": "c1", "start_frame": 0, "end_frame": 5000,
                                                     "record": 1200}]})
         self.assertEqual(r["_operation"]["status"], "preview", r)
+
+
+class PlaceClipsAtAnotherRate(Base):
+    """A clip whose frame rate differs from the timeline's: Resolve converts its length (docs/ISSUES.md I-30)."""
+
+    def fake(self, items=(), clip_fps=30):
+        f = FakeResolve([*sample_items(), *items], fps=clip_fps)
+        f.timeline_fps = 60
+        return self.use(f)
+
+    def place(self, *clips, **kw):
+        return dispatch.run("place_clips", {"clips": [dict(c, clip="c1") for c in clips], **kw})
+
+    def test_the_preview_gives_the_length_in_timeline_frames(self):
+        self.fake()
+        r = self.place({"start_frame": 0, "end_frame": 60, "record": 1200})
+        self.assertEqual(r["_operation"]["status"], "preview", r)
+        row = r["plan"][0]
+        self.assertEqual((row["frames"], row["source_frames"], row["clip_fps"]), (120, 60, 30))
+
+    def test_an_item_only_the_converted_length_reaches_is_refused(self):
+        f = self.fake([item("b", 1300, 10)])
+        r = self.place({"start_frame": 0, "end_frame": 60, "record": 1200})  # 1200-1320 on the timeline
+        self.assertEqual(r["_operation"]["status"], "blocked", r)
+        self.assertIn("would overwrite", r["reason"])
+        self.assertNotIn("append_clips", f.calls)
+
+    def test_clips_of_one_call_that_overlap_only_when_converted_are_refused(self):
+        f = self.fake()
+        for case, at in {"the later one after": 1260, "the later one before": 1140}.items():
+            with self.subTest(case):
+                r = self.place({"start_frame": 0, "end_frame": 60, "record": 1200},
+                               {"start_frame": 0, "end_frame": 60, "record": at})
+                self.assertEqual(r["_operation"]["status"], "blocked", r)
+                self.assertIn("would overlap clip 1", r["reason"])
+        self.assertNotIn("append_clips", f.calls)
+
+    def test_clips_back_to_back_at_the_converted_length_are_placed_and_read_back(self):
+        self.fake()
+        clips = ({"start_frame": 0, "end_frame": 60, "record": 1200}, {"start_frame": 0, "end_frame": 60, "record": 1320})
+        self.assertEqual(self.place(*clips)["_operation"]["status"], "preview")
+        r = self.place(*clips, confirm=True, timeline="T")
+        self.assertEqual(r["_operation"]["status"], "success", r)
+        self.assertEqual(r["_operation"]["changes"]["clips_placed"], 2)
+
+    def test_a_clip_placed_at_another_length_is_reported(self):
+        f = self.fake()
+        f.conform_fps = False  # Resolve placed the source frames unconverted
+        r = self.place({"start_frame": 0, "end_frame": 60, "record": 1200}, confirm=True, timeline="T")
+        self.assertEqual(r["_operation"]["status"], "partial", r)
+        self.assertEqual(r["_operation"]["changes"]["clips_placed"], 0)
+
+    def test_a_length_that_isnt_whole_is_rounded_up_with_a_warning(self):
+        f = self.fake([item("b", 1262, 10)], clip_fps=24)
+        r = self.place({"start_frame": 0, "end_frame": 25, "record": 1200})  # 62.5 timeline frames
+        self.assertEqual(r["_operation"]["status"], "blocked", r)  # 1200-1263 reaches b; rounded down it would not
+        f.items.pop()
+        session.invalidate()
+        r = self.place({"start_frame": 0, "end_frame": 25, "record": 1200})
+        self.assertEqual(r["plan"][0]["frames"], 63)
+        self.assertTrue(any("round" in w for w in r["_operation"]["warnings"]), r)
+        r = self.place({"start_frame": 0, "end_frame": 25, "record": 1200}, confirm=True, timeline="T")
+        self.assertEqual(r["_operation"]["status"], "success", r)  # the fake rounds 62.5 to 62: within a frame
+
+    def test_the_same_rate_keeps_the_source_length(self):
+        self.fake(clip_fps=60)
+        row = self.place({"start_frame": 0, "end_frame": 60, "record": 1200})["plan"][0]
+        self.assertEqual(row["frames"], 60)
+        self.assertEqual(row["source_frames"], 60)
+        self.assertNotIn("clip_fps", row)
 
 
 class RippleFiller(Base):

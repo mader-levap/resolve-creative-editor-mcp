@@ -1,6 +1,6 @@
 # Issues
 
-Found while testing `edit__add_transition`, 2026-11-22. This is the base for fixes. Fixed so far: I-01, I-02, I-03, I-04, I-05, I-06, I-07, I-08, I-09, I-10, I-11, I-12, I-13, I-14, I-15, I-16, I-17, I-18, I-19, I-20, I-21, I-23, I-24, I-26, I-27, I-28, I-29.
+Found while testing `edit__add_transition`, 2026-11-22. This is the base for fixes. Fixed so far: I-01, I-02, I-03, I-04, I-05, I-06, I-07, I-08, I-09, I-10, I-11, I-12, I-13, I-14, I-15, I-16, I-17, I-18, I-19, I-20, I-21, I-23, I-24, I-26, I-27, I-28, I-29, I-30.
 
 - Environment: free DaVinci Resolve 21.2.0.6, Windows 10, 60 fps timeline.
 - Code is named by file and function, with paths from the repo root.
@@ -45,8 +45,11 @@ How each item is known:
 | [I-27](#i-27) | ~~Medium~~ **Fixed** | `place_clips` passes clips of one call that overlap each other | Live, fake |
 | [I-28](#i-28) | ~~Low~~ **Fixed** | `place_clips` passes a source range past the clip's end | Live, fake |
 | [I-29](#i-29) | ~~Medium~~ **Fixed** | When a move can't rebuild the original either, the error doesn't say where the clip is | Fake |
+| [I-30](#i-30) | ~~Medium~~ **Fixed** | `place_clips` measures a clip in its own frames, not the timeline's | Live, code |
+| [I-31](#i-31) | Low | `add_transition` skips the audio crossfade without a warning when nothing is linked | Live, code |
+| [I-32](#i-32) | Low | `batch` refuses tool names with the `edit__` prefix, and its error doesn't say so | Live, code |
 
-Order, one fix at a time, worst first: nothing open; I-22 waits for the next sighting, which will now name where it stopped. Re-rank after each fix.
+Order, one fix at a time, worst first: I-31, I-32; I-22 waits for the next sighting, which will now name where it stopped. Re-rank after each fix.
 
 ## Issues
 
@@ -714,6 +717,47 @@ The backup timeline still has the original, if one was made.
   - a placed clip can't be removed.
   All five failed before the fix with the bare error. Each of six breaks is caught: no `try` around a rebuild or a removal, every staged copy deleted, the staging track deleted, the bare item kept, a link with one clip.
 - Live, `tests/live/live_resolve.py` clips area: a `move_item` with both appends on V1 refused by the test. In real Resolve the copy was on the staging track at the new place, the result named that track, and the track was still there. The probe then removed both. Full run: 67 passed; the only failure is the I-28 check.
+
+<a id="i-30"></a>
+### I-30 `place_clips` measures a clip in its own frames, not the timeline's (medium, fixed)
+
+**Where:** `resolve_editor/tools/placement.py` (`place_clips`)
+
+**Problem:** the source range is in the clip's own frames, and the tool uses `end_frame - start_frame` as the clip's length on the timeline. When the clip's frame rate differs from the timeline's, Resolve converts it: a 30 fps clip on a 60 fps timeline takes twice as many frames. Both overlap checks use the unconverted length: against the timeline (`timeline.collides`) and between clips of one call (I-27). So a clip with a lower frame rate than the timeline can pass both checks and still run into the next item, which Resolve then shifts and shortens (I-27) or rejects. The preview's `frames` is wrong too. The read-back compares only the start frame, so it can't see a wrong length.
+
+**Live 2026-11-26** ("LiL - dev log 01", "Dev Log 01", 60 fps): "Wet, wet everywhere.mp4" (1696×868, 30 fps), source 0-60. The preview said `frames: 60`; Resolve placed it as 120 frames. Nothing broke only because the record frames were worked out by hand for 120.
+
+**Found** while appending b-roll; the code path read afterwards.
+
+**Fix:** `place_clips` converts each clip's source length to timeline frames (`_timeline_frames`: source frames × timeline fps / clip fps, exact with `Fraction`) and uses that length in both overlap checks. A length that isn't whole (e.g. 24 fps on 60) is checked rounded up, with a warning that Resolve may round it by a frame. An unknown clip rate keeps the source length, with a warning. Preview rows give `frames` in timeline frames, plus `source_frames`, and `clip_fps` when the rate differs. The read-back counts a clip only when its length matches too (within a frame when not whole), so a clip placed at another length is `partial`. The schema text and AGENTS.md say the length is converted. The fake's `append_clips` now converts lengths like Resolve (`conform_fps`).
+
+**Verified 2026-11-26 (unit):** `tests/unit/test_timeline_steps.py` `PlaceClipsAtAnotherRate`, 30 fps clips on a 60 fps timeline: preview lengths; an item only the converted length reaches is refused; clips of one call overlapping only when converted are refused (the later one after and before the earlier); back to back at the converted length placed and read back; a clip Resolve places unconverted is `partial`; 24 fps on 60 is checked as 63 frames, with a warning; the same rate is unchanged. Six of the seven failed before the fix; the back-to-back one passed before too. Each of six breaks is caught: the timeline check, the same-call check or the planned end unconverted, `floor` for `ceil`, no length in the read-back, no one-frame tolerance. Full suite and `tests/smoke_bridge.py` pass.
+
+**Verified 2026-11-26 (live)**, after restarting the MCP server, on a scratch timeline "I-30 live check" (60 fps) in "LiL - dev log 01": a 60 fps anchor clip at +90; "Wet, wet everywhere.mp4" (30 fps), source 0-60, at +0 is `blocked` ("would overwrite Little moment 001.mkv on V1 at 01:00:01:30"; it passed before the fix); at +300 the preview gives `frames: 120`, `source_frames: 60`, `clip_fps: 30`, and the confirm is `success`, read back as 120 frames (216300-216420); two such clips of one call at +600 and +660 are `blocked` as overlapping. The scratch timeline was then deleted.
+
+<a id="i-31"></a>
+### I-31 `add_transition` skips the audio crossfade without a warning when nothing is linked (low)
+
+**Where:** `resolve_editor/tools/clips.py` (`_linked_audio`)
+
+**Problem:** the matching audio crossfade (I-07) goes only on audio that Resolve lists as linked to the video clip. When the video clip has no linked items, `_linked_audio` returns no audio and no note. The result is `success` with no `linked` rows and no warning, even when audio from the same file sits on A1 at the same cut. The other skip cases (linked audio not at the cut, `include_linked=false`) do warn.
+
+**Live 2026-11-26** ("Dev Log 01"): Cross Dissolve at the end of "2026-11-22 17-08-51.mkv" on V1, whose audio on A1 isn't linked to it. Video transition `success`, no warning, A1 kept a hard cut. A second call on the audio item added the crossfade. The newly placed clips, which are linked, got their crossfade as expected.
+
+**Found** by reading the timeline back after the transition.
+
+<a id="i-32"></a>
+### I-32 `batch` refuses tool names with the `edit__` prefix, and its error doesn't say so (low)
+
+**Where:** `resolve_editor/dispatch.py` (`batch`, the check that refuses "unknown or nested tools")
+
+**Problem:** a batch step's `tool` must be the bare handler name (`add_transition`). The agent sees the tools as `edit__add_transition`, and AGENTS.md and the batch schema say "run several `edit__` tools" without naming the form a step needs. A step named `edit__add_transition` is refused as unknown: `blocked`, "unknown or nested tools: ['edit__add_transition', ...]". The message reads as if the tool can't be batched, not that the name is wrong.
+
+**Live 2026-11-26** ("Dev Log 01"): 8 steps named `edit__add_transition` in one batch preview were refused. I took it to mean `add_transition` can't be batched and added them one by one, which left 9 "Dev Log 01 before transition ..." backups where one batch would have made one.
+
+**Found** while adding transitions at 8 cuts; the cause found by reading `batch` afterwards (`add_transition` is in `HANDLERS` and `PREVIEWABLE`).
+
+**Fix idea:** accept the `edit__` prefix in a step's `tool` (strip it), and name the expected form in the schema and in the error.
 
 ## Code review fixes
 
