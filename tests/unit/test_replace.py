@@ -121,9 +121,9 @@ class Replace(Base):
             self.assertEqual(r["_operation"]["status"], "blocked")
             self.assertIn(word, r["reason"])
 
-    def test_mixed_fps_refused(self):
+    def test_mixed_fps_refused_when_not_whole_source_frames(self):
         self.use(FakeResolve([item("a", 1000, 10)], fps=25))
-        self.assertIn("frame rate", dispatch.run("move_item", {"item_id": "a", "record": 1050})["reason"])
+        self.assertIn("whole source frames", dispatch.run("move_item", {"item_id": "a", "record": 1050})["reason"])
 
     def test_collision_and_transition_refused(self):
         self.use(FakeResolve([item("a", 1000, 10), item("b", 1050, 10)]))

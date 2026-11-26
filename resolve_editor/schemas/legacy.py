@@ -44,7 +44,8 @@ TOOLS = [
     T("refresh_luts", "Make Resolve rescan its LUT folders."),
     T("set_lut", "Load a .cube LUT onto a node (default 1) of timeline items.",
       {"item_ids": STRS, "path": S, "node": I}, ["item_ids", "path"]),
-    T("list_timeline_items", "Items on the current timeline's tracks.",
+    T("list_timeline_items", "Items on the current timeline's tracks. source_start is Resolve's left offset in timeline "
+      "frames: for a clip at another frame rate it isn't the clip's frame (edit__inspect_range gives that).",
       {"track_type": {"type": "string", "enum": ["video", "audio", "subtitle"]}}),
     T("set_item_properties",
       "Set transform/composite props on a timeline item (Pan, Tilt, ZoomX, ZoomY, Opacity, RotationAngle, "

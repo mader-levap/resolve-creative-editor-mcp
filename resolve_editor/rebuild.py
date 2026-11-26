@@ -3,6 +3,7 @@
 Used by move_item, trim_item (tools/replace.py) and shift_captions (tools/captions.py)."""
 import contextlib
 from collections.abc import Callable, Collection
+from fractions import Fraction
 from typing import Any
 
 from . import outcome, session, timecode, timeline
@@ -17,8 +18,9 @@ REFUSE_REASONS = [
 
 def plan(item_id: str, include_linked: bool, new_range: Callable[[session.Item], tuple[int, int, int, int]],
          moving: Collection[str] = ()) -> list[dict[str, Any]] | str:
-    """new_range(item) -> (first, last, record, track). Returns the plan or a reason string. `moving`: other items
-    replaced in the same go, which don't count as being in the way."""
+    """new_range(item) -> (first, last, record, track), with first/last as left offsets like item["source_start"]:
+    timeline frames. Returns the plan or a reason string. `moving`: other items replaced in the same go, which don't
+    count as being in the way."""
     items = {x["id"]: x for x in session.items()}
     if item_id not in items:
         return f"timeline item not found: {item_id}"
@@ -33,13 +35,20 @@ def plan(item_id: str, include_linked: bool, new_range: Callable[[session.Item],
             if test(d):
                 return f"{item['name']} on {item['track_type']} {item['track']}: {why}"
         media = next((m for m in session.media_pool() if m.get("id") == d["media_id"]), None)
-        if not media or abs(float(timecode.parse_fps(media.get("fps"))) - float(fps)) > 0.001:
-            return f"{item['name']}: clip frame rate differs from the timeline, so source frames would not line up"
+        if not media:
+            return f"{item['name']}: its clip isn't in the media pool"
         first, last, record, track = new_range(item)
+        if last <= first:
+            return f"{item['name']}: the new range would be empty"
+        span = last - first  # timeline frames
+        source = _source_range(item, d, media, fps, first, last)
+        if isinstance(source, str):
+            return source
+        (first, last), orig = source
         frames = int(float(media.get("frames") or 0))
         if first < 0 or last <= first or (frames and last > frames):
             return f"{item['name']}: source range {first}-{last} is outside the clip (0-{frames})"
-        hit = timeline.collides(item["track_type"], track, record, record + last - first, ignore=[*ids, *moving])
+        hit = timeline.collides(item["track_type"], track, record, record + span, ignore=[*ids, *moving])
         if hit:
             return f"{item['name']} would overwrite {hit['name']} at {session.to_tc(hit['start'])}"
         for x in items.values():
@@ -47,8 +56,31 @@ def plan(item_id: str, include_linked: bool, new_range: Callable[[session.Item],
                     and x["start"] <= item["end"] and item["start"] <= x["end"]):
                 return f"{item['name']} has a transition touching it; remove it in Resolve first"
         steps.append({"item": item, "detail": d, "media_id": d["media_id"], "first": first, "last": last,
-                      "record": record, "track": track})
+                      "record": record, "track": track, "span": span, "orig": orig})
     return steps
+
+
+def _source_range(item: session.Item, d: dict[str, Any], media: dict[str, Any], fps: Fraction, first: int,
+                  last: int) -> tuple[tuple[int, int], tuple[int, int]] | str:
+    """((first, last), (orig first, orig last)) in the clip's own frames, for offsets given in timeline frames.
+    Resolve lists a clip's left offset in timeline frames, and appends take the clip's frames; they differ for a
+    clip at another frame rate (live probe 2026-11-26, docs/ISSUES.md I-34). Such a range is anchored at
+    GetSourceStartFrame and must come out in whole source frames; otherwise a reason string."""
+    try:
+        rate = timecode.parse_fps(media.get("fps"))
+    except ValueError:
+        return f"{item['name']}: its clip's frame rate can't be read"
+    if abs(float(rate) - float(fps)) <= 0.001:
+        return (first, last), (item["source_start"], item["source_start"] + item["duration"])
+    if d.get("source_start") is None or d.get("source_end") is None:
+        return f"{item['name']}: its clip is at {float(rate):g} fps and its source frames can't be read"
+    per = Fraction(rate) / Fraction(fps)  # source frames per timeline frame
+    a = d["source_start"] + (first - item["source_start"]) * per
+    b = a + (last - first) * per
+    if a.denominator != 1 or b.denominator != 1:
+        return (f"{item['name']}: its clip is at {float(rate):g} fps on a {float(fps):g} fps timeline, so the new range "
+                f"wouldn't be whole source frames; change it in steps of {per.denominator} frames")
+    return (int(a), int(b)), (d["source_start"], d["source_end"])
 
 
 def _differences(old: dict[str, Any], new: dict[str, Any]) -> list[str]:
@@ -101,7 +133,8 @@ def run(steps: list[dict[str, Any]], backup: bool = True) -> dict[str, Any]:
     try:
         for p in steps:
             kind = p["item"]["track_type"]
-            s = timeline.append_one(p["media_id"], kind, p["first"], p["last"], p["record"], stage_track(kind))
+            s = timeline.append_one(p["media_id"], kind, p["first"], p["last"], p["record"], stage_track(kind),
+                                    frames=p["span"])
             staged.append(s)
             report = session.call("copy_settings", from_id=p["item"]["id"], to_id=s["id"], kind=kind)
             if report["failed"]:
@@ -117,7 +150,8 @@ def run(steps: list[dict[str, Any]], backup: bool = True) -> dict[str, Any]:
     try:
         for p in steps:
             kind = p["item"]["track_type"]
-            n = timeline.append_one(p["media_id"], kind, p["first"], p["last"], p["record"], p["track"])
+            n = timeline.append_one(p["media_id"], kind, p["first"], p["last"], p["record"], p["track"],
+                                    frames=p["span"])
             session.call("copy_settings", from_id=p["staged"]["id"], to_id=n["id"], kind=kind)
             done.append((p, n))
     except Exception as exc:
@@ -134,7 +168,7 @@ def run(steps: list[dict[str, Any]], backup: bool = True) -> dict[str, Any]:
     cleanup()
     changes = [{"item": p["item"]["name"], "track": timeline.track_label(p["item"]["track_type"], p["track"]),
                 "from": [session.to_tc(p["item"]["start"]), p["item"]["duration"]],
-                "to": [session.to_tc(p["record"]), p["last"] - p["first"]], "new_id": n["id"]} for p, n in done]
+                "to": [session.to_tc(p["record"]), p["span"]], "new_id": n["id"]} for p, n in done]
     named = [f"{renamed} unnamed clip marker(s) were copied with the name Marker: Resolve 21.2 refuses markers "
              "without a name"] if renamed else []
     return outcome.op("success" if not problems else "partial", not problems, {"replaced": changes},
@@ -160,8 +194,8 @@ def _roll_back(steps: list[dict[str, Any]], done: list[tuple[dict[str, Any], ses
         item, copy = p["item"], p["staged"]
         r = None
         try:
-            r = timeline.append_one(p["media_id"], item["track_type"], item["source_start"],
-                                    item["source_start"] + item["duration"], item["start"], item["track"])
+            r = timeline.append_one(p["media_id"], item["track_type"], *p["orig"], item["start"], item["track"],
+                                    frames=item["duration"])
             session.call("copy_settings", from_id=copy["id"], to_id=r["id"], kind=item["track_type"])
             restored.append(r["id"])
         except Exception as err:

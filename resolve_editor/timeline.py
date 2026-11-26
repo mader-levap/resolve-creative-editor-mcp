@@ -57,14 +57,16 @@ def collides(kind: str, track: int, start: int, end: int,
 
 
 def append_one(media_id: str, kind: str, first: int, last: int, record: int,
-               track: int) -> session.Item:
+               track: int, frames: int | None = None) -> session.Item:
     """Place frames [first, last) of a Media Pool clip at `record` on a track and return the new item; raises
-    if it didn't land there (Resolve may refuse an append without an error)."""
+    if it didn't land there (Resolve may refuse an append without an error). `frames`: its length on the timeline
+    when that differs from last - first, for a clip at another frame rate (docs/ISSUES.md I-34)."""
+    length = last - first if frames is None else frames
     session.call("append_clips", clips=[{"clip": media_id, "start_frame": first, "end_frame": last,
                                          "record_frame": record, "track_index": track,
                                          "media_type": 1 if kind == "video" else 2}])
     session.invalidate()
     for x in session.items():
-        if x["track_type"] == kind and x["track"] == track and x["start"] == record and x["duration"] == last - first:
+        if x["track_type"] == kind and x["track"] == track and x["start"] == record and x["duration"] == length:
             return x
     raise RuntimeError(f"append to {kind} {track} at {record} did not land")

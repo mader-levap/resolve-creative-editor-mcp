@@ -3,7 +3,7 @@ from collections.abc import Callable
 from itertools import pairwise
 from typing import Any
 
-from .. import session, timeline
+from .. import session, timecode, timeline
 
 
 def analyze(items: list[session.Item], limit: int = 10, tc: Callable[[int], str] = str,
@@ -69,9 +69,10 @@ def inspect_range(args: dict[str, Any]) -> dict[str, Any]:
          "type": x.get("type"), "in": session.to_tc(x["start"]), "out": session.to_tc(x["end"]),
          "frames": x["duration"], "source_start": x.get("source_start")}
         for x in sorted(hits, key=lambda x: (x["start"], x["track_type"]))]
+    clips = [r["id"] for r in rows if r["type"] != "transition"]
+    details = {d["id"]: d for d in session.as_list(session.call("item_details", item_ids=clips))} if clips else {}
+    _source_frames(rows, details)
     if args.get("details") and rows:
-        details = {d["id"]: d for d in session.as_list(
-            session.call("item_details", item_ids=[r["id"] for r in rows if r["type"] != "transition"]))}
         for r in rows:
             d = details.get(r["id"])
             if d:
@@ -83,6 +84,26 @@ def inspect_range(args: dict[str, Any]) -> dict[str, Any]:
                           "changed_settings": {k: v for k, v in props.items()
                                                if k in DEFAULTS and v != DEFAULTS[k]}})
     return {"range": [session.to_tc(start), session.to_tc(end)], "count": len(rows), "items": rows}
+
+
+def _source_frames(rows: list[dict[str, Any]], details: dict[str, Any]) -> None:
+    """source_start as the clip's own frame (GetSourceStartFrame). Resolve lists the left offset in timeline
+    frames, which differs for a clip at another frame rate; such a row also gets clip_fps (docs/ISSUES.md I-36)."""
+    fps, _, _ = session.clock()
+    media = {m.get("id"): m for m in session.media_pool()}
+    for r in rows:
+        d = details.get(r["id"]) or {}
+        if d.get("source_start") is not None:
+            r["source_start"] = d["source_start"]
+        m = media.get(d.get("media_id"))
+        if not m:
+            continue
+        try:
+            rate = timecode.parse_fps(m.get("fps"))
+        except ValueError:
+            continue
+        if abs(float(rate) - float(fps)) > 0.001:
+            r["clip_fps"] = float(rate)
 
 
 def find_media(args: dict[str, Any]) -> dict[str, Any]:

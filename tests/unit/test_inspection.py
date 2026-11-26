@@ -67,8 +67,9 @@ class InspectDetails(Base):
         self.assertEqual((rows["b"]["enabled"], rows["b"]["speed"], rows["b"]["color"]), (False, 50, None))
         self.assertNotIn("changed_settings", rows["t"], "transitions aren't asked for details")
 
-    def test_without_details_no_details_are_read(self):
+    def test_without_details_no_details_are_shown(self):
+        # one item_details call is made all the same: the source frames and rate need the media id (I-36)
         f = self.use(FakeResolve([item("a", 1000, 10)]))
         r = dispatch.run("inspect_range", {"start": 1000, "end": 1020})
-        self.assertNotIn("changed_settings", r["items"][0])
-        self.assertNotIn("item_details", f.calls)
+        self.assertFalse({"changed_settings", "speed", "fades", "markers"} & set(r["items"][0]), r)
+        self.assertEqual(f.calls.count("item_details"), 1)

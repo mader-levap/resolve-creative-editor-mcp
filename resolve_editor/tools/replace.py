@@ -15,7 +15,7 @@ def _replace_tool(args: dict[str, Any], new_range: Callable[[session.Item], tupl
         return outcome.blocked(plan)
     rows = [{"item": p["item"]["name"], "track": timeline.track_label(p["item"]["track_type"], p["track"]),
              "from": [session.to_tc(p["item"]["start"]), p["item"]["duration"]],
-             "to": [session.to_tc(p["record"]), p["last"] - p["first"]]}
+             "to": [session.to_tc(p["record"]), p["span"]]}
             for p in plan]
     if not args.get("confirm"):
         return outcome.preview({verb: rows,

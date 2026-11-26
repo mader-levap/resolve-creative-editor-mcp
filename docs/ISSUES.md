@@ -1,6 +1,6 @@
 # Issues
 
-Found while testing `edit__add_transition`, 2026-11-22. This is the base for fixes. Fixed so far: I-01, I-02, I-03, I-04, I-05, I-06, I-07, I-08, I-09, I-10, I-11, I-12, I-13, I-14, I-15, I-16, I-17, I-18, I-19, I-20, I-21, I-23, I-24, I-26, I-27, I-28, I-29, I-30, I-31, I-32, I-33.
+Found while testing `edit__add_transition`, 2026-11-22. This is the base for fixes. Fixed so far: I-01, I-02, I-03, I-04, I-05, I-06, I-07, I-08, I-09, I-10, I-11, I-12, I-13, I-14, I-15, I-16, I-17, I-18, I-19, I-20, I-21, I-23, I-24, I-26, I-27, I-28, I-29, I-30, I-31, I-32, I-33, I-34, I-35, I-36.
 
 - Environment: free DaVinci Resolve 21.2.0.6, Windows 10, 60 fps timeline.
 - Code is named by file and function, with paths from the repo root.
@@ -49,11 +49,11 @@ How each item is known:
 | [I-31](#i-31) | ~~Low~~ **Fixed** | `add_transition` skips the audio crossfade without a warning when nothing is linked | Live, code |
 | [I-32](#i-32) | ~~Low~~ **Fixed** | `batch` refuses tool names with the `edit__` prefix, and its error doesn't say so | Live, code |
 | [I-33](#i-33) | ~~Medium~~ **Fixed** | `ripple_trim` can use a filler at another frame rate and leave it on the timeline | Code, fake, live |
-| [I-34](#i-34) | Low, limitation | `move_item`, `trim_item` and `shift_captions` refuse clips at another frame rate | Code |
-| [I-35](#i-35) | Low | `add_transition` can't report spare frames for a clip at another frame rate | Code |
-| [I-36](#i-36) | Low | `source_start` is in timeline frames for a clip at another frame rate, unlabelled | Live |
+| [I-34](#i-34) | ~~Low, limitation~~ **Fixed** | `move_item`, `trim_item` and `shift_captions` refuse clips at another frame rate | Code, fake, live |
+| [I-35](#i-35) | ~~Low~~ **Fixed** | `add_transition` can't report spare frames for a clip at another frame rate | Code, fake, live |
+| [I-36](#i-36) | ~~Low~~ **Fixed** | `source_start` is in timeline frames for a clip at another frame rate, unlabelled | Live, fake |
 
-Order, one fix at a time, worst first: a live probe of offsets for I-34, I-35, I-36; I-22 waits for the next sighting, which will now name where it stopped. Re-rank after each fix.
+Order, one fix at a time, worst first: I-22 waits for the next sighting, which will now name where it stopped. Re-rank after each fix.
 
 ## Issues
 
@@ -791,7 +791,7 @@ The backup timeline still has the original, if one was made.
 **Verified 2026-11-26 (live)**, after restarting the MCP server: scratch timelines "_RCE_I33" and "_RCE_I33 filler" set to 30 fps (`set_scratch_fps`); every other timeline in the pool is 60 fps. Two video-only 30 fps clips on "_RCE_I33"; `ripple_trim` of 15 frames with `backup=false` (as in a batch, through `dispatch.run`, since the MCP schema has no `backup`). With the 30 fps filler still empty: `failed`, "no timeline in the media pool at this timeline's frame rate is long enough to use as a filler", nothing trimmed. After placing 60 frames in the filler: `success` / `passed`, the first clip ending at 108075 and the second pulled back to 108075-108135, no stray item. Both scratch timelines were then deleted. The stray-filler cleanup is checked with the fake only: making Resolve list a wrong rate isn't possible live.
 
 <a id="i-34"></a>
-### I-34 `move_item`, `trim_item` and `shift_captions` refuse clips at another frame rate (low, limitation)
+### I-34 `move_item`, `trim_item` and `shift_captions` refuse clips at another frame rate (low, limitation, fixed)
 
 **Where:** `resolve_editor/rebuild.py` (`plan`, the frame-rate check)
 
@@ -799,8 +799,25 @@ The backup timeline still has the original, if one was made.
 
 **Found 2026-11-26** in the frame-rate review. Converting needs the unit of the offsets: I-36 shows `source_start` is in timeline frames for such a clip, while append ranges are in the clip's frames, and clip markers count source frames (AGENTS.md), at which rate is unknown. A live probe comes first.
 
+**Live probe 2026-11-26** (scratch timelines, through `session.call`; "Wet, wet everywhere.mp4" is 30 fps, 301 frames; "Little moment 009.mkv" 60 fps, 734 frames):
+
+| Clip, placed from source | Timeline | duration | listed `source_start` / `GetLeftOffset` | `GetRightOffset` | `GetSourceStartFrame`-`GetSourceEndFrame` |
+|---|---|---|---|---|---|
+| Wet 6-66 | 60 fps | 120 | 12 | 470 | 6-66 |
+| Little moment 009 180-240 (control) | 60 fps | 60 | 180 | 494 | 180-240 |
+| Little moment 009 180-300 | 30 fps | 60 | 90 | 217 | 180-300 |
+| Wet 6-66 after `trim_tail` 4 | 60 fps | 116 | 12 | 474 | 6-64 |
+
+So the duration and both offsets are timeline frames, and `GetSourceStartFrame`/`GetSourceEndFrame` are the clip's own frames. A clip marker added at frame 20 on the 30 fps clip reads back at 20; `copy_settings` puts it at 20 on a copy at the same range, and it stays at 20 after the trim. Clip markers count the clip's own frames, so the rebuild's marker copy needs no conversion.
+
+**Fix:** `rebuild.plan` takes the new range as offsets in timeline frames, as before, and converts it for a clip at another rate (`_source_range`). It is anchored at `GetSourceStartFrame`, since the listed offset may be rounded (a 25 fps clip on a 30 fps timeline), and refused unless both ends are whole source frames ("change it in steps of 2 frames" at 30 on 60). The length on the timeline is the timeline-frame span, and `timeline.append_one` checks it (`frames`); the preview and the result give it. A failed swap rebuilds the original at its own source range. Clip markers need nothing (probe above).
+
+**Verified 2026-11-26 (unit)** in `tests/unit/test_other_rates.py`: a move keeps source 6-66 and 120 frames; a trim of 4 and 2 gives 8-65 and 114 frames; a trim of 3 is refused; a 25 fps clip listed at 8 is rebuilt from its source frame 7. The old refusal test now expects the whole-frames reason. The fake reports offsets in timeline frames and `GetSourceStartFrame`/`GetSourceEndFrame` in clip frames, as the probe showed. Deliberate breaks (no whole-frame check, no anchor, no length passed to the append) fail the tests.
+
+**Verified 2026-11-26 (live)** through `dispatch.run` on a scratch 60 fps timeline with Wet 6-66 and a clip marker at 20: `move_item` 600 frames later `success` / `passed`, 120 frames; then `trim_item` 4 and 2 `success` / `passed`, 114 frames, source 8-65, marker still at 20; a trim of 3 `blocked` with the steps-of-2 reason. Scratch timeline deleted.
+
 <a id="i-35"></a>
-### I-35 `add_transition` can't report spare frames for a clip at another frame rate (low)
+### I-35 `add_transition` can't report spare frames for a clip at another frame rate (low, fixed)
 
 **Where:** `resolve_editor/tools/clips.py` (`_spare_frames`)
 
@@ -808,14 +825,22 @@ The backup timeline still has the original, if one was made.
 
 **Found 2026-11-26** in the frame-rate review.
 
+**Fix:** the probe in I-34 shows the left offset is in timeline frames at any clip rate, so "before the incoming clip" is the offset as listed. "After the outgoing clip" at another rate is (Media Pool frames - `GetSourceEndFrame`) in the clip's frames, converted to timeline frames and rounded down. Only a speed change still gives "unknown: the clip has a speed change".
+
+**Verified 2026-11-26 (unit)** in `tests/unit/test_other_rates.py` (468 and 20 for a 30 fps clip on 60 fps; a 50% speed still unknown; breaking the conversion or the speed check fails them). **Live** on the scratch timeline in I-34: 470 after the outgoing Wet 6-66, the same as Resolve's `GetRightOffset` for it in the probe, and 200 before an incoming Wet from frame 100.
+
 <a id="i-36"></a>
-### I-36 `source_start` is in timeline frames for a clip at another frame rate, unlabelled (low)
+### I-36 `source_start` is in timeline frames for a clip at another frame rate, unlabelled (low, fixed)
 
 **Where:** `resolve_editor/tools/inspection.py` (`inspect_range`), `legacy__list_timeline_items`, the bridge's item listing
 
 **Problem:** "Wet, wet everywhere.mp4" (30 fps) placed at source frame 6 on the 60 fps "Dev Log 01" is listed with `source_start: 12`. Append ranges and Media Pool `frames` are in the clip's own frames, so the same field means two things and nothing says which. Easy to misread; I did, briefly.
 
 **Live 2026-11-26** (`edit__inspect_range` and `legacy__list_timeline_items` after placing the b-roll). Fix after the probe in I-34: convert to source frames, or add the clip's rate and say the unit.
+
+**Fix:** `inspect_range` gives `source_start` from `GetSourceStartFrame` (the clip's own frames, probe in I-34) and adds `clip_fps` when the clip's rate differs from the timeline's; `frames` stays timeline frames. This needs one `item_details` call also without `details`. `legacy__list_timeline_items` stays raw: its description and AGENTS.md now say its `source_start` is Resolve's left offset in timeline frames.
+
+**Verified 2026-11-26 (unit)** in `tests/unit/test_other_rates.py` (6 and `clip_fps` 30 for a clip listed at 12; a same-rate clip unchanged, without `clip_fps`). **Live** on the scratch timeline in I-34: 6 and 100 with `clip_fps` 30.
 
 ## Code review fixes
 

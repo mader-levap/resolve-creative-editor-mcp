@@ -23,7 +23,8 @@ TOOLS = [
       "transitions and reused source clips, with timecodes. Run before editing. limit caps listed issues.",
       {"limit": I}),
     T("inspect_range", "Items between two points (frames or timecodes). details=true adds grade, transform, "
-      "fades, speed and markers per item.", {"start": WHEN, "end": WHEN, "details": B}, ["start", "end"]),
+      "fades, speed and markers per item. source_start is in the clip's own frames; a clip at another frame rate "
+      "also has clip_fps (frames stays timeline frames).", {"start": WHEN, "end": WHEN, "details": B}, ["start", "end"]),
     T("find_media", "Search the media pool by name. Returns id, name, frames, fps.", {"query": S, "limit": I}),
     T("snapshot_timeline", "Duplicate the current timeline as a timestamped backup and stay on the original.",
       {"label": S}),
@@ -36,11 +37,13 @@ TOOLS = [
           "media_type": {"type": "integer", "enum": [1, 2], "description": "1 video only, 2 audio only"}},
           "required": ["clip", "record"]}}, "confirm": CONFIRM, "timeline": TIMELINE}, ["clips"]),
     T("move_item", "Move a clip (and its linked audio/video) to a new frame or track. Builds the replacement first and "
-      "copies grade, transform, audio levels, fades, colour, flags and markers onto it. Keyframes are not copied.",
+      "copies grade, transform, audio levels, fades, colour, flags and markers onto it. Keyframes are not copied. A clip "
+      "at another frame rate keeps its source range.",
       {"item_id": S, "record": WHEN, "track_index": I, "include_linked": B, "confirm": CONFIRM, "timeline": TIMELINE},
       ["item_id", "record"]),
     T("trim_item", "Trim a clip (and its linked audio/video). Positive frames shorten that end, negative extend it "
-      "into spare source media. Same settings-preserving method as move_item.",
+      "into spare source media. Same settings-preserving method as move_item. Frames are timeline frames; for a clip at "
+      "another frame rate they must make whole source frames (30 fps on a 60 fps timeline: even numbers).",
       {"item_id": S, "head_frames": I, "tail_frames": I, "include_linked": B, "confirm": CONFIRM, "timeline": TIMELINE},
       ["item_id"]),
     T("ripple_trim", "Shorten clips' ends by tail_frames and pull everything after them earlier on all tracks, so the "
@@ -54,7 +57,7 @@ TOOLS = [
       "handle by hand at least once; otherwise they are lost on restart.",
       {"item_ids": IDS, "fade_in": I, "fade_out": I}, ["item_ids"]),
     T("add_transition", "Add a native transition at the start or end of a clip (Resolve 21.1+). Needs spare source "
-      "frames on both sides of the cut. Previews first (cut, expected span, spare source frames); confirm makes a "
+      "frames on both sides of the cut. Previews first (cut, expected span, spare source frames in timeline frames); confirm makes a "
       "backup timeline, adds it and checks what Resolve made. On a video clip, linked audio at the same cut gets a "
       "matching crossfade (audio_type, default 'Cross Fade +3 dB') unless include_linked is false. With no linked audio, "
       "unlinked audio of the same source and range at the cut counts as linked; other audio there gets a warning.",

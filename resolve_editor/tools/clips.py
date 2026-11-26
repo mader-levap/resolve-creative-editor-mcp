@@ -1,4 +1,5 @@
 """Clip settings: enabled, fades, transitions, speed, grade."""
+import math
 from collections.abc import Iterable
 from typing import Any
 
@@ -231,11 +232,17 @@ def _spare_frames(target: session.Item, cut: int) -> dict[str, Any]:
         speed = float(((d.get("speed") or {}).get("Percentage")) or 100)
         if not m or x.get("source_start") is None:
             return "unknown: not a media-pool clip"
-        if abs(float(timecode.parse_fps(m.get("fps"))) - float(fps)) > 0.001 or abs(speed - 100) > 0.001:
-            return "unknown: the clip's frame rate or speed differs from the timeline"
-        if side == "before":
+        if abs(speed - 100) > 0.001:
+            return "unknown: the clip has a speed change"
+        if side == "before":  # the left offset is in timeline frames at any clip rate (live probe, I-36)
             return x["source_start"]
-        return int(float(m.get("frames") or 0)) - x["source_start"] - x["duration"]
+        rate = timecode.parse_fps(m.get("fps"))
+        if abs(float(rate) - float(fps)) <= 0.001:
+            return int(float(m.get("frames") or 0)) - x["source_start"] - x["duration"]
+        if d.get("source_end") is None:
+            return "unknown: the clip's frame rate differs from the timeline and its source end can't be read"
+        # another rate: the clip's own unused frames, in timeline frames, rounded down (docs/ISSUES.md I-35)
+        return math.floor((int(float(m.get("frames") or 0)) - d["source_end"]) * fps / rate)
     return {"after the outgoing clip": spare(outgoing, "after"), "before the incoming clip": spare(incoming, "before")}
 
 

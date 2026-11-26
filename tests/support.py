@@ -67,6 +67,18 @@ class FakeResolve:
         for k, v in (details or {}).items():
             self.settings[k].update(v)
 
+    def _source_frames(self, item_id):
+        """GetSourceStartFrame/GetSourceEndFrame: the clip's own frames, while the listed left offset and the
+        duration are timeline frames (live probe 2026-11-26, docs/ISSUES.md I-36)."""
+        x = next((x for x in self.items if x["id"] == item_id), None)
+        if x is None or x.get("source_start") is None or x.get("type") == "transition":
+            return {}
+        media = self.settings.get(item_id, {}).get("media_id", "c1")
+        rate = self.fps if media == "c1" else self.timeline_rates.get(str(media)[3:], self.fps)
+        per = Fraction(rate) / Fraction(self.timeline_fps)
+        first = x["source_start"] * per
+        return {"source_start": round(first), "source_end": round(first + x["duration"] * per)}
+
     def __call__(self, op, args, **kw):
         self.calls.append(op)
         if self.fail_on.get(op):
@@ -91,7 +103,7 @@ class FakeResolve:
             if self.track_counts:
                 r["track_counts"] = dict(self.tracks)
         elif op == "item_details":
-            r = [dict(self.settings[i], id=i) for i in args["item_ids"]]
+            r = [dict(self._source_frames(i), **self.settings[i], id=i) for i in args["item_ids"]]
         elif op == "set_fades":
             self.settings[args["item_id"]]["fades"] = {"FadeIn": args["fade_in"], "FadeOut": args["fade_out"]}
             r = {"ok": True, "fades": dict(self.settings[args["item_id"]]["fades"])}
@@ -123,11 +135,12 @@ class FakeResolve:
                 kind = "audio" if c.get("media_type") == 2 else "video"
                 # a timeline placed as a clip (a caption) is named after it, like in Resolve
                 name = c["clip"][3:] if str(c["clip"]).startswith("tl-") else "a.mp4"
-                frames = c["end_frame"] - c["start_frame"]
-                if self.conform_fps:
+                frames, src = c["end_frame"] - c["start_frame"], c["start_frame"]
+                if self.conform_fps:  # Resolve lists the left offset in timeline frames too (live probe, I-36)
                     rate = self.timeline_rates.get(name, self.fps) if name != "a.mp4" else self.fps
                     frames = round(Fraction(frames) * Fraction(self.timeline_fps) / Fraction(rate))
-                new = item(f"n{self.n}", c["record_frame"], frames, src=c["start_frame"],
+                    src = round(Fraction(src) * Fraction(self.timeline_fps) / Fraction(rate))
+                new = item(f"n{self.n}", c["record_frame"], frames, src=src,
                            track=c["track_index"], kind=kind, name=name)
                 self.items.append(new)
                 self.settings[new["id"]] = {"properties": {"ZoomX": 1}, "fades": {"FadeIn": 0, "FadeOut": 0},

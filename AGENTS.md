@@ -51,16 +51,16 @@ All tools come from the `resolve-creative-editor` MCP server (71 on free Resolve
 
 - **edit__doctor**: check Python, FFmpeg, transcription, the upstream engine and the live Resolve bridge; after a hang, where the bridge stopped; Standard Generator Duration from Resolve's saved preferences.
 - **edit__timeline_summary**: per-track counts (empty tracks listed with 0), gaps, overlaps, transitions and reused clips. Run before editing.
-- **edit__inspect_range**: items between two frames/timecodes; `details` adds grade, transform, fades, speed, markers.
+- **edit__inspect_range**: items between two frames/timecodes; `details` adds grade, transform, fades, speed, markers. `source_start` is in the clip's own frames; a clip at another frame rate also has `clip_fps` (`frames` stays timeline frames).
 - **edit__find_media**: search the Media Pool by name (id, name, frames, fps, type).
 - **edit__snapshot_timeline**: duplicate the current timeline as a timestamped backup and stay on the original.
 - **edit__place_clips**: put Media Pool clips at exact frames and tracks; refuses to overwrite, also between the clips of one call. The source range is in the clip's own frames; a clip at another frame rate takes converted timeline frames (30 fps on a 60 fps timeline: twice as many), which the preview's `frames` gives.
-- **edit__move_item**: move a clip (and linked audio/video) by rebuilding it with its settings; not titles.
-- **edit__trim_item**: trim either end of a clip by rebuilding it with its settings; not titles.
+- **edit__move_item**: move a clip (and linked audio/video) by rebuilding it with its settings; not titles. A clip at another frame rate keeps its source range.
+- **edit__trim_item**: trim either end of a clip by rebuilding it with its settings; not titles. Frames are timeline frames; for a clip at another frame rate they must make whole source frames (30 fps on a 60 fps timeline: even numbers), or it refuses.
 - **edit__ripple_trim**: shorten clip ends in place and pull everything after them earlier; works on titles. Refuses when a clip or transition on any track overlaps the frames being removed.
 - **edit__set_enabled**: disable/enable clips (reversible alternative to deleting).
 - **edit__set_fades**: video/audio fade-in/out in frames, with read-back. Only saved on clips with a hand-dragged fade (Resolve bug, see Editing below).
-- **edit__add_transition**: native transition at a clip's start or end (Resolve 21.1+). Previews the cut, expected span and spare source frames; confirm makes a backup first. On a video clip, linked audio at the same cut gets a matching crossfade (`audio_type`, default `Cross Fade +3 dB`); `include_linked=false` keeps a hard audio cut, with a warning. With no linked audio, unlinked audio of the same source and range meeting the cut gets it too, with a note; other audio meeting the cut is named in a warning and left alone. Remove one with `legacy__delete_items` (no ripple) on its id.
+- **edit__add_transition**: native transition at a clip's start or end (Resolve 21.1+). Previews the cut, expected span and spare source frames (in timeline frames, also for a clip at another frame rate; unknown with a speed change); confirm makes a backup first. On a video clip, linked audio at the same cut gets a matching crossfade (`audio_type`, default `Cross Fade +3 dB`); `include_linked=false` keeps a hard audio cut, with a warning. With no linked audio, unlinked audio of the same source and range meeting the cut gets it too, with a note; other audio meeting the cut is named in a warning and left alone. Remove one with `legacy__delete_items` (no ripple) on its id.
 - **edit__set_audio**: clip volume (dB) and pan, with read-back.
 - **edit__normalize_audio**: normalize clips with Resolve's loudness modes (EBU R128, YouTube, ...).
 - **edit__set_speed**: change clip speed (0 = freeze); doesn't ripple.
@@ -91,7 +91,7 @@ All tools come from the `resolve-creative-editor` MCP server (71 on free Resolve
 - **legacy__delete_bin**: delete a bin (needs `confirm`). A bin with anything in it needs `with_contents=true`, which deletes its clips, timelines and bins too (Media Pool entries only; files stay). Refuses the root, the current bin and a bin holding the current timeline.
 - **legacy__delete_timeline**: delete timelines by exact name (needs `confirm`). Refuses the current timeline and unknown names before deleting anything. `with_captions=true` also deletes the caption timelines placed on them, except ones another remaining timeline uses (kept and named). Deleting a timeline alone leaves its caption timelines in their bin.
 - **legacy__duplicate_timeline**: duplicate the current timeline under a new name.
-- **legacy__list_timeline_items**: items on the current timeline's video, audio or subtitle tracks.
+- **legacy__list_timeline_items**: items on the current timeline's video, audio or subtitle tracks. `source_start` is Resolve's left offset, in timeline frames: for a clip at another frame rate it isn't the clip's frame (`edit__inspect_range` gives that).
 - **legacy__list_media**: all Media Pool clips (id, name, duration, fps, resolution, path).
 - **legacy__import_media**: import files from disk into the Media Pool.
 - **legacy__append_clips**: append clips with a source range and record frame.
