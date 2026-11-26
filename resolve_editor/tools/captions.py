@@ -362,7 +362,7 @@ def shift_captions(args: dict[str, Any]) -> dict[str, Any]:
     if not args.get("confirm"):
         return outcome.preview({"captions": rows_out, "shift_frames": shift, "following": following},
                                ["each part is rebuilt with its settings (keyframes are not copied)",
-                                "a backup timeline is made first"])
+                                *outcome.backup_notes(args)])
     result = rebuild.run(plan, args.get("backup", True))
     result["captions"] = rows_out
     if result["_operation"]["status"] == "success":  # read back: every caption at its new start, all parts there
@@ -439,7 +439,7 @@ def remove_captions(args: dict[str, Any]) -> dict[str, Any]:
                  "no backup is made: it would still place the caption timelines, and deleting them would leave "
                  "its clips Media Offline"]
     else:
-        notes = ["the parts are deleted without ripple; a backup timeline is made first",
+        notes = ["; ".join(["the parts are deleted without ripple", *outcome.backup_notes(args)]),
                  "the caption timelines stay, because the backup places them; after deleting the backup, "
                  "delete_unused_captions removes them"]
     if not args.get("confirm"):

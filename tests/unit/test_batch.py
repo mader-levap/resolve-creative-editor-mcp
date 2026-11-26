@@ -1,7 +1,7 @@
 """Batches."""
 from unittest import mock
 
-from tests.support import SAMPLE_ARGS, Base, FakeResolve, item
+from tests.support import SAMPLE_ARGS, Base, FakeResolve, item, sample_items
 
 from resolve_editor import audit, dispatch, media, outcome, timeline
 from resolve_editor.tools.clips import FADES_NOT_SAVED
@@ -227,3 +227,78 @@ class BatchReport(Base):
         self.assertEqual(r["results"][1]["status"], "blocked")
         self.assertIn("changes", r["results"][1])
         self.assertIn("grades can't be read back", " ".join(r["_operation"]["warnings"]))
+
+
+class BatchToolNames(Base):
+    """A step's tool is named with or without the edit__ prefix; a refusal says which form it needs
+    (docs/ISSUES.md I-32)."""
+
+    FULL = "mcp__resolve-creative-editor__edit__"
+
+    def batch(self, *tools, **kw):
+        self.f = self.use(FakeResolve([item("a", 1000, 10, src=5)]))
+        ops = [{"tool": t, "args": SAMPLE_ARGS.get(t.rsplit("edit__", 1)[-1], {})} for t in tools]
+        return dispatch.run("batch", {"operations": ops, **kw})
+
+    def writes(self):
+        return [c for c in self.f.calls if c in ("duplicate_timeline", "set_enabled", "set_fades")]
+
+    def test_prefixed_names_preview_and_run_under_their_bare_name(self):
+        for prefix in ("edit__", self.FULL):
+            with self.subTest(prefix):
+                r = self.batch(prefix + "set_enabled", prefix + "set_fades")
+                self.assertEqual(r["_operation"]["status"], "preview", r)
+                self.assertEqual([row["tool"] for row in r["plan"]], ["set_enabled", "set_fades"])
+                self.assertEqual(self.writes(), [])
+                r = self.batch(prefix + "set_enabled", prefix + "set_fades", confirm=True, timeline="T")
+                self.assertEqual(r["_operation"]["status"], "success", r)
+                self.assertEqual([row["tool"] for row in r["results"]], ["set_enabled", "set_fades"])
+                self.assertEqual(self.writes(), ["duplicate_timeline", "set_enabled", "set_fades"])
+
+    def test_a_stop_names_the_steps_by_their_bare_name(self):
+        self.f = self.use(FakeResolve([item("a", 1000, 10, src=5)]))
+        ops = [{"tool": "edit__add_markers", "args": {"markers": [{"at": 1001}]}},  # no name: blocked (I-19)
+               {"tool": "edit__set_fades", "args": SAMPLE_ARGS["set_fades"]}]
+        r = dispatch.run("batch", {"operations": ops, "confirm": True, "timeline": "T"})
+        self.assertEqual(r["_operation"]["status"], "partial", r)
+        self.assertEqual([row["tool"] for row in r["results"]], ["add_markers"])
+        self.assertEqual(r["not_run"], ["set_fades"])
+        self.assertIn("(add_markers: blocked)", r["reason"])
+
+    def test_a_nested_batch_is_refused_by_any_name(self):
+        for name in ("batch", "edit__batch", self.FULL + "batch"):
+            with self.subTest(name):
+                r = self.batch("set_enabled", name)
+                self.assertEqual(r["_operation"]["status"], "blocked", r)
+                self.assertIn("can't contain batch", r["reason"])
+                self.assertIn("step 2", r["reason"])
+                self.assertEqual(self.writes(), [])
+
+    def test_an_unknown_name_is_refused_with_the_form_it_needs(self):
+        for name in ("legacy__delete_items", "nope", "edit__nope"):
+            with self.subTest(name):
+                r = self.batch("set_enabled", name, confirm=True, timeline="T")
+                self.assertEqual(r["_operation"]["status"], "blocked", r)
+                self.assertIn(name, r["reason"])
+                self.assertIn("with or without the edit__ prefix", r["reason"])
+                self.assertEqual(self.writes(), [])
+
+
+class BatchBackupNote(Base):
+    """Inside a batch only the batch makes a backup, so a step's preview doesn't promise one of its own; the batch
+    preview says it once (docs/ISSUES.md I-32, live leftover)."""
+
+    MAKE_BACKUPS = ("add_transition", "move_item", "trim_item", "shift_captions", "titles_to_captions",
+                    "remove_captions")
+
+    def test_a_step_preview_doesnt_promise_its_own_backup(self):
+        for tool in self.MAKE_BACKUPS:
+            with self.subTest(tool):
+                self.use(FakeResolve(sample_items()))
+                alone = dispatch.run(tool, dict(SAMPLE_ARGS[tool]))
+                self.assertIn("backup timeline is made first", " ".join(alone["_operation"]["warnings"]), alone)
+                r = dispatch.run("batch", {"operations": [{"tool": tool, "args": SAMPLE_ARGS[tool]}]})
+                step = r["plan"][0]["preview"]
+                self.assertEqual(step["_operation"]["status"], "preview", step)
+                self.assertNotIn("backup timeline is made first", " ".join(step["_operation"]["warnings"]), step)
+                self.assertIn("one backup timeline is made before the first step", " ".join(r["_operation"]["warnings"]))

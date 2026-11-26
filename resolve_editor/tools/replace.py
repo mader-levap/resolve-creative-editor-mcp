@@ -20,7 +20,7 @@ def _replace_tool(args: dict[str, Any], new_range: Callable[[session.Item], tupl
     if not args.get("confirm"):
         return outcome.preview({verb: rows,
                                 "method": "replacement built and settings copied before the original is removed"},
-                               ["keyframes are not copied", "a backup timeline is made first"])
+                               ["keyframes are not copied", *outcome.backup_notes(args)])
     return rebuild.run(plan, args.get("backup", True))
 
 

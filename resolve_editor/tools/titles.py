@@ -184,7 +184,7 @@ def titles_to_captions(args: dict[str, Any]) -> dict[str, Any]:
     if not args.get("confirm"):
         return outcome.preview({"titles": plan, "count": len(cards), "bin": folder,
                                 "originals": "disabled, captions on new tracks" if keep else "deleted (no ripple)"},
-                               warnings + ["a backup timeline is made first"])
+                               warnings + outcome.backup_notes(args))
     if not state.get("caption_parts"):
         return outcome.blocked("the Resolve bridge is older than this server and can't place long captions; "
                                "restart the bridge (Workspace > Scripts > resolve_bridge)")

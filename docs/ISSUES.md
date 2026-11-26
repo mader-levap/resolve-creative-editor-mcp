@@ -1,6 +1,6 @@
 # Issues
 
-Found while testing `edit__add_transition`, 2026-11-22. This is the base for fixes. Fixed so far: I-01, I-02, I-03, I-04, I-05, I-06, I-07, I-08, I-09, I-10, I-11, I-12, I-13, I-14, I-15, I-16, I-17, I-18, I-19, I-20, I-21, I-23, I-24, I-26, I-27, I-28, I-29, I-30, I-31.
+Found while testing `edit__add_transition`, 2026-11-22. This is the base for fixes. Fixed so far: I-01, I-02, I-03, I-04, I-05, I-06, I-07, I-08, I-09, I-10, I-11, I-12, I-13, I-14, I-15, I-16, I-17, I-18, I-19, I-20, I-21, I-23, I-24, I-26, I-27, I-28, I-29, I-30, I-31, I-32.
 
 - Environment: free DaVinci Resolve 21.2.0.6, Windows 10, 60 fps timeline.
 - Code is named by file and function, with paths from the repo root.
@@ -47,9 +47,9 @@ How each item is known:
 | [I-29](#i-29) | ~~Medium~~ **Fixed** | When a move can't rebuild the original either, the error doesn't say where the clip is | Fake |
 | [I-30](#i-30) | ~~Medium~~ **Fixed** | `place_clips` measures a clip in its own frames, not the timeline's | Live, code |
 | [I-31](#i-31) | ~~Low~~ **Fixed** | `add_transition` skips the audio crossfade without a warning when nothing is linked | Live, code |
-| [I-32](#i-32) | Low | `batch` refuses tool names with the `edit__` prefix, and its error doesn't say so | Live, code |
+| [I-32](#i-32) | ~~Low~~ **Fixed** | `batch` refuses tool names with the `edit__` prefix, and its error doesn't say so | Live, code |
 
-Order, one fix at a time, worst first: I-32; I-22 waits for the next sighting, which will now name where it stopped. Re-rank after each fix.
+Order, one fix at a time, worst first: nothing open; I-22 waits for the next sighting, which will now name where it stopped. Re-rank after each fix.
 
 ## Issues
 
@@ -753,7 +753,7 @@ The backup timeline still has the original, if one was made.
 **Verified 2026-11-26 (live)**, after restarting the MCP server, on a scratch timeline "I-31 live check" (60 fps): "2026-11-22 17-08-51.mkv" placed video-only on V1 and audio-only on A1 at the same frames and range (not linked), then "Little moment 009.mkv". Cross Dissolve at its end: the preview listed the A1 crossfade with the note, and the confirm made both (`success`, A1 Cross Fade +3 dB 216288-216300, read back on the track). At a second cut, "Little moment 008.mkv" video-only over "Little moment 001.mkv" audio-only ending at the same frame: video transition only, with the warning naming Little moment 001.mkv and its id, and no crossfade on A1. The scratch timeline and its two backups were then deleted.
 
 <a id="i-32"></a>
-### I-32 `batch` refuses tool names with the `edit__` prefix, and its error doesn't say so (low)
+### I-32 `batch` refuses tool names with the `edit__` prefix, and its error doesn't say so (low, fixed)
 
 **Where:** `resolve_editor/dispatch.py` (`batch`, the check that refuses "unknown or nested tools")
 
@@ -763,7 +763,13 @@ The backup timeline still has the original, if one was made.
 
 **Found** while adding transitions at 8 cuts; the cause found by reading `batch` afterwards (`add_transition` is in `HANDLERS` and `PREVIEWABLE`).
 
-**Fix idea:** accept the `edit__` prefix in a step's `tool` (strip it), and name the expected form in the schema and in the error.
+**Fix:** `batch` takes each step's tool name after the last `edit__` (`_bare`), so `edit__add_transition` and `mcp__resolve-creative-editor__edit__add_transition` run as `add_transition`. It then works on those names: preview rows, results, `not_run` and step notes show the bare name. The refusal is split in two. A nested batch, by any name, is "a batch can't contain batch (step n)". An unknown name is "unknown tools: 'name' (step n). A step's tool is an edit__ tool, named with or without the edit__ prefix (e.g. add_transition or edit__add_transition); legacy__, media__ and resolve__ tools can't be batched". Both are `blocked` before anything is previewed or written. The schema text and AGENTS.md name the form.
+
+**Verified 2026-11-26 (unit):** `tests/unit/test_batch.py` `BatchToolNames`: steps named with `edit__` or the full MCP prefix preview and run under their bare name with one backup; a stop names the step and what didn't run by the bare name; a nested batch is refused as `batch`, `edit__batch` and the full name, naming the step; `legacy__delete_items`, `nope` and `edit__nope` are refused with the name and the hint; nothing is written in any refusal. The new tests failed before the fix. Each of five breaks is caught: no normalising, normalising only in the check, the nested check on the names as given (which let `edit__batch` through), the hint dropped, the name not shown. Full suite and `tests/smoke_bridge.py` pass.
+
+**Verified 2026-11-26 (live)**, after restarting the MCP server, on a scratch timeline "I-32 live check" (60 fps) with three linked clips: an `edit__batch` with two steps named `edit__add_transition` previewed both under the name `add_transition`. Confirmed, it made one backup ("I-32 live check before batch ...") and both steps were `success` / `passed`; `timeline_summary` showed 4 transitions (2 Cross Dissolve, 2 Cross Fade +3 dB on the linked audio). A batch with a step named `legacy__delete_items` was `blocked` with the hint before anything ran. The scratch timeline and its backup were then deleted.
+
+**Leftover, fixed 2026-11-26:** the live run showed each step's preview inside a batch saying "a backup timeline is made first", though in a batch only the batch makes one. The batch preview now runs each step with `backup=false`, the previews add that note only through `outcome.backup_notes(args)` (add_transition, move_item, trim_item, shift_captions, titles_to_captions, remove_captions), and the batch preview says once "one backup timeline is made before the first step". `tests/unit/test_batch.py` `BatchBackupNote`: each of the six previews alone still has the note, inside a batch it doesn't, and the batch has its own; it failed for all six before. Each of four breaks is caught (step previews without `backup=false`, the note always or never added, the batch note dropped). Full suite and `tests/smoke_bridge.py` pass. Live, after restarting the MCP server: on "Dev Log 01" (previews only, nothing written), an `edit__batch` preview with one `edit__add_transition` step had no backup note in the step and "one backup timeline is made before the first step" in the batch; the same `edit__add_transition` alone still said "a backup timeline is made first".
 
 ## Code review fixes
 

@@ -22,6 +22,15 @@ def blocked(reason: str) -> dict[str, Any]:
     return op("blocked", reason=reason)
 
 
+BACKUP_NOTE = "a backup timeline is made first"
+
+
+def backup_notes(args: dict[str, Any]) -> list[str]:
+    """The preview note that a confirm makes a backup first, unless it won't: inside a batch only the batch makes
+    one (backup=false, docs/ISSUES.md I-32)."""
+    return [BACKUP_NOTE] if args.get("backup", True) is not False else []
+
+
 def preview(plan: Any, warnings: Iterable[str] = ()) -> dict[str, Any]:
     """What a confirm would do; nothing has changed. dispatch.run adds the timeline the confirm must name."""
     return op("preview", plan=plan, warnings=warnings,

@@ -87,7 +87,7 @@ def add_transition(args: dict[str, Any]) -> dict[str, Any]:
         if audio:
             span = {"span": plan["span"]} if "span" in plan else {}
             plan["linked"] = [{"track": timeline.item_label(x), "type": audio_type, **span} for x in audio]
-        return outcome.preview(plan, ["a backup timeline is made first", *notes])
+        return outcome.preview(plan, [*outcome.backup_notes(args), *notes])
     snapshot = (timeline.snapshot_timeline({"label": "before transition"}).get("snapshot")
                 if args.get("backup", True) else None)
     before = _clips()

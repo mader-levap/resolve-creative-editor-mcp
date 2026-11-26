@@ -139,7 +139,8 @@ TOOLS = [
       {"path": S}, ["path"]),
     T("batch", "Run several edit__ tools in order with one backup, stopping at the first step that isn't a success "
       "(partial included): the result says why and lists not_run. Each operation is "
-      "{tool, args}. Without confirm=true nothing is changed: steps that have a preview show it, the others are only "
+      "{tool, args}; tool is the edit__ tool's name with or without the prefix (add_transition or "
+      "edit__add_transition). Without confirm=true nothing is changed: steps that have a preview show it, the others are only "
       "listed. confirm applies to all of them; confirm inside a step's args is ignored.",
       {"operations": {"type": "array",
                       "items": {"type": "object", "properties": {"tool": S, "args": {"type": "object"}},

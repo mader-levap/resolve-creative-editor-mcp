@@ -21,11 +21,12 @@ from .tools import (
 def _preview_step(op: dict[str, Any]) -> dict[str, Any]:
     """One row of a batch preview. Must never change anything, so only PREVIEWABLE tools are called."""
     tool = op["tool"]
-    args = dict(op.get("args") or {}, confirm=False)  # a step can't confirm itself
+    # a step can't confirm itself, and makes no backup of its own: the batch makes one (docs/ISSUES.md I-32)
+    args = dict(op.get("args") or {}, confirm=False, backup=False)
     transcribes = tool == "add_captions" and not args.get("segments")  # slow, and writes the transcript cache
     if tool in PREVIEWABLE and not transcribes:
         return {"tool": tool, "preview": run(tool, args)}
-    del args["confirm"]
+    del args["confirm"], args["backup"]
     return {"tool": tool, "args": args, "not_run": "no preview; runs when the batch is confirmed"}
 
 
@@ -35,14 +36,23 @@ DONE = ("success", "planned")  # a batch goes on only after these
 def batch(args: dict[str, Any]) -> dict[str, Any]:
     """edit__batch: preview every step, or with confirm=true make one backup and run the steps in order, stopping
     after the first that isn't success or planned."""
-    ops = args["operations"]
-    unknown = [o.get("tool") for o in ops if o.get("tool") not in HANDLERS or o.get("tool") == "batch"]
+    # a step names an edit__ tool with or without its prefix, as the agent sees it (docs/ISSUES.md I-32)
+    ops = [{**o, "tool": _bare(o.get("tool"))} for o in args["operations"]]
+    nested = [n for n, o in enumerate(ops, 1) if o["tool"] == "batch"]
+    if nested:
+        return outcome.blocked(f"a batch can't contain batch (step {', '.join(map(str, nested))})")
+    unknown = [(n, given.get("tool")) for n, (given, o) in enumerate(zip(args["operations"], ops), 1)
+               if o["tool"] not in HANDLERS]
     if unknown:
-        return outcome.blocked(f"unknown or nested tools: {unknown}")
+        named = ", ".join(f"{t!r} (step {n})" for n, t in unknown)
+        return outcome.blocked(f"unknown tools: {named}. A step's tool is an edit__ tool, named with or without the "
+                               "edit__ prefix (e.g. add_transition or edit__add_transition); legacy__, media__ and "
+                               "resolve__ tools can't be batched")
     if not args.get("confirm"):
         rows = [_preview_step(o) for o in ops]
         unchecked = sum("not_run" in r for r in rows)
-        return outcome.preview(rows, [f"{unchecked} step(s) have no preview and were not checked"] if unchecked else [])
+        return outcome.preview(rows, ["one backup timeline is made before the first step"] +
+                               ([f"{unchecked} step(s) have no preview and were not checked"] if unchecked else []))
     try:
         backup = timeline.snapshot_timeline({"label": "before batch"})
     except Exception as exc:
@@ -84,6 +94,12 @@ def batch(args: dict[str, Any]) -> dict[str, Any]:
     return outcome.op("success" if ok else "partial", verified,
                       {"steps_done": len(results)}, [_step_note(w, where) for w, where in notes.items()],
                       results=results, not_run=not_run, snapshot=snapshot, **why)
+
+
+def _bare(tool: Any) -> Any:
+    """A batch step's tool name without its edit__ prefix: edit__add_transition and
+    mcp__resolve-creative-editor__edit__add_transition are add_transition (docs/ISSUES.md I-32)."""
+    return tool.rsplit("edit__", 1)[-1] if isinstance(tool, str) else tool
 
 
 def _step_note(warning: str, where: list[tuple[int, str]]) -> str:

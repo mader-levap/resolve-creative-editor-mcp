@@ -77,7 +77,7 @@ All tools come from the `resolve-creative-editor` MCP server (71 on free Resolve
 - **edit__export_srt**: write an .srt from segments or a transcription (user imports it by hand); lines are split like `edit__add_captions`.
 - **edit__export_timeline**: export the current timeline as OTIO, FCPXML, EDL, AAF or DRT.
 - **edit__qc_file**: QC a rendered file: loudness, true peak, black/frozen frames, silence.
-- **edit__batch**: run several `edit__` tools with one backup. It stops after any step that isn't a success (`partial` too) and says why and what didn't run: read back, then run only what is left. An error in a step (e.g. Resolve refusing it) stops it the same way; if the backup fails, no step runs. Each step shows its verification and warnings, the batch lists every warning once with its steps, and the batch is `unverified` if any write couldn't be checked. Without `confirm=true` it changes nothing; steps with no preview are listed but not checked.
+- **edit__batch**: run several `edit__` tools with one backup. A step's `tool` is the tool's name with or without the `edit__` prefix (`add_transition` or `edit__add_transition`). It stops after any step that isn't a success (`partial` too) and says why and what didn't run: read back, then run only what is left. An error in a step (e.g. Resolve refusing it) stops it the same way; if the backup fails, no step runs. Each step shows its verification and warnings, the batch lists every warning once with its steps, and the batch is `unverified` if any write couldn't be checked. Without `confirm=true` it changes nothing; steps with no preview are listed but not checked.
 - **edit__audit_log**: recent changes made through this server.
 
 ### `legacy__`: direct bridge calls (fallback)
