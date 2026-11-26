@@ -45,6 +45,7 @@ class FakeResolve:
         self.timeline_fps = 30  # fps above is the clips' rate
         # append_clips converts a clip's source frames to timeline frames when the rates differ, like Resolve
         # (live 2026-11-26, docs/ISSUES.md I-30); False places them unconverted
+        self.refuse_link = False  # link_items reports failure and links nothing
         self.conform_fps = True
         # Media Pool timelines at their own rate, by name (others: fps above); listed_rates overrides what
         # list_media reports, for a rate Resolve reports wrongly (docs/ISSUES.md I-33)
@@ -160,7 +161,12 @@ class FakeResolve:
         elif op == "duplicate_timeline":
             self.timelines.append(args["name"])
             r = {"name": args["name"]}
-        elif op in ("link_items", "set_current_timeline"):
+        elif op == "link_items":  # SetClipsLinked, also across track numbers (live 2026-11-26, I-37)
+            if not self.refuse_link:
+                for i in args["item_ids"]:
+                    self.settings[i]["linked"] = [j for j in args["item_ids"] if j != i]
+            r = {"ok": not self.refuse_link}
+        elif op == "set_current_timeline":
             r = {"ok": True}
         elif op == "list_timelines":
             r = list(self.timelines)

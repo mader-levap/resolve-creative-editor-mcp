@@ -31,11 +31,13 @@ TOOLS = [
     T("place_clips", "Put media-pool clips on the timeline at exact frames. Source range is [start_frame, end_frame) "
       "in the clip's own frames, inside the clip. On the timeline its length is in timeline frames: a clip at another "
       "frame rate is converted (30 fps on a 60 fps timeline takes twice as many frames); the preview's frames gives "
-      "it. Refuses anything that would overwrite existing items or another clip of the same call.",
+      "it. Refuses anything that would overwrite existing items or another clip of the same call. Video and audio of the "
+      "same clip, range and record placed as separate parts (media_type 1 and 2, e.g. video on V3, audio on A1) are "
+      "linked; link=false keeps them apart.",
       {"clips": {"type": "array", "items": {"type": "object", "properties": {
           "clip": S, "start_frame": I, "end_frame": I, "record": WHEN, "track_index": I,
           "media_type": {"type": "integer", "enum": [1, 2], "description": "1 video only, 2 audio only"}},
-          "required": ["clip", "record"]}}, "confirm": CONFIRM, "timeline": TIMELINE}, ["clips"]),
+          "required": ["clip", "record"]}}, "link": B, "confirm": CONFIRM, "timeline": TIMELINE}, ["clips"]),
     T("move_item", "Move a clip (and its linked audio/video) to a new frame or track. Builds the replacement first and "
       "copies grade, transform, audio levels, fades, colour, flags and markers onto it. Keyframes are not copied. A clip "
       "at another frame rate keeps its source range.",

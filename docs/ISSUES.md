@@ -1,6 +1,6 @@
 # Issues
 
-Found while testing `edit__add_transition`, 2026-11-22. This is the base for fixes. Fixed so far: I-01, I-02, I-03, I-04, I-05, I-06, I-07, I-08, I-09, I-10, I-11, I-12, I-13, I-14, I-15, I-16, I-17, I-18, I-19, I-20, I-21, I-23, I-24, I-26, I-27, I-28, I-29, I-30, I-31, I-32, I-33, I-34, I-35, I-36.
+Found while testing `edit__add_transition`, 2026-11-22. This is the base for fixes. Fixed so far: I-01, I-02, I-03, I-04, I-05, I-06, I-07, I-08, I-09, I-10, I-11, I-12, I-13, I-14, I-15, I-16, I-17, I-18, I-19, I-20, I-21, I-23, I-24, I-26, I-27, I-28, I-29, I-30, I-31, I-32, I-33, I-34, I-35, I-36, I-37.
 
 - Environment: free DaVinci Resolve 21.2.0.6, Windows 10, 60 fps timeline.
 - Code is named by file and function, with paths from the repo root.
@@ -52,6 +52,7 @@ How each item is known:
 | [I-34](#i-34) | ~~Low, limitation~~ **Fixed** | `move_item`, `trim_item` and `shift_captions` refuse clips at another frame rate | Code, fake, live |
 | [I-35](#i-35) | ~~Low~~ **Fixed** | `add_transition` can't report spare frames for a clip at another frame rate | Code, fake, live |
 | [I-36](#i-36) | ~~Low~~ **Fixed** | `source_start` is in timeline frames for a clip at another frame rate, unlabelled | Live, fake |
+| [I-37](#i-37) | ~~Low~~ **Fixed** | `place_clips` leaves a clip's video and audio unlinked when they are placed as separate parts | Live, code, fake |
 
 Order, one fix at a time, worst first: I-22 waits for the next sighting, which will now name where it stopped. Re-rank after each fix.
 
@@ -841,6 +842,21 @@ So the duration and both offsets are timeline frames, and `GetSourceStartFrame`/
 **Fix:** `inspect_range` gives `source_start` from `GetSourceStartFrame` (the clip's own frames, probe in I-34) and adds `clip_fps` when the clip's rate differs from the timeline's; `frames` stays timeline frames. This needs one `item_details` call also without `details`. `legacy__list_timeline_items` stays raw: its description and AGENTS.md now say its `source_start` is Resolve's left offset in timeline frames.
 
 **Verified 2026-11-26 (unit)** in `tests/unit/test_other_rates.py` (6 and `clip_fps` 30 for a clip listed at 12; a same-rate clip unchanged, without `clip_fps`). **Live** on the scratch timeline in I-34: 6 and 100 with `clip_fps` 30.
+
+<a id="i-37"></a>
+### I-37 `place_clips` leaves a clip's video and audio unlinked when they are placed as separate parts (low, fixed)
+
+**Where:** `resolve_editor/tools/placement.py` (`place_clips`)
+
+**Problem:** "2026-11-22 17-08-51.mkv" on "Dev Log 01" (216180-217140) has its video and audio unlinked, which is why `add_transition` skipped its audio crossfade (I-31). The eight b-roll clips after it are linked. On 2026-11-25 the user wanted the video on V3 and its audio on A1. One Resolve append puts video and audio on the same track number, so `place_clips` was called with two parts: video only (`media_type` 1, track 3) and audio only (`media_type` 2, track 1). The bridge appends each part as its own clipInfo, Resolve links only the parts of one clipInfo, and `place_clips` didn't link afterwards. The b-roll was placed without `media_type`, one clipInfo each, so Resolve linked it. The video is on V1 now; nothing in the audit log moved it, so it was moved by hand.
+
+**Found 2026-11-26** from the user's question, using the audit log (`edit__place_clips` at 2026-11-25T15:46:19) and that session's transcript. **Live, the same day:** on a scratch timeline, parts appended as video on V2 and audio on A1 listed no links; `link_items` (`SetClipsLinked`) then linked them across the two track numbers, read back both ways.
+
+**Fix:** `place_clips` pairs a video-only part with an audio-only part of the same call that has the same clip, source range and record frame (each audio part pairs with one video part). After placing, it links each pair with `link_items` and reads `linked` back both ways. The preview names each pair ("video on V3 and audio on A1 of ... will be linked"). The result counts `linked`, and a pair that didn't link is `partial`, with a warning naming both ids; the clips stay placed. `link=false` keeps them apart and says so. A clip placed whole (no `media_type`) is left to Resolve, as before.
+
+**Verified 2026-11-26 (unit)** in `tests/unit/test_place_link.py`: the pair is linked both ways; another range or record isn't linked; `link=false` skips it with a note; a failed link is `partial` naming both ids; a whole clip makes no link call; one audio part links only one of two video parts. The fake's `link_items` now records links. Deliberate breaks (no pairing, a looser key, no read-back, `partial` ignored, `link` ignored, an audio part reused) fail the tests.
+
+**Verified 2026-11-26 (live)** through `dispatch.run` on a scratch timeline with "2026-11-22 17-08-51.mkv": the preview named both pairs; with `link=false`, V3 and A1 placed unlinked (`success`); by default, `success` / `passed` with `linked: 1`, and both items list each other. Scratch timeline deleted. The pair on "Dev Log 01" is unchanged until the user says to link it.
 
 ## Code review fixes
 
