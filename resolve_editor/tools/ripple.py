@@ -1,16 +1,26 @@
 """Ripple trim: in place, no rebuild."""
 from collections.abc import Collection
+from fractions import Fraction
 from typing import Any
 
-from .. import outcome, session, timeline
+from .. import outcome, session, timecode, timeline
 
 
 # Titles can't be moved by script, but a ripple delete shifts everything after the deleted item on all tracks. So:
 # shorten the item in place (trim_tail), drop an n-frame filler into the gap it leaves, ripple-delete the filler.
-def _filler_source(frames: int, prefer: str | None = None,
+def _same_rate(m: dict[str, Any], fps: Fraction) -> bool:
+    """Whether a Media Pool timeline has the current timeline's rate, so its frames are timeline frames: one at
+    another rate is placed converted, so [0, n) isn't n frames long (docs/ISSUES.md I-33)."""
+    try:
+        return abs(float(timecode.parse_fps(m.get("fps"))) - float(fps)) <= 0.001
+    except ValueError:
+        return False
+
+
+def _filler_source(frames: int, fps: Fraction, prefer: str | None = None,
                    exclude: Collection[str] = ()) -> dict[str, Any] | None:
     usable = [m for m in session.media_pool() if m.get("type") == "Timeline" and m.get("name") not in exclude
-              and int(float(m.get("frames") or 0)) >= frames]
+              and _same_rate(m, fps) and int(float(m.get("frames") or 0)) >= frames]
     return next((m for m in usable if m.get("name") == prefer), None) or (usable[0] if usable else None)
 
 
@@ -61,7 +71,8 @@ def _trim_one(p: session.Item, n: int, filler: dict[str, Any] | None, items: dic
     new_end = old_end - n
     later = any(s >= old_end for s, _ in before.values())
     if later and not filler:
-        return outcome.op("failed", reason="no timeline in the media pool is long enough to use as a filler",
+        return outcome.op("failed", reason="no timeline in the media pool at this timeline's frame rate is long "
+                          "enough to use as a filler",
                           changes={"trimmed": len(done)}, snapshot=snapshot)
     session.call("trim_tail", item_id=p["id"], frames=n)
     session.invalidate()
@@ -72,8 +83,12 @@ def _trim_one(p: session.Item, n: int, filler: dict[str, Any] | None, items: dic
             session.call("delete_items", item_ids=[f["id"]], ripple=True)
         except Exception as exc:
             session.invalidate()
-            if f and f["id"] in _positions():
-                session.call("delete_items", item_ids=[f["id"]], ripple=False)
+            # a filler that landed at another length: append_one found none of n frames, but it is there (I-33)
+            stray = f or next((x for x in session.items() if x["track_type"] == "video" and x["track"] == p["track"]
+                               and x["start"] == new_end and x["name"] == filler["name"]), None)  # type: ignore[index]
+            if stray and stray["id"] in _positions():
+                session.call("delete_items", item_ids=[stray["id"]], ripple=False)
+                session.invalidate()
             session.call("trim_tail", item_id=p["id"], frames=-n)  # put the end back; nothing else has moved
             session.invalidate()
             return outcome.op("failed", reason=f"{p['name']} at {session.to_tc(p['start'])}: "
@@ -135,7 +150,8 @@ def ripple_trim(args: dict[str, Any]) -> dict[str, Any]:
 
     snapshot = (timeline.snapshot_timeline({"label": "before ripple trim"}).get("snapshot")
                 if args.get("backup", True) else None)
-    filler = _filler_source(n, prefer=snapshot, exclude={state["timeline"]})
+    fps, _, _ = session.clock()
+    filler = _filler_source(n, fps, prefer=snapshot, exclude={state["timeline"]})
     done: list[str] = []
     for p in sorted(plan, key=lambda x: x["start"], reverse=True):  # later first, so earlier positions don't change
         failed = _trim_one(p, n, filler, items, done, snapshot)

@@ -46,6 +46,10 @@ class FakeResolve:
         # append_clips converts a clip's source frames to timeline frames when the rates differ, like Resolve
         # (live 2026-11-26, docs/ISSUES.md I-30); False places them unconverted
         self.conform_fps = True
+        # Media Pool timelines at their own rate, by name (others: fps above); listed_rates overrides what
+        # list_media reports, for a rate Resolve reports wrongly (docs/ISSUES.md I-33)
+        self.timeline_rates: dict[str, float] = {}
+        self.listed_rates: dict[str, float] = {}
         self.media_frames = 300  # length of the one media pool clip
         self.parts: list[dict[str, Any]] = []
         self.caption_text: dict[str, str] = {}  # caption timeline name -> its Text+ text
@@ -73,7 +77,8 @@ class FakeResolve:
             r = [x for x in self.items if x["track_type"] == args["track_type"]]
         elif op == "list_media":
             r = [{"id": "c1", "name": "a.mp4", "fps": self.fps, "frames": str(self.media_frames)}] + [
-                {"id": f"tl-{t}", "name": t, "fps": self.fps, "frames": "900", "type": "Timeline"}
+                {"id": f"tl-{t}", "name": t, "fps": self.listed_rates.get(t, self.timeline_rates.get(t, self.fps)),
+                 "frames": "900", "type": "Timeline"}
                 for t in self.timelines]
         elif op == "get_state":
             r = {"timeline": "T", "project": "P", "pins": True, "timeline_fps": self.timeline_fps,
@@ -120,7 +125,8 @@ class FakeResolve:
                 name = c["clip"][3:] if str(c["clip"]).startswith("tl-") else "a.mp4"
                 frames = c["end_frame"] - c["start_frame"]
                 if self.conform_fps:
-                    frames = round(Fraction(frames) * Fraction(self.timeline_fps) / Fraction(self.fps))
+                    rate = self.timeline_rates.get(name, self.fps) if name != "a.mp4" else self.fps
+                    frames = round(Fraction(frames) * Fraction(self.timeline_fps) / Fraction(rate))
                 new = item(f"n{self.n}", c["record_frame"], frames, src=c["start_frame"],
                            track=c["track_index"], kind=kind, name=name)
                 self.items.append(new)

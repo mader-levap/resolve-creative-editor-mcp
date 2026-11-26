@@ -291,6 +291,40 @@ class RippleFiller(Base):
         self.assertIn("filler", r["reason"])
         self.assertNotIn("trim_tail", f.calls)
 
+    # A filler at another rate is placed converted, so it isn't n timeline frames (docs/ISSUES.md I-33)
+    def fake(self, *timelines, rates=None, listed=None):
+        f = self.use(FakeResolve([item("a", 1000, 100, name="Text+"), item("b", 1200, 100, name="Text+")]))
+        f.timelines += list(timelines)
+        f.timeline_rates.update(rates or {})
+        f.listed_rates.update(listed or {})
+        return f
+
+    def trim(self):
+        return dispatch.run("ripple_trim", {"item_ids": ["a"], "tail_frames": 30, "confirm": True, "timeline": "T",
+                                            "backup": False})  # as in a batch: no backup to prefer as the filler
+
+    def spans(self, f):
+        return {x["id"]: (x["start"], x["end"]) for x in f.items}
+
+    def test_a_timeline_at_another_rate_isnt_used_as_the_filler(self):
+        f = self.fake("Other", rates={"Other": 60})
+        r = self.trim()
+        self.assertEqual(r["_operation"]["status"], "failed", r)
+        self.assertIn("filler", r["reason"])
+        self.assertNotIn("trim_tail", f.calls)
+
+    def test_the_filler_at_the_timelines_rate_is_picked_over_one_listed_first(self):
+        f = self.fake("Other", "Same", rates={"Other": 60})
+        r = self.trim()
+        self.assertEqual(r["_operation"]["status"], "success", r)
+        self.assertEqual(self.spans(f), {"a": (1000, 1070), "b": (1170, 1270)})
+
+    def test_a_filler_that_lands_at_another_length_is_removed_and_the_end_restored(self):
+        f = self.fake("Other", rates={"Other": 60}, listed={"Other": 30})  # the pool says 30, it places as 60
+        r = self.trim()
+        self.assertEqual(r["_operation"]["status"], "failed", r)
+        self.assertEqual(self.spans(f), {"a": (1000, 1100), "b": (1200, 1300)})  # no stray filler, end back
+
 
 class OlderBridge(Base):
     def test_listing_captions_through_an_older_bridge_says_to_restart_it(self):

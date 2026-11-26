@@ -1,6 +1,6 @@
 # Issues
 
-Found while testing `edit__add_transition`, 2026-11-22. This is the base for fixes. Fixed so far: I-01, I-02, I-03, I-04, I-05, I-06, I-07, I-08, I-09, I-10, I-11, I-12, I-13, I-14, I-15, I-16, I-17, I-18, I-19, I-20, I-21, I-23, I-24, I-26, I-27, I-28, I-29, I-30, I-31, I-32.
+Found while testing `edit__add_transition`, 2026-11-22. This is the base for fixes. Fixed so far: I-01, I-02, I-03, I-04, I-05, I-06, I-07, I-08, I-09, I-10, I-11, I-12, I-13, I-14, I-15, I-16, I-17, I-18, I-19, I-20, I-21, I-23, I-24, I-26, I-27, I-28, I-29, I-30, I-31, I-32, I-33.
 
 - Environment: free DaVinci Resolve 21.2.0.6, Windows 10, 60 fps timeline.
 - Code is named by file and function, with paths from the repo root.
@@ -48,8 +48,12 @@ How each item is known:
 | [I-30](#i-30) | ~~Medium~~ **Fixed** | `place_clips` measures a clip in its own frames, not the timeline's | Live, code |
 | [I-31](#i-31) | ~~Low~~ **Fixed** | `add_transition` skips the audio crossfade without a warning when nothing is linked | Live, code |
 | [I-32](#i-32) | ~~Low~~ **Fixed** | `batch` refuses tool names with the `edit__` prefix, and its error doesn't say so | Live, code |
+| [I-33](#i-33) | ~~Medium~~ **Fixed** | `ripple_trim` can use a filler at another frame rate and leave it on the timeline | Code, fake, live |
+| [I-34](#i-34) | Low, limitation | `move_item`, `trim_item` and `shift_captions` refuse clips at another frame rate | Code |
+| [I-35](#i-35) | Low | `add_transition` can't report spare frames for a clip at another frame rate | Code |
+| [I-36](#i-36) | Low | `source_start` is in timeline frames for a clip at another frame rate, unlabelled | Live |
 
-Order, one fix at a time, worst first: nothing open; I-22 waits for the next sighting, which will now name where it stopped. Re-rank after each fix.
+Order, one fix at a time, worst first: a live probe of offsets for I-34, I-35, I-36; I-22 waits for the next sighting, which will now name where it stopped. Re-rank after each fix.
 
 ## Issues
 
@@ -770,6 +774,48 @@ The backup timeline still has the original, if one was made.
 **Verified 2026-11-26 (live)**, after restarting the MCP server, on a scratch timeline "I-32 live check" (60 fps) with three linked clips: an `edit__batch` with two steps named `edit__add_transition` previewed both under the name `add_transition`. Confirmed, it made one backup ("I-32 live check before batch ...") and both steps were `success` / `passed`; `timeline_summary` showed 4 transitions (2 Cross Dissolve, 2 Cross Fade +3 dB on the linked audio). A batch with a step named `legacy__delete_items` was `blocked` with the hint before anything ran. The scratch timeline and its backup were then deleted.
 
 **Leftover, fixed 2026-11-26:** the live run showed each step's preview inside a batch saying "a backup timeline is made first", though in a batch only the batch makes one. The batch preview now runs each step with `backup=false`, the previews add that note only through `outcome.backup_notes(args)` (add_transition, move_item, trim_item, shift_captions, titles_to_captions, remove_captions), and the batch preview says once "one backup timeline is made before the first step". `tests/unit/test_batch.py` `BatchBackupNote`: each of the six previews alone still has the note, inside a batch it doesn't, and the batch has its own; it failed for all six before. Each of four breaks is caught (step previews without `backup=false`, the note always or never added, the batch note dropped). Full suite and `tests/smoke_bridge.py` pass. Live, after restarting the MCP server: on "Dev Log 01" (previews only, nothing written), an `edit__batch` preview with one `edit__add_transition` step had no backup note in the step and "one backup timeline is made before the first step" in the batch; the same `edit__add_transition` alone still said "a backup timeline is made first".
+
+<a id="i-33"></a>
+### I-33 `ripple_trim` can use a filler at another frame rate and leave it on the timeline (medium, fixed)
+
+**Where:** `resolve_editor/tools/ripple.py` (`_filler_source`, `_trim_one`)
+
+**Problem:** the ripple drops an n-frame filler from a Media Pool timeline into the gap and ripple-deletes it. `_filler_source` took any Media Pool timeline with at least n frames, comparing its own frames with timeline frames. It prefers the backup, which has the same rate, but in a batch there is no backup (`backup=false`), so it took the first timeline in the pool: a caption timeline or another timeline, possibly at another rate. Resolve converts such a filler's length (I-30), so `timeline.append_one` finds no item of n frames and raises "did not land". The filler is on the timeline all the same, and the `except` branch only removed the filler when `append_one` had returned it. So the result was `failed`, a stray filler stayed in the gap, and the end was put back over it.
+
+**Found 2026-11-26** in a review of frame-rate handling after I-30, then reproduced with the fake: `tests/unit/test_timeline_steps.py` `RippleFiller`. Before the fix: with only a 60 fps timeline in the pool of a 30 fps timeline, it trimmed and failed with "did not land"; a 60 fps timeline listed before a 30 fps one was picked; a filler listed at 30 but placed at 60 left a 15-frame stray at the cut. Not seen live.
+
+**Fix:** `_filler_source` keeps only Media Pool timelines at the current timeline's rate (`_same_rate`, the tolerance `rebuild.py` uses); with none long enough, the result is `failed` before anything is trimmed, saying no timeline at this rate is long enough. If an append still raises, `_trim_one` looks for the filler on that track at the cut by name and deletes it without ripple before restoring the end.
+
+**Verified 2026-11-26 (unit):** the three tests above, which failed before the fix; the fake's Media Pool timelines can now have their own rate (`timeline_rates`, and `listed_rates` for a rate reported wrongly). Each of four breaks is caught: no rate filter, the rate check always true, no search for the stray filler, searching at the wrong frame. Full suite and `tests/smoke_bridge.py` pass.
+
+**Verified 2026-11-26 (live)**, after restarting the MCP server: scratch timelines "_RCE_I33" and "_RCE_I33 filler" set to 30 fps (`set_scratch_fps`); every other timeline in the pool is 60 fps. Two video-only 30 fps clips on "_RCE_I33"; `ripple_trim` of 15 frames with `backup=false` (as in a batch, through `dispatch.run`, since the MCP schema has no `backup`). With the 30 fps filler still empty: `failed`, "no timeline in the media pool at this timeline's frame rate is long enough to use as a filler", nothing trimmed. After placing 60 frames in the filler: `success` / `passed`, the first clip ending at 108075 and the second pulled back to 108075-108135, no stray item. Both scratch timelines were then deleted. The stray-filler cleanup is checked with the fake only: making Resolve list a wrong rate isn't possible live.
+
+<a id="i-34"></a>
+### I-34 `move_item`, `trim_item` and `shift_captions` refuse clips at another frame rate (low, limitation)
+
+**Where:** `resolve_editor/rebuild.py` (`plan`, the frame-rate check)
+
+**Problem:** a rebuild refuses a clip whose Media Pool rate differs from the timeline's ("clip frame rate differs from the timeline, so source frames would not line up"). That is safe, but the three 30 fps game clips in "Dev Log 01" (60 fps) can't be moved or trimmed with `edit__` tools. Captions aren't affected: the bridge gives each caption timeline the rate of the timeline it is placed on (`resolve_bridge.lua`, caption parts).
+
+**Found 2026-11-26** in the frame-rate review. Converting needs the unit of the offsets: I-36 shows `source_start` is in timeline frames for such a clip, while append ranges are in the clip's frames, and clip markers count source frames (AGENTS.md), at which rate is unknown. A live probe comes first.
+
+<a id="i-35"></a>
+### I-35 `add_transition` can't report spare frames for a clip at another frame rate (low)
+
+**Where:** `resolve_editor/tools/clips.py` (`_spare_frames`)
+
+**Problem:** for a clip at another rate (or speed), `spare_source_frames` is "unknown: the clip's frame rate or speed differs from the timeline". By the code, it would be so for the three 30 fps clips in "Dev Log 01" (not seen: those transitions were added without a preview showing their spare frames), where spare frames were exactly what had to be checked. It could convert once the unit of `source_start` is pinned down (I-34, I-36).
+
+**Found 2026-11-26** in the frame-rate review.
+
+<a id="i-36"></a>
+### I-36 `source_start` is in timeline frames for a clip at another frame rate, unlabelled (low)
+
+**Where:** `resolve_editor/tools/inspection.py` (`inspect_range`), `legacy__list_timeline_items`, the bridge's item listing
+
+**Problem:** "Wet, wet everywhere.mp4" (30 fps) placed at source frame 6 on the 60 fps "Dev Log 01" is listed with `source_start: 12`. Append ranges and Media Pool `frames` are in the clip's own frames, so the same field means two things and nothing says which. Easy to misread; I did, briefly.
+
+**Live 2026-11-26** (`edit__inspect_range` and `legacy__list_timeline_items` after placing the b-roll). Fix after the probe in I-34: convert to source frames, or add the clip's rate and say the unit.
 
 ## Code review fixes
 
