@@ -125,7 +125,7 @@ TOOLS = [
     T("read_titles", "Text, style and state of Text+ titles and captions: kind (title or caption), track, in/out, "
       "enabled, fades, text, and font, style, size, x, y, anchor, colour and outline. all_inputs adds every Text+ "
       "input (for match or inputs elsewhere). Select by item_ids, or a time range and track (default: whole "
-      "timeline).",
+      "timeline). A caption placed past the frames its Text+ runs (GlobalIn/GlobalOut) gets a warning.",
       {"item_ids": IDS, "start": WHEN, "end": WHEN, "track_index": I, "all_inputs": B, "limit": I}),
     T("titles_to_captions", "Replace plain Text+ titles with captions (the add_captions kind, which can be placed and "
       "moved by script) with the same text, frames, every Text+ input, fades and enabled state. Same track with the "

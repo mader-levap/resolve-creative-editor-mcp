@@ -163,6 +163,10 @@ def _style(args: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("inputs must be an object of Text+ input ids and values")
     if titles.TEXT in own:
         raise ValueError(f"inputs can't set {titles.TEXT}: the text comes from the segments")
+    for key in titles.TIMING:
+        if key in own:
+            raise ValueError(f"inputs can't set {key}: it decides when the Text+ runs, and a caption keeps its full "
+                             "length (docs/ISSUES.md I-38)")
     inputs: dict[str, Any] = {}
     if args.get("match"):
         got = titles.read_inputs([args["match"]]).get(args["match"]) or {}

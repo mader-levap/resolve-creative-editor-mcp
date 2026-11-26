@@ -22,9 +22,33 @@ def read_inputs(item_ids: list[str]) -> dict[str, dict[str, Any]]:
     return got if isinstance(got, dict) else {}
 
 
+# When a Text+ runs, not how it looks: Resolve keeps a title's in step with its length (179 on a 180-frame title), but
+# copied onto a caption's 900-frame Text+ they stop its text early (docs/ISSUES.md I-38).
+TIMING = ("GlobalIn", "GlobalOut")
+
+
 def text_style(inputs: dict[str, Any]) -> dict[str, Any]:
-    """Every input but the text: what a caption copies from a title."""
-    return {k: v for k, v in inputs.items() if k != TEXT}
+    """Every input but the text and the timing: what a caption copies from a title."""
+    return {k: v for k, v in inputs.items() if k != TEXT and k not in TIMING}
+
+
+def _timing_warning(item: session.Item, inputs: dict[str, Any]) -> str | None:
+    """A caption placed past the frames its Text+ runs ([GlobalIn, GlobalOut] of its own timeline) shows nothing
+    there, and Resolve's viewer says "No frame available for MediaOut1" (docs/ISSUES.md I-38)."""
+    first, last = inputs.get("GlobalIn"), inputs.get("GlobalOut")
+    src = item.get("source_start") or 0
+    shown = (src, src + item["end"] - item["start"] - 1)  # frames of its own timeline the placement shows
+    problems = []
+    if isinstance(first, (int, float)) and shown[0] < first:
+        problems.append(f"text starts at {session.to_tc(item['start'] + int(first) - src)} (GlobalIn {first:g}), "
+                        f"{int(first) - shown[0]} frames after the caption starts")
+    if isinstance(last, (int, float)) and shown[1] > last:
+        problems.append(f"text stops at {session.to_tc(item['start'] + int(last) + 1 - src)} (GlobalOut {last:g}), "
+                        f"{shown[1] - int(last)} frames before the caption ends")
+    if not problems:
+        return None
+    return ("; ".join(problems) + "; Resolve shows 'No frame available for MediaOut1' there. Set GlobalIn to 0 and "
+            "GlobalOut to its timeline's length - 1 (legacy__style_text_plus inputs)")
 
 
 def _neat(v: Any) -> Any:
@@ -102,6 +126,9 @@ def read_titles(args: dict[str, Any]) -> dict[str, Any]:
                                "in": session.to_tc(x["start"]), "out": session.to_tc(x["end"]),
                                "frames": x["end"] - x["start"], "enabled": d.get("enabled", True) is not False,
                                "fades": _fades(d), "text": r["inputs"].get(TEXT, ""), "style": summary(r["inputs"])}
+        warning = _timing_warning(x, r["inputs"]) if r["kind"] == "caption" else None
+        if warning:
+            row["warning"] = warning
         if args.get("all_inputs"):
             row["inputs"] = r["inputs"]
         if r["animated"]:

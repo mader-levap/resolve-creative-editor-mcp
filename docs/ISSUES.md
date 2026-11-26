@@ -1,6 +1,6 @@
 # Issues
 
-Found while testing `edit__add_transition`, 2026-11-22. This is the base for fixes. Fixed so far: I-01, I-02, I-03, I-04, I-05, I-06, I-07, I-08, I-09, I-10, I-11, I-12, I-13, I-14, I-15, I-16, I-17, I-18, I-19, I-20, I-21, I-23, I-24, I-26, I-27, I-28, I-29, I-30, I-31, I-32, I-33, I-34, I-35, I-36, I-37.
+Found while testing `edit__add_transition`, 2026-11-22. This is the base for fixes. Fixed so far: I-01, I-02, I-03, I-04, I-05, I-06, I-07, I-08, I-09, I-10, I-11, I-12, I-13, I-14, I-15, I-16, I-17, I-18, I-19, I-20, I-21, I-23, I-24, I-26, I-27, I-28, I-29, I-30, I-31, I-32, I-33, I-34, I-35, I-36, I-37, I-38.
 
 - Environment: free DaVinci Resolve 21.2.0.6, Windows 10, 60 fps timeline.
 - Code is named by file and function, with paths from the repo root.
@@ -53,6 +53,7 @@ How each item is known:
 | [I-35](#i-35) | ~~Low~~ **Fixed** | `add_transition` can't report spare frames for a clip at another frame rate | Code, fake, live |
 | [I-36](#i-36) | ~~Low~~ **Fixed** | `source_start` is in timeline frames for a clip at another frame rate, unlabelled | Live, fake |
 | [I-37](#i-37) | ~~Low~~ **Fixed** | `place_clips` leaves a clip's video and audio unlinked when they are placed as separate parts | Live, code, fake |
+| [I-38](#i-38) | ~~Medium~~ **Fixed** | `titles_to_captions` and `add_captions match` copy the title's `GlobalOut`, so a stretched caption loses its text | Live, fake |
 
 Order, one fix at a time, worst first: I-22 waits for the next sighting, which will now name where it stopped. Re-rank after each fix.
 
@@ -857,6 +858,27 @@ So the duration and both offsets are timeline frames, and `GetSourceStartFrame`/
 **Verified 2026-11-26 (unit)** in `tests/unit/test_place_link.py`: the pair is linked both ways; another range or record isn't linked; `link=false` skips it with a note; a failed link is `partial` naming both ids; a whole clip makes no link call; one audio part links only one of two video parts. The fake's `link_items` now records links. Deliberate breaks (no pairing, a looser key, no read-back, `partial` ignored, `link` ignored, an audio part reused) fail the tests.
 
 **Verified 2026-11-26 (live)** through `dispatch.run` on a scratch timeline with "2026-11-22 17-08-51.mkv": the preview named both pairs; with `link=false`, V3 and A1 placed unlinked (`success`); by default, `success` / `passed` with `linked: 1`, and both items list each other. Scratch timeline deleted. The pair on "Dev Log 01" is unchanged until the user says to link it.
+
+<a id="i-38"></a>
+### I-38 `titles_to_captions` and `add_captions match` copy the title's `GlobalOut`, so a stretched caption loses its text (medium, fixed)
+
+**Where:** `resolve_editor/tools/titles.py` (`text_style`, used by `titles_to_captions` and by `add_captions` with `match` in `captions.py`)
+
+**Problem:** a Text+ title's `GlobalIn`/`GlobalOut` inputs are its first and last frame, kept in step by Resolve with the clip's length: a 180-frame title has `GlobalOut` 179. `text_style` copies every Text+ input but the text, these two included, onto the caption's Text+. That Text+ is a clip on the caption's own timeline, inserted at the Standard Generator Duration (900 frames here), and nothing updates the copied value, so the tool stops at the title's last frame. A caption placed or stretched past the title's length then shows no text, and Resolve's viewer says "No frame available for MediaOut1". The caption timeline, its 900-frame Text+ clip and the comp's range (0-899) all look normal, so nothing pointed at it.
+
+**Live 2026-11-26:** the user saw the message at 01:00:13-01:00:14 on "Dev Log 01". Caption 0004 "Monoyellow Madness." was converted from a 180-frame title on 2026-11-25 and later extended by hand to 205 frames: its text stops at 01:00:13:00 (exported frames 12:59 with text, 13:00 without). All 14 captions there have `GlobalOut` = their title's length - 1; 0004 is the only one placed past it. On the scratch timeline "_RCE_I38":
+- two `add_captions` captions (`GlobalOut` 899), one placed at 205 and one extended from 180 to 205 by script, then by the user's hand drag, kept their text at frame 190 with no message;
+- a 180-frame Text+ title converted with `titles_to_captions` and extended to 205 by script had text at frame 179 and none at 190.
+
+The converted and the `add_captions` caption differed in three inputs only: the text, `VerticalTopCenterBottom` and `GlobalOut` (179 against 899). `add_captions` with `match` goes through the same `text_style`; not tried live.
+
+**Fix:** `text_style` (`titles.py`) leaves out `GlobalIn`/`GlobalOut` (`TIMING`) as well as the text, which covers both `titles_to_captions` and `add_captions` with `match`. `add_captions` refuses them in a caller's `inputs`, like `StyledText`. `read_titles` gives a caption a `warning` when its placement shows frames of its own timeline outside `[GlobalIn, GlobalOut]` (the placement's left offset counts): where the text starts or stops, by how many frames, the MediaOut message, and how to repair it. Titles aren't checked, since Resolve keeps theirs in step. No bridge change: both inputs already come back with the others.
+
+**Verified 2026-11-26 (unit)** in `tests/unit/test_caption_timing.py`: `text_style`, `titles_to_captions` and `add_captions match` leave both out; explicit `GlobalIn`/`GlobalOut` in `inputs` are refused with nothing written; the warning at 205 frames over `GlobalOut` 179 names the timecode and 25 frames; none at 180; the left offset counts (150 frames from 30: none, 151: one frame); `GlobalIn` 10 warns; a title isn't checked. Deliberate breaks (copy them again, no refusal, no warning, `>=` for `>` and `<=` for `<`, no offset, titles checked, an off-by-one timecode) fail the tests.
+
+**Verified 2026-11-26 (live)** through `dispatch.run` on scratch timeline "_RCE_I38b": a 180-frame Text+ title converted with `titles_to_captions` got `GlobalIn` 0 / `GlobalOut` 899; extended to 205 by script, it showed its text at frame 190 (exported). A caption made with `add_captions match` on it also got `GlobalOut` 899. Neither got a warning. The scratch timeline and its caption timelines were deleted. `read_titles` on "Dev Log 01" warns on caption 0004 only: "text stops at 01:00:13:00 (GlobalOut 179), 25 frames before the caption ends".
+
+**Repaired 2026-11-26** on "Dev Log 01" at the user's word: caption 0004's `GlobalOut` set to 899 with `legacy__style_text_plus` (backup "Dev Log 01 before caption 0004 GlobalOut 20261126-215121" first; it places the same caption timeline, so it shows the repair too). `read_titles` reads back 0 / 899 with no warning, and the exported frame at 01:00:13:24 shows the text.
 
 ## Code review fixes
 
