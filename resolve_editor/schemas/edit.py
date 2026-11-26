@@ -56,7 +56,8 @@ TOOLS = [
     T("add_transition", "Add a native transition at the start or end of a clip (Resolve 21.1+). Needs spare source "
       "frames on both sides of the cut. Previews first (cut, expected span, spare source frames); confirm makes a "
       "backup timeline, adds it and checks what Resolve made. On a video clip, linked audio at the same cut gets a "
-      "matching crossfade (audio_type, default 'Cross Fade +3 dB') unless include_linked is false.",
+      "matching crossfade (audio_type, default 'Cross Fade +3 dB') unless include_linked is false. With no linked audio, "
+      "unlinked audio of the same source and range at the cut counts as linked; other audio there gets a warning.",
       {"item_id": S, "type": S, "position": {"type": "string", "enum": ["start", "end"]},
        "alignment": {"type": "string", "enum": ["left", "center", "right"]},
        "duration": {"type": "integer", "minimum": 1, "description": "Frames; leave out for Resolve's default"},

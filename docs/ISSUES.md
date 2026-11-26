@@ -1,6 +1,6 @@
 # Issues
 
-Found while testing `edit__add_transition`, 2026-11-22. This is the base for fixes. Fixed so far: I-01, I-02, I-03, I-04, I-05, I-06, I-07, I-08, I-09, I-10, I-11, I-12, I-13, I-14, I-15, I-16, I-17, I-18, I-19, I-20, I-21, I-23, I-24, I-26, I-27, I-28, I-29, I-30.
+Found while testing `edit__add_transition`, 2026-11-22. This is the base for fixes. Fixed so far: I-01, I-02, I-03, I-04, I-05, I-06, I-07, I-08, I-09, I-10, I-11, I-12, I-13, I-14, I-15, I-16, I-17, I-18, I-19, I-20, I-21, I-23, I-24, I-26, I-27, I-28, I-29, I-30, I-31.
 
 - Environment: free DaVinci Resolve 21.2.0.6, Windows 10, 60 fps timeline.
 - Code is named by file and function, with paths from the repo root.
@@ -46,10 +46,10 @@ How each item is known:
 | [I-28](#i-28) | ~~Low~~ **Fixed** | `place_clips` passes a source range past the clip's end | Live, fake |
 | [I-29](#i-29) | ~~Medium~~ **Fixed** | When a move can't rebuild the original either, the error doesn't say where the clip is | Fake |
 | [I-30](#i-30) | ~~Medium~~ **Fixed** | `place_clips` measures a clip in its own frames, not the timeline's | Live, code |
-| [I-31](#i-31) | Low | `add_transition` skips the audio crossfade without a warning when nothing is linked | Live, code |
+| [I-31](#i-31) | ~~Low~~ **Fixed** | `add_transition` skips the audio crossfade without a warning when nothing is linked | Live, code |
 | [I-32](#i-32) | Low | `batch` refuses tool names with the `edit__` prefix, and its error doesn't say so | Live, code |
 
-Order, one fix at a time, worst first: I-31, I-32; I-22 waits for the next sighting, which will now name where it stopped. Re-rank after each fix.
+Order, one fix at a time, worst first: I-32; I-22 waits for the next sighting, which will now name where it stopped. Re-rank after each fix.
 
 ## Issues
 
@@ -736,7 +736,7 @@ The backup timeline still has the original, if one was made.
 **Verified 2026-11-26 (live)**, after restarting the MCP server, on a scratch timeline "I-30 live check" (60 fps) in "LiL - dev log 01": a 60 fps anchor clip at +90; "Wet, wet everywhere.mp4" (30 fps), source 0-60, at +0 is `blocked` ("would overwrite Little moment 001.mkv on V1 at 01:00:01:30"; it passed before the fix); at +300 the preview gives `frames: 120`, `source_frames: 60`, `clip_fps: 30`, and the confirm is `success`, read back as 120 frames (216300-216420); two such clips of one call at +600 and +660 are `blocked` as overlapping. The scratch timeline was then deleted.
 
 <a id="i-31"></a>
-### I-31 `add_transition` skips the audio crossfade without a warning when nothing is linked (low)
+### I-31 `add_transition` skips the audio crossfade without a warning when nothing is linked (low, fixed)
 
 **Where:** `resolve_editor/tools/clips.py` (`_linked_audio`)
 
@@ -745,6 +745,12 @@ The backup timeline still has the original, if one was made.
 **Live 2026-11-26** ("Dev Log 01"): Cross Dissolve at the end of "2026-11-22 17-08-51.mkv" on V1, whose audio on A1 isn't linked to it. Video transition `success`, no warning, A1 kept a hard cut. A second call on the audio item added the crossfade. The newly placed clips, which are linked, got their crossfade as expected.
 
 **Found** by reading the timeline back after the transition.
+
+**Fix** (the user chose to crossfade same-source audio automatically): when Resolve lists no linked audio for the video clip, `_unlinked_audio` looks at audio items meeting the cut on the transition's side (end at the cut for position end, start at it for start). An item with the same frames, source start, name and media id as the video is crossfaded like linked audio, with a note ("isn't linked to the video but has the same source and range; crossfaded too"); with `include_linked=false` it keeps a hard cut, with a note. Any other audio meeting the cut is named with its track and id in a warning and left alone. Audio away from the cut changes nothing. When Resolve does list linked audio, nothing changed. The schema text and AGENTS.md say so.
+
+**Verified 2026-11-26 (unit):** `tests/unit/test_transition.py` `UnlinkedAudio`: same-source audio crossfaded at the end and at the start, with the note; the preview lists it and writes nothing; `include_linked=false` keeps a hard cut, with a note; audio at the cut from another clip, source start, start frame or media id is named and not crossfaded; audio away from the cut adds nothing. The old test that expected unlinked audio to get nothing became `test_an_audio_target_adds_nothing_extra`, and the `timeline()` fixture's docstring now says its clips aren't linked. Each of seven breaks is caught: no media check, no range check, no source start check, the end edge for position start, `include_linked` ignored, no cut check, no note. Full suite and `tests/smoke_bridge.py` pass.
+
+**Verified 2026-11-26 (live)**, after restarting the MCP server, on a scratch timeline "I-31 live check" (60 fps): "2026-11-22 17-08-51.mkv" placed video-only on V1 and audio-only on A1 at the same frames and range (not linked), then "Little moment 009.mkv". Cross Dissolve at its end: the preview listed the A1 crossfade with the note, and the confirm made both (`success`, A1 Cross Fade +3 dB 216288-216300, read back on the track). At a second cut, "Little moment 008.mkv" video-only over "Little moment 001.mkv" audio-only ending at the same frame: video transition only, with the warning naming Little moment 001.mkv and its id, and no crossfade on A1. The scratch timeline and its two backups were then deleted.
 
 <a id="i-32"></a>
 ### I-32 `batch` refuses tool names with the `edit__` prefix, and its error doesn't say so (low)

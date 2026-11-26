@@ -60,7 +60,7 @@ All tools come from the `resolve-creative-editor` MCP server (71 on free Resolve
 - **edit__ripple_trim**: shorten clip ends in place and pull everything after them earlier; works on titles. Refuses when a clip or transition on any track overlaps the frames being removed.
 - **edit__set_enabled**: disable/enable clips (reversible alternative to deleting).
 - **edit__set_fades**: video/audio fade-in/out in frames, with read-back. Only saved on clips with a hand-dragged fade (Resolve bug, see Editing below).
-- **edit__add_transition**: native transition at a clip's start or end (Resolve 21.1+). Previews the cut, expected span and spare source frames; confirm makes a backup first. On a video clip, linked audio at the same cut gets a matching crossfade (`audio_type`, default `Cross Fade +3 dB`); `include_linked=false` keeps a hard audio cut, with a warning. Remove one with `legacy__delete_items` (no ripple) on its id.
+- **edit__add_transition**: native transition at a clip's start or end (Resolve 21.1+). Previews the cut, expected span and spare source frames; confirm makes a backup first. On a video clip, linked audio at the same cut gets a matching crossfade (`audio_type`, default `Cross Fade +3 dB`); `include_linked=false` keeps a hard audio cut, with a warning. With no linked audio, unlinked audio of the same source and range meeting the cut gets it too, with a note; other audio meeting the cut is named in a warning and left alone. Remove one with `legacy__delete_items` (no ripple) on its id.
 - **edit__set_audio**: clip volume (dB) and pan, with read-back.
 - **edit__normalize_audio**: normalize clips with Resolve's loudness modes (EBU R128, YouTube, ...).
 - **edit__set_speed**: change clip speed (0 = freeze); doesn't ripple.

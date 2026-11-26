@@ -7,7 +7,8 @@ CUT = 1300
 
 
 def timeline():
-    """Two linked clips cut at 1300, as in the live T2 setup."""
+    """Two clips cut at 1300, video and audio, as in the live T2 setup. The fake doesn't link them, so a video
+    transition also crossfades the audio of the same source and range (docs/ISSUES.md I-31)."""
     return FakeResolve([item("a", 1000, 300, src=180), item("b", CUT, 300, src=1500),
                         item("a2", 1000, 300, src=180, kind="audio"), item("b2", CUT, 300, src=1500, kind="audio")])
 
@@ -216,13 +217,69 @@ class LinkedAudio(Base):
         r = dispatch.run("add_transition", {"item_id": "a", "duration": 30, "include_linked": False})
         self.assertIn("A1 keeps a hard cut", " ".join(r["_operation"]["warnings"]))
 
-    def test_unlinked_and_audio_targets_add_nothing_extra(self):
-        r, sent = self.run_on(timeline(), duration=30)
-        self.assertEqual(len(sent), 1)
-        self.assertNotIn("linked", r)
-        self.assertFalse([w for w in r["_operation"]["warnings"] if "hard cut" in w])
+    def test_an_audio_target_adds_nothing_extra(self):  # unlinked video: UnlinkedAudio (I-31)
         r, sent = self.run_on(linked(), item_id="a2", type="Cross Fade +3 dB", category="audio", duration=30)
         self.assertEqual([s["item_id"] for s in sent], ["a2"])
+
+
+def unlinked(a2=None, b2=None, media=None):
+    """Video and audio of the same source and range on V1 and A1, not linked: Resolve lists no linked items
+    (live 2026-11-26, docs/ISSUES.md I-31). a2/b2 override the audio items' fields; media their media ids."""
+    f = FakeResolve([item("a", 1000, 300, src=180), item("b", CUT, 300, src=1500),
+                     dict(item("a2", 1000, 300, src=180, kind="audio"), **(a2 or {})),
+                     dict(item("b2", CUT, 300, src=1500, kind="audio"), **(b2 or {}))])
+    for i, m in (media or {}).items():
+        f.settings[i]["media_id"] = m
+    return f
+
+
+class UnlinkedAudio(Base):
+    """Audio of the same source and range that isn't linked is crossfaded too; other audio at the cut is named in a
+    warning (docs/ISSUES.md I-31)."""
+
+    run_on = LinkedAudio.run_on
+
+    def warnings(self, r):
+        return " ".join(r["_operation"]["warnings"])
+
+    def test_same_source_audio_at_the_cut_is_crossfaded_and_said(self):
+        for position, video, audio in (("end", "a", "a2"), ("start", "b", "b2")):
+            with self.subTest(position):
+                r, sent = self.run_on(unlinked(), item_id=video, position=position, duration=30)
+                self.assertEqual(r["_operation"]["status"], "success", r)
+                self.assertEqual([(s["item_id"], s["category"]) for s in sent], [(video, "simple"), (audio, "audio")])
+                self.assertEqual(r["linked"][0]["track"], "A1")
+                self.assertIn("isn't linked", self.warnings(r))
+
+    def test_the_preview_lists_it_and_writes_nothing(self):
+        f = self.use(unlinked())
+        r = dispatch.run("add_transition", {"item_id": "a", "duration": 30})
+        self.assertEqual(r["plan"]["linked"][0]["track"], "A1")
+        self.assertIn("isn't linked", self.warnings(r))
+        self.assertEqual([c for c in f.calls if c not in READ_OPS], [])
+
+    def test_include_linked_false_keeps_a_hard_cut_and_says_so(self):
+        r, sent = self.run_on(unlinked(), duration=30, include_linked=False)
+        self.assertEqual(len(sent), 1)
+        self.assertIn("A1 keeps a hard cut", self.warnings(r))
+
+    def test_other_audio_at_the_cut_is_named_and_left_alone(self):
+        cases = {"another clip": {"a2": {"name": "music.wav"}}, "another range": {"a2": {"source_start": 0}},
+                 "starts elsewhere": {"a2": {"start": 1100, "duration": 200}},
+                 "another media": {"media": {"a2": "c9"}}}
+        for case, kw in cases.items():
+            with self.subTest(case):
+                r, sent = self.run_on(unlinked(**kw), duration=30)
+                self.assertEqual(r["_operation"]["status"], "success", r)
+                self.assertEqual(len(sent), 1)
+                self.assertNotIn("linked", r)
+                self.assertIn("a2", self.warnings(r))
+                self.assertIn("no crossfade", self.warnings(r))
+
+    def test_audio_away_from_the_cut_adds_nothing(self):
+        r, sent = self.run_on(unlinked(a2={"end": CUT - 10, "duration": 290}), duration=30)
+        self.assertEqual(len(sent), 1)
+        self.assertFalse([w for w in r["_operation"]["warnings"] if "a2" in w or "A1" in w], r)
 
 
 class Duration(Base):

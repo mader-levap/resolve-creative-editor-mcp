@@ -1,4 +1,5 @@
 """Clip settings: enabled, fades, transitions, speed, grade."""
+from collections.abc import Iterable
 from typing import Any
 
 from .. import outcome, session, timecode, timeline
@@ -147,14 +148,18 @@ def _tc(frame: Any) -> str | None:
 
 def _linked_audio(target: session.Item, position: str, cut: int,
                   include: bool) -> tuple[list[session.Item], list[str]]:
-    """The linked audio items that get a crossfade, and warnings for those that don't (docs/ISSUES.md I-07)."""
+    """The linked audio items that get a crossfade, and warnings for those that don't (docs/ISSUES.md I-07). With
+    no linked audio, unlinked audio of the same source and range meeting the cut counts as linked (I-31)."""
     if target["track_type"] != "video":
         return [], []
     details = session.as_list(session.call("item_details", item_ids=[target["id"]]))
     ids = (details[0].get("linked") if details else None) or []
     items = {x["id"]: x for x in session.items()}
+    linked = [items[i] for i in ids if i in items and items[i]["track_type"] == "audio"]
+    if not linked:
+        return _unlinked_audio(target, details[0] if details else {}, position, cut, include, items.values())
     planned, notes = [], []
-    for x in (items[i] for i in ids if i in items and items[i]["track_type"] == "audio"):
+    for x in linked:
         own = x["end"] if position == "end" else x["start"]
         if own != cut:
             notes.append(f"linked audio on {timeline.item_label(x)} {'ends' if position == 'end' else 'starts'} at "
@@ -164,6 +169,35 @@ def _linked_audio(target: session.Item, position: str, cut: int,
                          "include_linked=true adds a crossfade")
         else:
             planned.append(x)
+    return planned, notes
+
+
+def _unlinked_audio(target: session.Item, detail: dict[str, Any], position: str, cut: int, include: bool,
+                    items: Iterable[session.Item]) -> tuple[list[session.Item], list[str]]:
+    """For a video clip Resolve links to no audio (docs/ISSUES.md I-31): audio meeting the cut on the same side
+    with the same source and range (frames, source start, media) is crossfaded like linked audio, and said so;
+    other audio meeting the cut is named in a warning and left alone."""
+    edge = "end" if position == "end" else "start"
+    meeting = [x for x in items if x["track_type"] == "audio" and x.get("type") != "transition" and x[edge] == cut]
+    if not meeting:
+        return [], []
+    media = {d["id"]: d.get("media_id") for d in session.as_list(
+        session.call("item_details", item_ids=[x["id"] for x in meeting]))}
+    planned, notes = [], []
+    for x in meeting:
+        label, at = timeline.item_label(x), session.to_tc(cut)
+        same = (x["start"], x["end"], x.get("source_start"), x.get("name")) == (
+            target["start"], target["end"], target.get("source_start"), target.get("name"))
+        if not (same and detail.get("media_id") and media.get(x["id"]) == detail.get("media_id")):
+            notes.append(f"unlinked audio on {label} ({x.get('name')}, {x['id']}) meets the cut at {at}; no "
+                         "crossfade: run add_transition on that id for one")
+        elif not include:
+            notes.append(f"audio on {label} isn't linked to the video but has the same source and range; "
+                         f"{label} keeps a hard cut at {at}; include_linked=true adds a crossfade")
+        else:
+            planned.append(x)
+            notes.append(f"audio on {label} isn't linked to the video but has the same source and range; "
+                         "crossfaded too")
     return planned, notes
 
 
