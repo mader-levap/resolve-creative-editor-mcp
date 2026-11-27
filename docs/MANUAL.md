@@ -18,3 +18,5 @@ You may want to:
 - **Turn Text+ titles into captions**: Ask AI to replace Text+ titles (all, on a track, or between *[TIME]* and *[TIME]*) with captions. They keep text, timing, look and fades, and can then be moved by AI. Drag a fade handle on each new caption by hand once, or its fades are lost when Resolve restarts.
   Example: `Replace all Text+ on V2 with captions`
 - **Copy a look**: Ask AI to add a caption styled like the one at *[TIME]*.
+- **Dark box behind text**: Ask AI to add captions with a dark box behind the text. By default it's black at 40 %, one box per line, with slightly rounded corners; say if you want it darker, one box for the whole caption, more padding or other corners.
+  Example: `Add "HELLO WORLD" at 00:05 to 00:10 with a dark box behind it`

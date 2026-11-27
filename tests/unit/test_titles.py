@@ -45,11 +45,26 @@ class ReadTitles(Base):
         self.assertEqual((hello["text"], hello["track"], hello["frames"], hello["enabled"]), ("Hello", "V2", 60, True))
         self.assertEqual(hello["fades"], {"FadeIn": 30, "FadeOut": 15})
         self.assertEqual(hello["style"], {"font": "Normograf", "style": "Regular", "size": 0.034, "x": 0.5, "y": 0.08,
-                                       "anchor": "bottom", "color": [1, 1, 1, 1],
-                                       "outline": {"thickness": 0.05, "color": [0, 0, 0, 1]}})
+                                       "anchor": "bottom", "line_spacing": None, "color": [1, 1, 1, 1],
+                                       "outline": {"thickness": 0.05, "color": [0, 0, 0, 1]}, "box": None})
         self.assertNotIn("inputs", hello)
         big = next(t for t in dispatch.run("read_titles", {})["titles"] if t["id"] == "big")
         self.assertEqual((big["enabled"], big["style"]["anchor"], big["style"]["outline"]), (False, "center", None))
+
+    def test_reports_the_box_and_line_spacing(self):
+        f = self.use(timeline())
+        f.title_inputs["hello"].update({"Enabled4": 1, "ElementShape4": 2, "Level4": 1, "Red4": 0, "Green4": 0,
+                                        "Blue4": 0, "Alpha4": 1, "Opacity4": 0.4, "ExtendHorizontal4": 0.01,
+                                        "ExtendVertical4": 0.05, "Round4": 0.15, "LineSpacing": 1.25})
+        style = dispatch.run("read_titles", {"item_ids": ["hello"]})["titles"][0]["style"]
+        self.assertEqual((style["box"], style["line_spacing"]),
+                         ({"per": "line", "opacity": 0.4, "color": [0, 0, 0], "padding": [0.01, 0.05], "round": 0.15},
+                          1.25))
+
+    def test_a_box_that_is_off_is_not_reported(self):
+        f = self.use(timeline())
+        f.title_inputs["hello"].update({"Enabled4": 0, "ElementShape4": 2})
+        self.assertIsNone(dispatch.run("read_titles", {"item_ids": ["hello"]})["titles"][0]["style"]["box"])
 
     def test_all_inputs_gives_the_raw_inputs(self):
         self.use(timeline())
@@ -122,8 +137,70 @@ class CaptionStyle(Base):
 
     def test_schema_offers_the_style_arguments(self):
         props = next(t for t in schema.TOOLS if t["name"] == "add_captions")["inputSchema"]["properties"]
-        for k in ("style", "x", "inputs", "match"):
+        for k in ("style", "x", "inputs", "match", "box", "line_spacing"):
             self.assertIn(k, props)
+
+
+BOX = {"Enabled4": 1, "ElementShape4": 2, "Level4": 1, "Red4": 0.0, "Green4": 0.0, "Blue4": 0.0, "Alpha4": 1,
+       "Opacity4": 0.4, "ExtendHorizontal4": 0.01, "ExtendVertical4": 0.05, "Round4": 0.15}
+
+
+class CaptionBox(Base):
+    """edit__add_captions `box` and `line_spacing`: a dark box behind the text, set when the caption is made."""
+
+    def inputs(self, **extra):
+        f = self.use(timeline())
+        r = dispatch.run("add_captions", {"segments": [{"start": 0, "end": 1, "text": "hi"}], "confirm": True,
+                                          "timeline": "T", "track_index": 4, **extra})
+        self.assertEqual(r["_operation"]["status"], "success", r)
+        return f.title_args["inputs"]
+
+    def test_true_sends_the_default_box_and_spacing_for_lines(self):
+        got = self.inputs(box=True)
+        self.assertEqual({k: got[k] for k in BOX}, BOX)
+        self.assertEqual(got["LineSpacing"], 1.25)
+
+    def test_an_object_changes_only_what_it_names(self):
+        got = self.inputs(box={"opacity": 0.6, "per": "caption", "padding": 0.02, "color": [0.1, 0, 0]})
+        self.assertEqual((got["Opacity4"], got["Level4"], got["ExtendHorizontal4"], got["ExtendVertical4"],
+                          got["Red4"], got["Round4"]), (0.6, 0, 0.02, 0.02, 0.1, 0.15))
+        self.assertNotIn("LineSpacing", got)  # one box around the caption can't overlap itself
+
+    def test_given_spacing_and_raw_inputs_win(self):
+        self.assertEqual(self.inputs(box=True, line_spacing=1.1)["LineSpacing"], 1.1)
+        self.assertEqual(self.inputs(line_spacing=1.4)["LineSpacing"], 1.4)
+        self.assertEqual(self.inputs(box=True, inputs={"Opacity4": 0.8})["Opacity4"], 0.8)
+
+    def test_spacing_from_match_is_kept(self):
+        f = self.use(timeline())
+        f.title_inputs["hello"]["LineSpacing"] = 1.1
+        r = dispatch.run("add_captions", {"segments": [{"start": 0, "end": 1, "text": "hi"}], "confirm": True,
+                                          "timeline": "T", "track_index": 4, "match": "hello", "box": True})
+        self.assertEqual(r["_operation"]["status"], "success", r)
+        self.assertEqual(f.title_args["inputs"]["LineSpacing"], 1.1)
+
+    def test_false_switches_off_a_box_copied_by_match(self):
+        f = self.use(timeline())
+        f.title_inputs["hello"].update(BOX)
+        dispatch.run("add_captions", {"segments": [{"start": 0, "end": 1, "text": "hi"}], "confirm": True,
+                                      "timeline": "T", "track_index": 4, "match": "hello", "box": False})
+        self.assertEqual(f.title_args["inputs"]["Enabled4"], 0)
+
+    def test_preview_shows_the_box_and_a_note(self):
+        self.use(timeline())
+        r = dispatch.run("add_captions", {"segments": [{"start": 0, "end": 1, "text": "hi"}], "box": True})
+        self.assertEqual(r["plan"]["style"]["Opacity4"], 0.4)
+        self.assertTrue(any("bright frame" in w for w in r["_operation"]["warnings"]))
+
+    def test_bad_values_are_refused(self):
+        self.use(timeline())
+        for box, msg in (({"opacity": 2}, "opacity"), ({"size": 1}, "doesn't know size"),
+                         ({"color": [0, 0]}, "color"), ({"per": "word"}, "line or caption"),
+                         ({"padding": -0.1}, "padding"), ("yes", "true, false or an object")):
+            with self.subTest(box=box), self.assertRaisesRegex(ValueError, msg):
+                dispatch.run("add_captions", {"segments": [{"start": 0, "end": 1, "text": "hi"}], "box": box})
+        with self.assertRaisesRegex(ValueError, "line_spacing"):
+            dispatch.run("add_captions", {"segments": [{"start": 0, "end": 1, "text": "hi"}], "line_spacing": 0})
 
 
 class TitlesToCaptions(Base):

@@ -1,5 +1,10 @@
 # Patch notes — DaVinci Resolve MCP
 
+## 2026-11-27
+
+- Added: `edit__add_captions` `box` puts a dark box behind the text (Text+ shading element 4): `true` gives black at 40 %, one box per line, padding `[0.01, 0.05]`, round 0.15; an object changes `per` (`line` or `caption`), `opacity`, `color`, `padding` or `round`; `false` switches off a box copied by `match`. `line_spacing` sets Text+ LineSpacing; a box per line sets 1.25 unless given, because at 1.0 the line boxes overlap in a darker stripe (live). The defaults are the look settled live on 2026-11-27.
+- Changed: `edit__read_titles` reports `line_spacing` and `box` in each style.
+
 ## 2026-11-25
 
 - Added: `edit__read_titles` reads the text, style (font, style, size, position, anchor, colour, outline), fades and enabled state of Text+ titles and captions; `all_inputs` gives every Text+ input. Needs the new bridge script (`read_titles`).

@@ -150,11 +150,56 @@ def _parts_note(cards: list[dict[str, Any]], fps: Fraction) -> list[str]:
 
 EXPLICIT = {"font": "Font", "style": "Style", "size": "Size"}  # add_captions arguments and the Text+ inputs they set
 
+# The dark box behind the text: Text+ shading element 4 (its default "Blue Border") as a Border Fill. Its other inputs
+# exist only once Enabled4 is 1; the bridge sets Enabled* first. The defaults are the look settled live on 2026-11-27
+# (21.2.0.6): black at 40 %, one box per line, a little padding, slightly rounded corners.
+BOX_DEFAULTS: dict[str, Any] = {"per": "line", "opacity": 0.4, "color": [0, 0, 0], "padding": [0.01, 0.05],
+                                "round": 0.15}
+BOX_LEVELS = {"line": 1, "caption": 0}  # Level4: a box per line, or one around the whole text block
+# One box per line at LineSpacing 1 overlaps the next line's box in a darker stripe; 1.25 leaves a gap (live).
+BOX_LINE_SPACING = 1.25
+
+
+def _unit(name: str, v: Any) -> float:
+    if isinstance(v, bool) or not isinstance(v, (int, float)) or not 0 <= v <= 1:
+        raise ValueError(f"box {name} must be a number from 0 to 1, not {v!r}")
+    return float(v)
+
+
+def _box_inputs(box: Any) -> dict[str, Any]:
+    """The Text+ inputs for `box`: true or {} for the defaults, an object to change some of them, false to switch
+    off a box copied by match."""
+    if box is False:
+        return {"Enabled4": 0}
+    if box is True:
+        box = {}
+    if not isinstance(box, dict):
+        raise ValueError("box must be true, false or an object (per, opacity, color, padding, round)")
+    unknown = sorted(set(box) - set(BOX_DEFAULTS))
+    if unknown:
+        raise ValueError(f"box doesn't know {', '.join(unknown)}; use per, opacity, color, padding, round")
+    b = {**BOX_DEFAULTS, **box}
+    if b["per"] not in BOX_LEVELS:
+        raise ValueError(f"box per must be line or caption, not {b['per']!r}")
+    color = b["color"]
+    if not isinstance(color, list) or len(color) != 3:
+        raise ValueError(f"box color must be [red, green, blue] from 0 to 1, not {color!r}")
+    red, green, blue = (_unit("color", c) for c in color)
+    pad = b["padding"]
+    pad = [pad, pad] if isinstance(pad, (int, float)) and not isinstance(pad, bool) else pad
+    if (not isinstance(pad, list) or len(pad) != 2
+            or any(isinstance(p, bool) or not isinstance(p, (int, float)) or p < 0 for p in pad)):
+        raise ValueError(f"box padding must be a number or [horizontal, vertical], 0 or more, not {b['padding']!r}")
+    return {"Enabled4": 1, "ElementShape4": 2, "Level4": BOX_LEVELS[b["per"]], "Red4": red, "Green4": green,
+            "Blue4": blue, "Alpha4": 1, "Opacity4": _unit("opacity", b["opacity"]),
+            "ExtendHorizontal4": float(pad[0]), "ExtendVertical4": float(pad[1]), "Round4": _unit("round", b["round"])}
+
 
 def _style(args: dict[str, Any]) -> dict[str, Any]:
     """What add_title_cards gets: font, style, size, x and y as given, and `inputs`: every input of the `match` title
-    but its text, the anchor (unless match brings one and none is given), then the caller's inputs. The bridge sets
-    inputs last, so an explicit argument also replaces the same input from match."""
+    but its text, the anchor (unless match brings one and none is given), the box, the line spacing (1.25 for a box
+    per line unless given or brought by match), then the caller's inputs. The bridge sets inputs last, so an explicit
+    argument also replaces the same input from match."""
     anchor = args.get("anchor")
     if anchor is not None and anchor not in ANCHORS:
         raise ValueError(f"anchor must be bottom or center, not {anchor!r}")
@@ -167,6 +212,10 @@ def _style(args: dict[str, Any]) -> dict[str, Any]:
         if key in own:
             raise ValueError(f"inputs can't set {key}: it decides when the Text+ runs, and a caption keeps its full "
                              "length (docs/ISSUES.md I-38)")
+    box = _box_inputs(args["box"]) if args.get("box") is not None else {}
+    spacing = args.get("line_spacing")
+    if spacing is not None and (isinstance(spacing, bool) or not isinstance(spacing, (int, float)) or spacing <= 0):
+        raise ValueError(f"line_spacing must be a number above 0, not {spacing!r}")
     inputs: dict[str, Any] = {}
     if args.get("match"):
         got = titles.read_inputs([args["match"]]).get(args["match"]) or {}
@@ -176,6 +225,11 @@ def _style(args: dict[str, Any]) -> dict[str, Any]:
     if anchor is not None or not args.get("match"):
         inputs.pop("VerticalTopCenterBottom", None)
         inputs.update(ANCHORS[anchor or "bottom"])
+    if spacing is None and box.get("Level4") == BOX_LEVELS["line"] and "LineSpacing" not in inputs:
+        spacing = BOX_LINE_SPACING
+    inputs.update(box)
+    if spacing is not None:
+        inputs["LineSpacing"] = spacing
     inputs.update(own)
     style: dict[str, Any] = {k: args[k] for k in ("font", "style", "size", "x", "y") if args.get(k) is not None}
     for k, name in EXPLICIT.items():
@@ -209,11 +263,13 @@ def add_captions(args: dict[str, Any]) -> dict[str, Any]:
     cards = caption_cards(segments, fps, base, state["timeline"], time.strftime("%m%d-%H%M%S"))
     preview = [{"at": session.to_tc(c["record_frame"]), "frames": c["frames"], "text": c["text"]} for c in cards]
     if args.get("dry_run") or not args.get("confirm") or not cards:
+        box_note = (["a dark box can't be seen over a dark picture: check it on a bright frame"]
+                    if (style.get("inputs") or {}).get("Enabled4") == 1 and args.get("box") else [])
         return outcome.preview({"captions": preview[: args.get("limit") or 20], "count": len(cards),
                                 "bin": args.get("folder") or CAPTION_BIN, "style": _shown(style)},
                                ["each caption is a small timeline in the bin; edit its text there",
                                 "a caption longer than Resolve's inserted title is placed in parts sharing its text"]
-                               + _parts_note(cards, fps))
+                               + box_note + _parts_note(cards, fps))
     if not state.get("caption_parts"):
         return outcome.blocked("the Resolve bridge is older than this server and can't place long captions; "
                                "restart the bridge (Workspace > Scripts > resolve_bridge)")

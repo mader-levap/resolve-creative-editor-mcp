@@ -61,8 +61,21 @@ def _rgba(inputs: dict[str, Any], n: int) -> list[Any] | None:
     return [_neat(inputs.get(k)) for k in keys] if any(k in inputs for k in keys) else None
 
 
+def _box(inputs: dict[str, Any]) -> dict[str, Any] | None:
+    """The dark box behind the text (shading element 4 as a Border Fill, add_captions `box`), or None."""
+    if inputs.get("Enabled4") != 1 or inputs.get("ElementShape4") != 2:
+        return None
+    level = inputs.get("Level4")
+    per = next((k for k, v in captions.BOX_LEVELS.items() if v == level), level)
+    rgba = _rgba(inputs, 4)
+    return {"per": per, "opacity": _neat(inputs.get("Opacity4")), "color": rgba[:3] if rgba else None,
+            "padding": [_neat(inputs.get("ExtendHorizontal4")), _neat(inputs.get("ExtendVertical4"))],
+            "round": _neat(inputs.get("Round4"))}
+
+
 def summary(inputs: dict[str, Any]) -> dict[str, Any]:
-    """The style a person reads: font, style, size, centre, anchor, text colour and outline (shading element 2)."""
+    """The style a person reads: font, style, size, centre, anchor, line spacing, text colour, outline (shading
+    element 2) and box (element 4)."""
     center = inputs.get("Center")
     x, y = (_neat(center[0]), _neat(center[1])) if isinstance(center, list) and len(center) >= 2 else (None, None)
     anchor = inputs.get("VerticalTopCenterBottom")
@@ -71,7 +84,8 @@ def summary(inputs: dict[str, Any]) -> dict[str, Any]:
         outline = {"thickness": _neat(inputs.get("Thickness2")), "color": _rgba(inputs, 2)}
     return {"font": inputs.get("Font"), "style": inputs.get("Style"), "size": _neat(inputs.get("Size")), "x": x, "y": y,
             "anchor": "bottom" if anchor == 1 else ("center" if not anchor else anchor),
-            "color": _rgba(inputs, 1), "outline": outline}
+            "line_spacing": _neat(inputs.get("LineSpacing")), "color": _rgba(inputs, 1), "outline": outline,
+            "box": _box(inputs)}
 
 
 def _candidates(args: dict[str, Any]) -> tuple[list[session.Item], list[str]]:

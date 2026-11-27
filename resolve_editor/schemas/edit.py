@@ -89,7 +89,8 @@ TOOLS = [
        "color": S, "noise_db": N, "min_duration": N, "max_markers": I, "dry_run": B}, ["path", "kind"]),
     T("add_captions", "Editable Text+ captions at exact times and lengths, from segments or by transcribing `path`. "
       "record is where the audio starts (default timeline start). Each caption is a small timeline in a bin, "
-      "placed like a clip; long text is wrapped onto lines one under another (line_split). dry_run only lists them.",
+      "placed like a clip; long text is wrapped onto lines one under another (line_split). box puts a dark box "
+      "behind the text. dry_run only lists them.",
       {"path": S, "segments": SEGMENTS, "record": WHEN, "track_index": I, "max_chars": I, "model": S, "language": S,
        "font": S, "style": {"type": "string", "description": "font style, e.g. Regular (Text+ defaults to Semibold)"},
        "size": N, "x": {"type": "number", "description": "0-1 from the left; 0.5 is the centre"},
@@ -100,6 +101,21 @@ TOOLS = [
                  "size, position, colour, outline...), not its text; the other style arguments override it"},
        "anchor": {"type": "string", "enum": ["bottom", "center"], "description": "bottom (default): extra lines grow "
                   "upward from y; center: the text block is centred on y"},
+       "box": {"type": ["boolean", "object"], "description": "dark box behind the text (Text+ shading element 4). "
+               "true: black at 40 %, one box per line, padding [0.01, 0.05], round 0.15; an object changes some of "
+               "these; false switches off a box copied by match",
+               "properties": {"per": {"type": "string", "enum": ["line", "caption"],
+                                      "description": "a box per line (default) or one around the whole caption"},
+                              "opacity": {"type": "number", "minimum": 0, "maximum": 1},
+                              "color": {"type": "array", "items": N, "minItems": 3, "maxItems": 3,
+                                        "description": "[red, green, blue], 0-1"},
+                              "padding": {"type": ["number", "array"], "items": N,
+                                          "description": "Text+ extend, a number or [horizontal, vertical]; 0.01 "
+                                          "is about half a pixel at 1080p"},
+                              "round": {"type": "number", "minimum": 0, "maximum": 1,
+                                        "description": "corner rounding"}}},
+       "line_spacing": {"type": "number", "description": "Text+ LineSpacing (1 is the font's own); a box per line "
+                        "sets 1.25 unless given, so the line boxes don't overlap"},
        "folder": {"type": "string", "description": "top-level bin for the caption timelines (default: Captions "
                   "(Resolve Creative Editor)); a scratch run passes its own _RCE_ bin"},
        "dry_run": B, "confirm": CONFIRM, "timeline": TIMELINE, **LINES}),
