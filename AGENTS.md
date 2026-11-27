@@ -132,7 +132,7 @@ All tools come from the `resolve-creative-editor` MCP server (71 on free Resolve
 
 ## Quirks
 
-Observed on free DaVinci Resolve 21.2.0.6 through this server's Lua bridge. Other versions may differ; re-check before relying on an item marked "verified".
+Observed on free DaVinci Resolve 21.2.0.6 through this server's Lua bridge. Other versions may differ; re-check before relying on an item marked "verified". `docs/RESOLVE_BUGS.md` lists each Resolve bug and quirk with a test to re-run on a new version.
 
 ### General
 

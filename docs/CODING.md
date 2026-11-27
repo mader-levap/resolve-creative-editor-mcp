@@ -11,6 +11,7 @@
   - `live/`: the by-hand live test against a real Resolve (`live_resolve.py`).
 - `docs/`:
   - `ISSUES.md`: known issues and live test results
+  - `RESOLVE_BUGS.md`: Resolve's own bugs and quirks, each with a test to re-run on a new Resolve version
   - `PATCH_NOTES.md`
   - `MANUAL.md`
   - `THIRD_PARTY_NOTICES.md`.

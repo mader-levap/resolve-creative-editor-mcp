@@ -1092,12 +1092,6 @@ The `SetFades` persistence bug in `README.md` ("Known Resolve bug") was only see
 
 So the workaround (drag a fade handle once per clip) applies to video and audio clips too.
 
-## Open observation
-
-A backup made with `edit__snapshot_timeline` before adding a track reported success, but was no longer in
-`legacy__list_timelines` later in the session. It may have been deleted by hand or not saved. Not counted as a
-bug until that is known.
-
 ## After fixing
 
 - From the repo root: `python -m unittest` (baseline: 141 tests, all pass) and `python tests/smoke_bridge.py`
