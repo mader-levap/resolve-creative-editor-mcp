@@ -54,6 +54,7 @@ How each item is known:
 | [I-36](#i-36) | ~~Low~~ **Fixed** | `source_start` is in timeline frames for a clip at another frame rate, unlabelled | Live, fake |
 | [I-37](#i-37) | ~~Low~~ **Fixed** | `place_clips` leaves a clip's video and audio unlinked when they are placed as separate parts | Live, code, fake |
 | [I-38](#i-38) | ~~Medium~~ **Fixed** | `titles_to_captions` and `add_captions match` copy the title's `GlobalOut`, so a stretched caption loses its text | Live, fake |
+| [I-39](#i-39) | ~~High~~ **Fixed** | `add_transition` reports success on a left or right transition that Resolve renders black on one side | Live, console, fake |
 
 Order, one fix at a time, worst first: I-22 waits for the next sighting, which will now name where it stopped. Re-rank after each fix.
 
@@ -880,6 +881,48 @@ The converted and the `add_captions` caption differed in three inputs only: the 
 
 **Repaired 2026-11-26** on "Dev Log 01" at the user's word: caption 0004's `GlobalOut` set to 899 with `legacy__style_text_plus` (backup "Dev Log 01 before caption 0004 GlobalOut 20261126-215121" first; it places the same caption timeline, so it shows the repair too). `read_titles` reads back 0 / 899 with no warning, and the exported frame at 01:00:13:24 shows the text.
 
+<a id="i-39"></a>
+### I-39 `add_transition` reports success on a left or right transition that Resolve renders black on one side (high, fixed)
+
+**Where:** `resolve_editor/tools/clips.py` (`add_transition`); the cause is Resolve's `TimelineItem:AddTransition`.
+
+**Problem:** on "Dev Log 01" (2026-11-27) right-aligned 60-frame Cross Dissolves at 00:58 and 01:16:30 were `success`/`passed`, but every frame inside them showed only the incoming clip, the outgoing side black. Both were added at the outgoing clip's end, and in both the incoming clip started at source frame 0. The read-back checks the span, track, type and alignment, which were all right; it can't see black. A dissolve the user dragged by hand at the same cut rendered correctly.
+
+**Not ours:** the user ran a raw `AddTransition({type="Cross Dissolve", category="simple", position="end", alignment="right", duration=60})` in Resolve's own Lua console (Workspace > Console), with no server involved: the same black side. A lossless remux of the MKV source to MP4 changed nothing.
+
+**What Resolve does** (live 2026-11-27, scratch timeline, 60-frame Cross Dissolve unless noted, a mid-transition frame exported for each case it made): it limits the transition by the unused source frames of the clip it is **not** called on.
+
+| Called at | Alignment | Unused frames | Result |
+|---|---|---|---|
+| outgoing end | any | 60+ on both sides | correct |
+| outgoing end | right | before incoming 30 / 1 | shortened to 30 / 1, correct |
+| outgoing end | left | before incoming 30 | shortened to 30, correct |
+| outgoing end | right | after outgoing 30 | shortened to 30, correct |
+| outgoing end | left | after outgoing 30 | full 60, correct |
+| outgoing end | right | after outgoing 0 | refused |
+| outgoing end | left | after outgoing 0, before incoming 60 | full 60, correct |
+| outgoing end | right / left | 0 on both sides | full 60, **outgoing / incoming side black** |
+| outgoing end | right | before incoming 0: Additive Dissolve, 30 frames, a 30 fps incoming clip | all **outgoing side black** |
+| outgoing end | center | before incoming 0 / after outgoing 0 / 10 on each side | refused / refused / shortened to 20, correct |
+| incoming start | right | before incoming 0 | full 60, **correct** |
+| incoming start | left | before incoming 0 | refused |
+| incoming start | right | after outgoing 30 | shortened to 30, correct |
+| incoming start | right | before incoming 30 | full 60, correct |
+| incoming start | right / left | after outgoing 0 | full 60, **outgoing / incoming side black** |
+
+So the side a left or right transition actually needs (right: after the outgoing clip; left: before the incoming clip) is only checked when the call is made on the other clip. T3's "none before the incoming clip, right: made 300-360" was this bug; its frames weren't checked then.
+
+**Fix:** `add_transition` picks the clip to call on from the alignment. Right is added at the incoming clip's start and left at the outgoing clip's end, whichever clip and position were given, with a note naming the clip. If there's no clip on that side of the cut, the given clip is kept. Linked audio follows that clip. Before writing, in the preview too, it refuses left or right when the side the alignment needs has no unused source frames, saying Resolve would render one side black and what to do instead. It says when fewer frames than the duration will make Resolve shorten it. When the spare frames can't be read (speed change, no media), it warns to check a rendered frame. `NEEDS` now has left needing frames before the incoming clip. Centre is unchanged: Resolve refuses it with none on either side. Audio crossfades with no spare frames weren't tested (the agent can't hear).
+
+**Verified 2026-11-27 (unit)** in `tests/unit/test_transition.py` (`CallOn`): every given clip, position and alignment calls the expected clip and position with the right span, and notes only when it switched; no spare frames on the needed side is blocked in the preview and on confirm with no backup or write; none on the other side passes; fewer than the duration says it will be shortened; with no clip on the other side the given clip is kept; linked audio follows the switched clip. The other transition tests' fake media were lengthened to 2275 frames, since 300 gave a negative spare count.
+
+**Verified 2026-11-27 (live)** through `dispatch.run` with the new code on scratch timeline "_RCE_SCRATCH I-39" (02_rolling_gen into 03_rolling_graphs, 60-frame Cross Dissolve):
+- right, given on the outgoing clip, incoming at source 0 with 60 spare frames after the outgoing clip: added at the incoming clip's start with the note, `success`/`passed`, and the exported mid-frame blends both clips (before the fix this case was black);
+- left, given at the incoming clip's start: added at the outgoing clip's end with the note, and it blends;
+- left with the incoming clip at source 0, and right with the outgoing clip at the end of its 490-frame source: both blocked before writing, with no backup.
+
+The scratch timeline and its backups were deleted.
+
 ## Code review fixes
 
 Found 2026-11-24 in a review of the Python code against common practice, not by testing in Resolve. All are known by **Code**, then reproduced by a unit test that failed before the fix. Numbered C-xx, apart from the I-xx list.
@@ -1015,7 +1058,7 @@ Video-only clips cut at 300 (60 fps, 2275-frame source), raw `AddTransition` at 
 |---|---|---|
 | plenty both sides | center | made, 270-330 |
 | none after the outgoing clip | center / left / right | refused / made 240-300 / refused |
-| none before the incoming clip | center / left / right | refused / made 240-300 / made 300-360 |
+| none before the incoming clip | center / left / right | refused / made 240-300 / made 300-360 (outgoing side black, I-39) |
 | none on either side | center | refused |
 | 10 on each side | center 60, 20, 21 | all made 290-310 (shortened to 20) |
 | 10 on each side | left 20 / right 20 | made 290-300 / 300-310 (shortened to 10) |

@@ -45,10 +45,13 @@ def set_fades(args: dict[str, Any]) -> dict[str, Any]:
 
 AUDIO_CROSSFADE = "Cross Fade +3 dB"  # verified live in test T5a
 REFUSED = "Resolve refused the transition"  # resolve_bridge.lua, when AddTransition gives nil
-# Live T3 (docs/ISSUES.md I-09): Resolve refuses when a side the alignment needs has no unused source frames at all;
-# with a few it shortens the transition instead. Left alignment was made even with none on either side.
+# The unused source frames each alignment needs (live 2026-11-27, docs/ISSUES.md I-39). Resolve 21.2 caps a scripted
+# transition at the unused frames of the clip it is NOT called on, shortening it to a few, refusing or, for left and
+# right with none, making it full length with one side black. So left is called on the outgoing clip's end and right
+# on the incoming clip's start: the cap is then the side the alignment needs anyway.
 NEEDS = {"center": ("after the outgoing clip", "before the incoming clip"), "right": ("after the outgoing clip",),
-         "left": ()}
+         "left": ("before the incoming clip",)}
+CALL_ON = {"left": "end", "right": "start"}  # the position each alignment is added at (I-39)
 
 
 def expected_span(cut: int, alignment: str, frames: int) -> tuple[int, int]:
@@ -81,10 +84,17 @@ def add_transition(args: dict[str, Any]) -> dict[str, Any]:
     if target is None or target.get("type") == "transition":
         return outcome.blocked(f"no clip with id {args['item_id']} on the current timeline")
     cut = target["end"] if options["position"] == "end" else target["start"]
-    audio, notes = _linked_audio(target, options["position"], cut, args.get("include_linked", True) is not False)
+    target, moved = _call_target(target, cut, options)
+    spare = _spare_frames(target, cut)
+    blocked, notes = _spare_check(spare, options)
+    if blocked:
+        return outcome.op("blocked", reason=blocked, spare_source_frames=spare)
+    notes += moved
+    audio, audio_notes = _linked_audio(target, options["position"], cut, args.get("include_linked", True) is not False)
+    notes += audio_notes
     audio_type = args.get("audio_type") or AUDIO_CROSSFADE
     if not args.get("confirm"):  # nothing is written before the user approves (docs/ISSUES.md I-06)
-        plan = _transition_plan(target, cut, options)
+        plan = _transition_plan(target, cut, options, spare)
         if audio:
             span = {"span": plan["span"]} if "span" in plan else {}
             plan["linked"] = [{"track": timeline.item_label(x), "type": audio_type, **span} for x in audio]
@@ -93,12 +103,11 @@ def add_transition(args: dict[str, Any]) -> dict[str, Any]:
                 if args.get("backup", True) else None)
     before = _clips()
     try:
-        r = session.call("add_transition", item_id=args["item_id"], options=options)
+        r = session.call("add_transition", item_id=target["id"], options=options)
     except RuntimeError as exc:
         if REFUSED not in str(exc):
             raise
         session.invalidate()
-        spare = _spare_frames(target, cut)
         return outcome.op("failed", False, reason=f"{exc}. {_likely_cause(spare, options['alignment'])}",
                           snapshot=snapshot, spare_source_frames=spare)
     session.invalidate()
@@ -128,6 +137,47 @@ def add_transition(args: dict[str, Any]) -> dict[str, Any]:
     return outcome.op("partial" if differs else "success", ok, {"transition": r.get("name"), "frames": frames},
                       warnings, transition_id=r.get("id"), cut=_tc(cut), start=_tc(start), end=_tc(end),
                       snapshot=snapshot, **({"linked": rows} if rows else {}))
+
+
+def _call_target(target: session.Item, cut: int, options: dict[str, Any]) -> tuple[session.Item, list[str]]:
+    """The clip to call AddTransition on, and a note when it isn't the one given: left on the outgoing clip's end,
+    right on the incoming clip's start (docs/ISSUES.md I-39). Sets options["position"] to match. With no clip on
+    that side of the cut the given clip is kept."""
+    position = CALL_ON.get(options["alignment"])
+    if position is None or position == options["position"]:
+        return target, []
+    other = next((x for x in session.items() if x.get("type") != "transition"
+                  and (x["end"] if position == "end" else x["start"]) == cut
+                  and (x["track_type"], x["track"]) == (target["track_type"], target["track"])), None)
+    if other is None:
+        return target, []
+    options["position"] = position
+    clip = "outgoing" if position == "end" else "incoming"
+    return other, [f"{options['alignment']} alignment is added at the {position} of the {clip} clip "
+                   f"{other.get('name')} ({other['id']}): Resolve renders one side black when it is added from the "
+                   "other clip (docs/ISSUES.md I-39)"]
+
+
+def _spare_check(spare: dict[str, Any], options: dict[str, Any]) -> tuple[str | None, list[str]]:
+    """A reason to refuse before writing, or notes: left or right with no unused source frames on the side it needs
+    comes out black on one side, and fewer than the duration shortens it (docs/ISSUES.md I-39)."""
+    alignment, frames = options["alignment"], options.get("duration")
+    notes = []
+    for side in NEEDS.get(alignment, ()):
+        n = spare.get(side)
+        if not isinstance(n, int):
+            if not str(n).startswith("no clip"):
+                notes.append(f"unused source frames {side} are {n}: if there are none, the transition may come out "
+                             "black on one side or be refused; check a rendered frame")
+            continue
+        if n <= 0 and alignment in CALL_ON:
+            return (f"{alignment} alignment needs unused source frames {side}, and there are none: Resolve would "
+                    f"make the transition full length but render one side black (docs/ISSUES.md I-39). Give that "
+                    "clip spare frames (trim it by the transition length and close the gap), use another "
+                    "alignment, or drag the transition by hand in Resolve"), []
+        if frames and 0 < n < frames:
+            notes.append(f"only {n} unused source frames {side}: Resolve will shorten the transition to {n} frames")
+    return None, notes
 
 
 def _likely_cause(spare: dict[str, Any], alignment: str) -> str:
@@ -202,14 +252,15 @@ def _unlinked_audio(target: session.Item, detail: dict[str, Any], position: str,
     return planned, notes
 
 
-def _transition_plan(target: session.Item, cut: int, options: dict[str, Any]) -> dict[str, Any]:
+def _transition_plan(target: session.Item, cut: int, options: dict[str, Any],
+                     spare: dict[str, Any]) -> dict[str, Any]:
     plan: dict[str, Any] = {"clip": target["name"], "track": timeline.item_label(target),
                             "position": options["position"], "cut": session.to_tc(cut), "type": options["type"],
                             "alignment": options["alignment"],
                             "frames": options.get("duration") or "Resolve's default (Preferences)"}
     if options.get("duration"):
         plan["span"] = [session.to_tc(f) for f in expected_span(cut, options["alignment"], options["duration"])]
-    plan["spare_source_frames"] = _spare_frames(target, cut)
+    plan["spare_source_frames"] = spare
     return plan
 
 

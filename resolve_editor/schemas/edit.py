@@ -59,8 +59,11 @@ TOOLS = [
       "handle by hand at least once; otherwise they are lost on restart.",
       {"item_ids": IDS, "fade_in": I, "fade_out": I}, ["item_ids"]),
     T("add_transition", "Add a native transition at the start or end of a clip (Resolve 21.1+). Needs spare source "
-      "frames on both sides of the cut. Previews first (cut, expected span, spare source frames in timeline frames); confirm makes a "
-      "backup timeline, adds it and checks what Resolve made. On a video clip, linked audio at the same cut gets a "
+      "frames on the side the alignment covers (center: both; right: after the outgoing clip; left: before the "
+      "incoming clip); with none on that side it refuses, and right is always added at the incoming clip's start, "
+      "left at the outgoing clip's end (a Resolve bug renders one side black otherwise). Previews first (cut, "
+      "expected span, spare source frames in timeline frames); confirm makes a backup timeline, adds it and "
+      "checks what Resolve made. On a video clip, linked audio at the same cut gets a "
       "matching crossfade (audio_type, default 'Cross Fade +3 dB') unless include_linked is false. With no linked audio, "
       "unlinked audio of the same source and range at the cut counts as linked; other audio there gets a warning.",
       {"item_id": S, "type": S, "position": {"type": "string", "enum": ["start", "end"]},

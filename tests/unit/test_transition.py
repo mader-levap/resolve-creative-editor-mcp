@@ -9,8 +9,10 @@ CUT = 1300
 def timeline():
     """Two clips cut at 1300, video and audio, as in the live T2 setup. The fake doesn't link them, so a video
     transition also crossfades the audio of the same source and range (docs/ISSUES.md I-31)."""
-    return FakeResolve([item("a", 1000, 300, src=180), item("b", CUT, 300, src=1500),
-                        item("a2", 1000, 300, src=180, kind="audio"), item("b2", CUT, 300, src=1500, kind="audio")])
+    f = FakeResolve([item("a", 1000, 300, src=180), item("b", CUT, 300, src=1500),
+                     item("a2", 1000, 300, src=180, kind="audio"), item("b2", CUT, 300, src=1500, kind="audio")])
+    f.media_frames = 2275  # 1795 unused frames after a
+    return f
 
 
 def span(alignment, d):
@@ -139,9 +141,14 @@ LINKS = {"a": {"linked": ["a2"]}, "a2": {"linked": ["a"]}, "b": {"linked": ["b2"
 
 
 def linked(a2_end=CUT):
-    return FakeResolve([item("a", 1000, 300, src=180), item("b", CUT, 300, src=1500),
+    return _long(FakeResolve([item("a", 1000, 300, src=180), item("b", CUT, 300, src=1500),
                         item("a2", 1000, a2_end - 1000, src=180, kind="audio"),
-                        item("b2", a2_end, 1600 - a2_end, src=1500, kind="audio")], details=LINKS)
+                        item("b2", a2_end, 1600 - a2_end, src=1500, kind="audio")], details=LINKS))
+
+
+def _long(f):
+    f.media_frames = 2275
+    return f
 
 
 class LinkedAudio(Base):
@@ -230,7 +237,7 @@ def unlinked(a2=None, b2=None, media=None):
                      dict(item("b2", CUT, 300, src=1500, kind="audio"), **(b2 or {}))])
     for i, m in (media or {}).items():
         f.settings[i]["media_id"] = m
-    return f
+    return _long(f)
 
 
 class UnlinkedAudio(Base):
@@ -342,3 +349,86 @@ class Refusal(Base):
         self.use(FakeResolve([item("a", 1000, 300, src=180)], fail_on={"add_transition": 1}))
         with self.assertRaises(RuntimeError):
             dispatch.run("add_transition", {"item_id": "a", "duration": 30, "confirm": True, "timeline": "T"})
+
+
+def clips(after=1795, before=1500):
+    """a cut into b at 1300 with `after` unused frames after a and `before` before b (media of 480 + after frames)."""
+    f = FakeResolve([item("a", 1000, 300, src=180), item("b", CUT, 300, src=before)])
+    f.media_frames = 480 + after
+    return f
+
+
+class CallOn(Base):
+    """Resolve 21.2 caps a scripted transition at the unused frames of the clip it isn't called on, and with none
+    makes a left or right one full length with one side black (live 2026-11-27, docs/ISSUES.md I-39). So left is
+    added at the outgoing clip's end, right at the incoming clip's start, and none on the side needed is refused."""
+
+    def run_on(self, f, **args):
+        self.use(f)
+        sent: list[dict] = []
+        real = f.transition
+
+        def record(item_id, o):
+            sent.append(dict(o, item_id=item_id))
+            return real(item_id, o)
+        f.transition = record
+        return dispatch.run("add_transition", {"duration": 60, "confirm": True, "timeline": "T", **args}), sent
+
+    def test_each_alignment_is_added_from_the_clip_whose_side_it_needs(self):
+        cases = {("a", "end", "right"): ("b", "start"), ("b", "start", "right"): ("b", "start"),
+                 ("b", "start", "left"): ("a", "end"), ("a", "end", "left"): ("a", "end"),
+                 ("a", "end", "center"): ("a", "end"), ("b", "start", "center"): ("b", "start")}
+        for (given, position, alignment), want in cases.items():
+            with self.subTest(given=given, position=position, alignment=alignment):
+                r, sent = self.run_on(clips(), item_id=given, position=position, alignment=alignment)
+                self.assertEqual(r["_operation"]["status"], "success", r)
+                self.assertEqual([(s["item_id"], s["position"]) for s in sent], [want])
+                start, end = span(alignment, 60)
+                self.assertEqual((r["start"], r["end"]), (session.to_tc(start), session.to_tc(end)))
+                moved = [w for w in r["_operation"]["warnings"] if "I-39" in w]
+                self.assertEqual(bool(moved), want[0] != given, r)
+
+    def test_the_preview_names_the_clip_it_will_be_added_on(self):
+        f = self.use(clips(before=0))
+        r = dispatch.run("add_transition", {"item_id": "a", "alignment": "right", "duration": 60})
+        self.assertEqual(r["_operation"]["status"], "preview", r)
+        self.assertEqual((r["plan"]["position"], r["plan"]["span"]),
+                         ("start", [session.to_tc(CUT), session.to_tc(CUT + 60)]))
+        self.assertIn("incoming clip", " ".join(r["_operation"]["warnings"]))
+        self.assertEqual([c for c in f.calls if c not in READ_OPS], [])
+
+    def test_no_spare_frames_on_the_needed_side_is_refused_before_writing(self):
+        for alignment, kw, side in (("right", {"after": 0}, "after the outgoing clip"),
+                                    ("left", {"before": 0}, "before the incoming clip")):
+            for confirm in (True, False):
+                with self.subTest(alignment=alignment, confirm=confirm):
+                    f = clips(**kw)
+                    r, sent = self.run_on(f, item_id="a", alignment=alignment, confirm=confirm)
+                    self.assertEqual(r["_operation"]["status"], "blocked", r)
+                    self.assertIn(side, r["reason"])
+                    self.assertIn("black", r["reason"])
+                    self.assertEqual(sent, [])
+                    self.assertNotIn("duplicate_timeline", f.calls)
+
+    def test_no_spare_frames_on_the_other_side_is_fine(self):
+        for alignment, kw in (("right", {"before": 0}), ("left", {"after": 0})):
+            with self.subTest(alignment=alignment):
+                r, _ = self.run_on(clips(**kw), item_id="a", alignment=alignment)
+                self.assertEqual(r["_operation"]["status"], "success", r)
+
+    def test_fewer_spare_frames_than_the_duration_say_it_will_be_shorter(self):
+        self.use(clips(after=30))
+        r = dispatch.run("add_transition", {"item_id": "a", "alignment": "right", "duration": 60})
+        self.assertIn("shorten the transition to 30 frames", " ".join(r["_operation"]["warnings"]))
+
+    def test_with_no_clip_on_the_other_side_the_given_clip_is_kept(self):
+        f = FakeResolve([item("a", 1000, 300, src=180)])
+        f.media_frames = 2275
+        r, sent = self.run_on(f, item_id="a", alignment="right")
+        self.assertEqual([(s["item_id"], s["position"]) for s in sent], [("a", "end")])
+        self.assertEqual(r["_operation"]["status"], "success", r)
+
+    def test_linked_audio_follows_the_clip_it_is_added_on(self):
+        r, sent = self.run_on(linked(), item_id="a", alignment="right", duration=30)
+        self.assertEqual(r["_operation"]["status"], "success", r)
+        self.assertEqual([(s["item_id"], s["position"]) for s in sent], [("b", "start"), ("b2", "start")])
