@@ -4,6 +4,19 @@ How to instruct AI properly to make video editing more efficient.
 
 ## Timelines
 
+## Clips
+
+- Positioning terminology:
+  - Where the clip sits on the timeline: **record in** (or timeline in / clip start)
+  - Where the clip ends on the timeline: **record out**
+  - Which moment of the video the clip begins with: **source in** (or in point)
+  - Which moment of the video the clip ends on: **source out** 
+- Editing terminology:
+  - **Trim the head** (or trim the start): changes the source in and the record in together. The clip gets shorter from the front.
+  - **Slip**: changes the source in and source out together, while the clip keeps its record in, record out and length. It's like sliding the video "under" the clip. It needs spare video past the end of the clip.
+  - **Move**: shifts the whole clip on the timeline without changing which part of the video it shows.
+  - **Ripple trim**: a trim that also pulls everything after it earlier, so no gap is left.
+
 
 ## Captions
 

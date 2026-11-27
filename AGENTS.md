@@ -182,6 +182,10 @@ Observed on free DaVinci Resolve 21.2.0.6 through this server's Lua bridge. Othe
   meanwhile, Resolve jumps back and the result has a warning. `legacy__` calls don't do this.
 - Take `edit__snapshot_timeline` before multi-step changes; it gives the user a one-step way back.
 
+### Media files
+
+- MKV recordings (OBS) can flash "Media Offline" on random frames during viewer playback, even though the file decodes cleanly in ffprobe and `legacy__export_frame` renders those same frames correctly; moving frame by frame can clear one spot while others keep failing. Seen on one of several MKVs from the same recorder; the cause in the file was not found (Matroska stores 1 ms timestamps, and Resolve counted 177 frames where ffprobe decoded 178). Fix (verified): remux losslessly to MP4 with exact frame timestamps, as a new file next to the original: `ffmpeg -n -i in.mkv -map 0 -c copy -copyinkf -video_track_timescale <fps> -movflags +faststart out.mp4`. `-copyinkf` is required: OBS MKVs mark no audio packet as a keyframe, so without it ffmpeg silently writes 0 KiB of audio and Resolve lists the clip as "Video" only. Check that the output has video and audio streams and that the packets match the original (ffprobe `-show_entries packet=size` per stream). Then the user right-clicks the clip in the Media Pool > Replace Selected Clip… and picks the MP4. That keeps the timeline clips, transitions and linked audio, which a rebuild by script wouldn't.
+
 ### Transitions
 
 - If user wants transitions between full videos, adjust actual start/end of clips yourself so transition works correctly.
